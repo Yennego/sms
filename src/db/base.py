@@ -21,16 +21,25 @@ class Base:
 
 
 class UUIDMixin:
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    @declared_attr
+    def id(cls):
+        return Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
 
 
 class TimestampMixin:
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    @declared_attr
+    def created_at(cls):
+        return Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    @declared_attr
+    def updated_at(cls):
+        return Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
 class TenantMixin:
-    tenant_id = Column(String, nullable=False)
+    @declared_attr
+    def tenant_id(cls):
+        return Column(String, nullable=False)
 
     @classmethod
     def get_tenant_id(cls, db: Session) -> str:

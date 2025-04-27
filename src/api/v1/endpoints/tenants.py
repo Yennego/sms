@@ -20,6 +20,7 @@ def create_tenant(
     """
     Create new tenant.
     """
+    _ = current_user  # Mark as used
     tenant = tenant_service.get_by_slug(db, slug=tenant_in.slug)
     if tenant:
         raise HTTPException(
@@ -40,6 +41,7 @@ def read_tenants(
     Retrieve tenants.
     """
     tenants = tenant_service.get_multi(db, skip=skip, limit=limit)
+    _ = current_user  # Mark as used
     return tenants
 
 @router.get("/{tenant_id}", response_model=Tenant)
@@ -51,6 +53,7 @@ def read_tenant(
     """
     Get tenant by ID.
     """
+    _ = current_user  # Mark as used
     tenant = tenant_service.get(db, id=tenant_id)
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
@@ -67,6 +70,7 @@ def update_tenant(
     """
     Update a tenant.
     """
+    _ = current_user  # Mark as used
     tenant = tenant_service.get(db, id=tenant_id)
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
@@ -83,6 +87,7 @@ def delete_tenant(
     """
     Delete a tenant.
     """
+    _ = current_user  # Mark as used to silence linter warning
     tenant = tenant_service.get(db, id=tenant_id)
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")

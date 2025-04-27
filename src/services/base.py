@@ -1,40 +1,73 @@
-from typing import Generic, TypeVar, Type, Optional, Dict, List
-from fastapi import Depends
+from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, Union
+from uuid import UUID
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from src.db.base import TenantModel
-from src.db.crud.base import TenantCRUDBase
-from src.db.session import get_db
-from src.core.middleware.tenant import get_tenant_id
+from src.db.crud.base import CRUDBase
+from src.db.models.base import TenantModel
 
 ModelType = TypeVar("ModelType", bound=TenantModel)
-CreateSchemaType = TypeVar("CreateSchemaType")
-UpdateSchemaType = TypeVar("UpdateSchemaType")
+CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)
+UpdateSchemaType = TypeVar("UpdateSchemaType", bound=BaseModel)
+
 
 class TenantBaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
-    def __init__(
+    """Base service class for tenant-scoped operations."""
+
+    def __init__(self, crud_base: CRUDBase):
+        """Initialize with a CRUD base instance."""
+        self.crud = crud_base
+
+    def get(
         self,
-        crud: TenantCRUDBase,
-        model: Type[ModelType],
-        db: Session = Depends(get_db),
-        tenant_id: str = Depends(get_tenant_id),
-    ):
-        self.crud = crud
-        self.model = model
-        self.db = db
-        self.tenant_id = tenant_id
+        db: Session,
+        tenant_id: UUID,
+        id: UUID
+    ) -> Optional[ModelType]:
+        """Get a record by ID with tenant isolation."""
+        return self.crud.get(db=db, tenant_id=tenant_id, id=id)
 
-    def get(self, id: str) -> Optional[ModelType]:
-        return self.crud.get_by_id(self.db, self.tenant_id, id)
+    def get_multi(
+        self,
+        db: Session,
+        tenant_id: UUID,
+        *,
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[ModelType]:
+        """Get multiple records with tenant isolation."""
+        return self.crud.get_multi(
+            db=db,
+            tenant_id=tenant_id,
+            skip=skip,
+            limit=limit
+        )
 
-    def list(self, skip: int = 0, limit: int = 100, filters: Dict = {}) -> List[ModelType]:
-        return self.crud.list(self.db, self.tenant_id, skip=skip, limit=limit, filters=filters)
+    def create(
+        self,
+        obj_in: CreateSchemaType,
+        db: Session,
+        tenant_id: UUID
+    ) -> ModelType:
+        """Create a new record with tenant isolation."""
+        return self.crud.create(db=db, tenant_id=tenant_id, obj_in=obj_in)
 
-    def create(self, obj_in: CreateSchemaType) -> ModelType:
-        return self.crud.create(self.db, self.tenant_id, obj_in=obj_in)
+    def update(
+        self,
+        id: UUID,
+        obj_in: Union[UpdateSchemaType, Dict[str, Any]],
+        db: Session,
+        tenant_id: UUID
+    ) -> ModelType:
+        """Update a record with tenant isolation."""
+        db_obj = self.crud.get(db=db, tenant_id=tenant_id, id=id)
+        return self.crud.update(db=db, tenant_id=tenant_id, db_obj=db_obj, obj_in=obj_in)
 
-    def update(self, id: str, obj_in: UpdateSchemaType) -> Optional[ModelType]:
-        return self.crud.update(self.db, self.tenant_id, id, obj_in=obj_in)
-
-    def delete(self, id: str) -> None:
-        self.crud.delete(self.db, self.tenant_id, id) 
+    def remove(
+        self,
+        id: UUID,
+        db: Session,
+        tenant_id: UUID
+    ) -> ModelType:
+        """Remove a record with tenant isolation."""
+        return self.crud.remove(db=db, tenant_id=tenant_id, id=id) 
