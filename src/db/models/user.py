@@ -5,7 +5,7 @@ from src.db.base import Base, UUIDMixin, TimestampMixin, TenantMixin
 
 
 class User(Base, UUIDMixin, TimestampMixin, TenantMixin):
-    __tablename__ = "user"
+    __tablename__ = "users"
 
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)

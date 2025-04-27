@@ -1,12 +1,13 @@
 from typing import Optional, List
 from uuid import UUID
-from pydantic import BaseModel, Field, validator, EmailStr
+from pydantic import BaseModel, Field, validator, EmailStr, ConfigDict
 
 from src.schemas.base import BaseSchema, TimestampSchema
 
 
 # Tenant Schemas
-class TenantBase(BaseModel):
+class TenantBase(BaseSchema):
+    """Base schema for Tenant model."""
     name: str
     slug: str
     domain: Optional[str] = None
@@ -19,10 +20,11 @@ class TenantCreate(TenantBase):
     pass
 
 
-class TenantUpdate(TenantBase):
+class TenantUpdate(BaseSchema):
     """Schema for updating a tenant."""
     name: Optional[str] = None
     slug: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 class TenantInDBBase(TenantBase):
