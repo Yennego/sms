@@ -18,7 +18,7 @@ class Student(TenantModel):
     address = Column(String, nullable=True)
     
     # Add unique constraint per tenant for student_id
-    __table_args__ = (
+    _additional_table_args = (
         UniqueConstraint('tenant_id', 'student_id', name='uq_student_tenant_student_id'),
     )
     

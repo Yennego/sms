@@ -3,22 +3,27 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 from src.schemas.base import BaseSchema
+from src.schemas.teacher import Teacher
 
-class ClassBase(BaseSchema):
-    """Base schema for Class model."""
+class ClassRoomBase(BaseSchema):
+    """Base schema for ClassRoom model."""
+    model_config = ConfigDict(from_attributes=True)
+    
     name: str
     grade_level: str
     subject: str
-    room_number: str
-    max_capacity: int
+    room_number: Optional[str] = None
+    max_capacity: Optional[int] = None
     is_active: bool = True
 
-class ClassCreate(ClassBase):
-    """Schema for creating a new class."""
+class ClassRoomCreate(ClassRoomBase):
+    """Schema for creating a new class room."""
     pass
 
-class ClassUpdate(BaseSchema):
-    """Schema for updating a class."""
+class ClassRoomUpdate(BaseSchema):
+    """Schema for updating a class room."""
+    model_config = ConfigDict(from_attributes=True)
+    
     name: Optional[str] = None
     grade_level: Optional[str] = None
     subject: Optional[str] = None
@@ -26,18 +31,29 @@ class ClassUpdate(BaseSchema):
     max_capacity: Optional[int] = None
     is_active: Optional[bool] = None
 
-class ClassInDBBase(ClassBase):
-    """Base schema for Class in DB."""
+class ClassRoomInDBBase(ClassRoomBase):
+    """Base schema for ClassRoom in DB."""
+    model_config = ConfigDict(from_attributes=True)
+    
     id: UUID
 
-class Class(ClassInDBBase):
-    """Schema for Class response."""
+class ClassRoom(ClassRoomInDBBase):
+    """Schema for ClassRoom response."""
     pass
 
-class ClassWithStudents(Class):
-    """Schema for Class with students."""
+class ClassRoomWithStudents(ClassRoom):
+    """Schema for ClassRoom with students."""
     students: List[str] = []
 
-class ClassWithTeacher(Class):
-    """Schema for Class with teacher."""
-    teacher: str
+class ClassRoomWithTeacher(ClassRoom):
+    """Schema for ClassRoom with teacher."""
+    teacher: Optional[Teacher] = None
+
+class ClassRoomList(BaseSchema):
+    """Schema for list of class rooms."""
+    model_config = ConfigDict(from_attributes=True)
+    
+    items: List[ClassRoom]
+    total: int
+    skip: int = 0
+    limit: int = 100

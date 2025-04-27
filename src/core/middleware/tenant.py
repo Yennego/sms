@@ -31,7 +31,7 @@ async def get_tenant_from_request(
     request: Request,
     x_tenant_id: Optional[str] = Depends(X_TENANT_ID),
     db: Session = Depends(get_db)
-) -> dict:
+) -> Tenant:
     """
     Get tenant from request using multiple strategies:
     1. X-Tenant-ID header
@@ -60,13 +60,7 @@ async def get_tenant_from_request(
     # Set tenant ID in context
     set_tenant_id(str(tenant.id))
     
-    return {
-        "id": tenant.id,
-        "name": tenant.name,
-        "slug": tenant.slug,
-        "domain": tenant.domain,
-        "settings": tenant.settings or {}
-    }
+    return tenant
 
 
 async def tenant_middleware(request: Request, call_next):
@@ -113,7 +107,9 @@ async def tenant_middleware(request: Request, call_next):
 
 
 def get_tenant_id_from_request(
-    tenant: Tenant = Depends(get_tenant_from_request),
+    tenant: Union[Tenant, dict] = Depends(get_tenant_from_request),
 ) -> Union[str, UUID]:
     """Get tenant ID from request as a dependency."""
+    if isinstance(tenant, dict):
+        return tenant["id"]
     return tenant.id

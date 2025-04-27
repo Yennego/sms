@@ -87,3 +87,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         db.delete(obj)
         db.commit()
         return obj
+
+    def count(self, db: Session, tenant_id: UUID) -> int:
+        """Count records with tenant isolation."""
+        return db.query(self.model).filter(self.model.tenant_id == tenant_id).count()

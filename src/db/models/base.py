@@ -5,7 +5,9 @@ from typing import Any, Dict, Optional
 from sqlalchemy import Column, DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import as_declarative, declared_attr
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, Session
+
+from src.db.base import Base, UUIDMixin, TimestampMixin, TenantMixin
 
 
 @as_declarative()
@@ -36,46 +38,25 @@ class TenantMixin:
     tenant = relationship("Tenant", back_populates="tenant_objects")
 
 
-class TenantModel(UUIDMixin, TimestampMixin, TenantMixin, Base):
-    """Abstract base class for all tenant-specific models."""
+class TenantModel(Base):
+    """Base model class for all tenant-scoped models."""
     __abstract__ = True
-    
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    tenant_id = Column(String, nullable=False)
+
     @classmethod
-    def get_by_id(cls, db_session, id: uuid.UUID, tenant_id: uuid.UUID) -> Optional[Any]:
-        """Get a record by ID with tenant isolation."""
-        return db_session.query(cls).filter(cls.id == id, cls.tenant_id == tenant_id).first()
-    
-    @classmethod
-    def get_all(cls, db_session, tenant_id: uuid.UUID, skip: int = 0, limit: int = 100) -> list[Any]:
-        """Get all records with tenant isolation."""
-        return db_session.query(cls).filter(cls.tenant_id == tenant_id).offset(skip).limit(limit).all()
-    
-    @classmethod
-    def create(cls, db_session, tenant_id: uuid.UUID, **kwargs) -> Any:
-        """Create a new record with tenant isolation."""
-        obj = cls(tenant_id=tenant_id, **kwargs)
-        db_session.add(obj)
-        db_session.commit()
-        db_session.refresh(obj)
-        return obj
-    
-    @classmethod
-    def update(cls, db_session, id: uuid.UUID, tenant_id: uuid.UUID, **kwargs) -> Optional[Any]:
-        """Update a record with tenant isolation."""
-        obj = cls.get_by_id(db_session, id, tenant_id)
-        if obj:
-            for key, value in kwargs.items():
-                setattr(obj, key, value)
-            db_session.commit()
-            db_session.refresh(obj)
-        return obj
-    
-    @classmethod
-    def delete(cls, db_session, id: uuid.UUID, tenant_id: uuid.UUID) -> bool:
-        """Delete a record with tenant isolation."""
-        obj = cls.get_by_id(db_session, id, tenant_id)
-        if obj:
-            db_session.delete(obj)
-            db_session.commit()
-            return True
-        return False
+    def get_tenant_id(cls, db: Session) -> str:
+        """Get the current tenant ID from the request context."""
+        from src.core.middleware.tenant import get_current_tenant_id
+        return get_current_tenant_id()
+
+    @declared_attr
+    def __table_args__(cls):
+        """Combine model-specific table args with tenant-specific constraints."""
+        args = getattr(cls, '_additional_table_args', ())
+        if not isinstance(args, tuple):
+            args = (args,)
+        return args
