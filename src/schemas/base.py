@@ -1,20 +1,13 @@
 from typing import Optional, Generic, TypeVar, List
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, ConfigDict
 
+T = TypeVar('T')
 
 class BaseSchema(BaseModel):
-    """Base schema with common configuration."""
-    
-    class Config:
-        orm_mode = True
-        validate_assignment = True
-        arbitrary_types_allowed = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            UUID: lambda v: str(v)
-        }
+    """Base schema for all models."""
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TenantSchema(BaseSchema):
@@ -34,9 +27,9 @@ class PaginationParams(BaseSchema):
     limit: int = Field(100, ge=1, le=1000)
 
 
-class PaginatedResponse(BaseSchema, Generic[TypeVar('T')]):
+class PaginatedResponse(BaseSchema, Generic[T]):
     """Generic paginated response."""
-    items: List[TypeVar('T')]
+    items: List[T]
     total: int
     skip: int
     limit: int

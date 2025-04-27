@@ -1,31 +1,18 @@
 from typing import Optional, List
-from datetime import date
 from uuid import UUID
-from pydantic import BaseModel, Field, validator, EmailStr
+from pydantic import BaseModel, ConfigDict
 
-from src.schemas.base import BaseSchema, TenantSchema, TimestampSchema
+from src.schemas.base import BaseSchema
 
 
 class StudentBase(BaseSchema):
     """Base schema for Student model."""
     first_name: str
     last_name: str
-    date_of_birth: Optional[date] = None
-    enrollment_date: Optional[date] = None
-    grade_level: Optional[str] = None
-    student_id: str
-    parent_email: Optional[str] = None
-    parent_phone: Optional[str] = None
-    address: Optional[str] = None
-    
-    @validator('parent_email')
-    def validate_email(cls, v):
-        """Validate email format if provided."""
-        if v is not None and v.strip():
-            # Simple email validation
-            if '@' not in v:
-                raise ValueError('Invalid email format')
-        return v
+    email: str
+    phone: str
+    grade_level: str
+    is_active: bool = True
 
 
 class StudentCreate(StudentBase):
@@ -37,16 +24,13 @@ class StudentUpdate(BaseSchema):
     """Schema for updating a student."""
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    date_of_birth: Optional[date] = None
-    enrollment_date: Optional[date] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
     grade_level: Optional[str] = None
-    student_id: Optional[str] = None
-    parent_email: Optional[str] = None
-    parent_phone: Optional[str] = None
-    address: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
-class StudentInDBBase(StudentBase, TenantSchema, TimestampSchema):
+class StudentInDBBase(StudentBase):
     """Base schema for Student in DB."""
     id: UUID
 
@@ -54,6 +38,11 @@ class StudentInDBBase(StudentBase, TenantSchema, TimestampSchema):
 class Student(StudentInDBBase):
     """Schema for Student response."""
     pass
+
+
+class StudentWithClasses(Student):
+    """Schema for Student with classes."""
+    classes: List[str] = []
 
 
 class StudentList(BaseSchema):

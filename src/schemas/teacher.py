@@ -1,9 +1,8 @@
 from typing import Optional, List
-from datetime import date
 from uuid import UUID
-from pydantic import BaseModel, Field, validator, EmailStr
+from pydantic import BaseModel, ConfigDict
 
-from src.schemas.base import BaseSchema, TenantSchema, TimestampSchema
+from src.schemas.base import BaseSchema
 
 
 class TeacherBase(BaseSchema):
@@ -11,17 +10,8 @@ class TeacherBase(BaseSchema):
     first_name: str
     last_name: str
     email: str
-    phone: Optional[str] = None
-    hire_date: Optional[date] = None
-    subject_specialty: Optional[str] = None
-    teacher_id: str
-    
-    @validator('email')
-    def validate_email(cls, v):
-        """Validate email format."""
-        if '@' not in v:
-            raise ValueError('Invalid email format')
-        return v
+    phone: str
+    is_active: bool = True
 
 
 class TeacherCreate(TeacherBase):
@@ -35,12 +25,10 @@ class TeacherUpdate(BaseSchema):
     last_name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
-    hire_date: Optional[date] = None
-    subject_specialty: Optional[str] = None
-    teacher_id: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
-class TeacherInDBBase(TeacherBase, TenantSchema, TimestampSchema):
+class TeacherInDBBase(TeacherBase):
     """Base schema for Teacher in DB."""
     id: UUID
 
@@ -50,7 +38,6 @@ class Teacher(TeacherInDBBase):
     pass
 
 
-class TeacherList(BaseSchema):
-    """Schema for list of teachers."""
-    teachers: List[Teacher]
-    total: int
+class TeacherWithClasses(Teacher):
+    """Schema for Teacher with classes."""
+    classes: List[str] = []
