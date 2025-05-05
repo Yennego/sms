@@ -1,127 +1,72 @@
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from uuid import UUID
-from datetime import datetime
+from uuid import uuid4
 
-from main import app
-from src.db.session import get_db
-from src.db.base import Base
-from src.core.config import settings
-from src.db.models.tenant import Tenant
+from src.db.models.base import Base
+from src.db.models.auth import User, UserRole, Permission, Admin
+from src.db.models.base.tenant_model import TenantModel
+from src.db.models.tenant.tenant import Tenant
+from src.db.models.tenant.tenant_settings import TenantSettings
+from src.db.models.tenant import Tenant, TenantSettings
 
-
-# Create test database
-SQLALCHEMY_DATABASE_URL = "postgresql://postgres:199922@localhost:5432/postgres"
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
-
-# Create test database
-try:
-    with engine.connect() as conn:
-        conn.execute(text("COMMIT"))  # Close any open transactions
-        conn.execute(text("DROP DATABASE IF EXISTS sms_test_db"))
-        conn.execute(text("CREATE DATABASE sms_test_db"))
-except Exception as e:
-    print(f"Error creating test database: {e}")
-
-# Connect to test database
-SQLALCHEMY_TEST_DATABASE_URL = "postgresql://postgres:199922@localhost:5432/sms_test_db"
-test_engine = create_engine(SQLALCHEMY_TEST_DATABASE_URL)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
-
+# Create in-memory SQLite database for testing
+TEST_DB_URL = "sqlite:///:memory:"
 
 @pytest.fixture(scope="session")
-def test_db():
-    """Create test database tables."""
-    Base.metadata.create_all(bind=test_engine)
-    yield
-    Base.metadata.drop_all(bind=test_engine)
+def engine():
+    """Create a test database engine."""
+    engine = create_engine(TEST_DB_URL)
+    # Create all tables
+    from src.db.models.base import Base
+    Base.metadata.create_all(engine)
+    yield engine
+    # Drop all tables
+    Base.metadata.drop_all(engine)
 
-
-@pytest.fixture(scope="function")
-def db_session(test_db):
+@pytest.fixture
+def db_session(engine):
     """Create a fresh database session for each test."""
-    connection = test_engine.connect()
+    connection = engine.connect()
     transaction = connection.begin()
-    session = TestingSessionLocal(bind=connection)
+    session = sessionmaker(bind=connection)()
     
     yield session
     
     session.close()
-    transaction.rollback()
+    if transaction.is_active:
+        transaction.rollback()
     connection.close()
 
+@pytest.fixture
+def tenant_data():
+    """Sample tenant data for testing."""
+    return {
+        "name": "Test School",
+        "code": "TSCH",
+        "is_active": True
+    }
 
-@pytest.fixture(scope="function")
-def test_tenant(db_session):
+@pytest.fixture
+def tenant_settings_data():
+    """Sample tenant settings data."""
+    return {
+        "theme": "light",
+        "is_active": True
+    }
+
+@pytest.fixture
+def tenant(db_session, tenant_data):
     """Create a test tenant."""
-    tenant = Tenant(
-        id=UUID("123e4567-e89b-12d3-a456-426614174000"),
-        name="Test Tenant",
-        slug="test-tenant",
-        domain="testserver",
-        is_active=True,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow()
-    )
+    tenant = Tenant(**tenant_data)
     db_session.add(tenant)
     db_session.commit()
     return tenant
 
-
-@pytest.fixture(scope="function")
-def client(db_session, test_tenant):
-    """Create a test client with a fresh database session."""
-    def override_get_db():
-        try:
-            yield db_session
-        finally:
-            db_session.close()
-    
-    app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
-        yield test_client
-    app.dependency_overrides.clear()
-
-
 @pytest.fixture
-def test_tenant_id() -> UUID:
-    """Fixture to provide a test tenant ID."""
-    return UUID("123e4567-e89b-12d3-a456-426614174000")
-
-
-@pytest.fixture
-def test_class_room_data() -> dict:
-    """Fixture to provide test class room data."""
-    return {
-        "name": "Mathematics 101",
-        "grade_level": "Grade 10",
-        "subject": "Mathematics",
-        "room_number": "Room 101",
-        "max_capacity": 30,
-        "is_active": True
-    }
-
-
-@pytest.fixture
-def test_bulk_class_room_data() -> list[dict]:
-    """Fixture to provide test bulk class room data."""
-    return [
-        {
-            "name": "Physics 101",
-            "grade_level": "Grade 11",
-            "subject": "Physics",
-            "room_number": "Room 102",
-            "max_capacity": 25,
-            "is_active": True
-        },
-        {
-            "name": "Chemistry 101",
-            "grade_level": "Grade 11",
-            "subject": "Chemistry",
-            "room_number": "Room 103",
-            "max_capacity": 25,
-            "is_active": True
-        }
-    ] 
+def tenant_settings(db_session, tenant):
+    """Create test tenant settings."""
+    settings = TenantSettings(tenant_id=tenant.id)
+    db_session.add(settings)
+    db_session.commit()
+    return settings

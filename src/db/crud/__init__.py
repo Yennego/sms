@@ -1,7 +1,19 @@
-from src.db.crud.user import user
-from src.db.crud.student import student
-from src.db.crud.teacher import teacher
-from src.db.crud.class_room import class_room
+from .tenant.tenant import tenant
+from .tenant.tenant_settings import tenant_settings
+from .auth.user import user
+from .auth.permission import permission
+from .auth.user_role import user_role
+from .people.student import student
+from .people.teacher import teacher
+from .people.parent import parent
 
-# Export all CRUD instances for easy importing
-__all__ = ["user", "student", "teacher", "class_room"]
+__all__ = [
+    "tenant",
+    "tenant_settings",
+    "user",
+    "permission",
+    "user_role",
+    "student",
+    "teacher",
+    "parent"
+]

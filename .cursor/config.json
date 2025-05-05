@@ -1,0 +1,92 @@
+{
+    "version": "1.0",
+    "project": {
+        "name": "Multi-tenant School Management System",
+        "type": "python",
+        "root": ".",
+        "ignore": [
+            "__pycache__",
+            ".pytest_cache",
+            ".venv",
+            ".vscode",
+            ".DS_Store",
+            "*.pyc",
+            "*.pyo",
+            "*.pyd"
+        ]
+    },
+    "navigation": {
+        "key_files": [
+            "task.md",
+            "pyproject.toml",
+            "alembic.ini",
+            "src/db/models/base/*.py",
+            "src/core/*.py",
+            "src/api/*.py"
+        ],
+        "important_directories": [
+            "src/db/models",
+            "src/core",
+            "src/api",
+            "src/services",
+            "tests"
+        ],
+        "guidelines": [
+            "Always verify directory structure and existing files before making changes",
+            "Check for existing implementations before creating new files",
+            "Follow the established module organization",
+            "Maintain consistent E2E solutions across the Backend folder",
+            "Ensure all components follow the same architectural patterns",
+            "Verify cross-module dependencies and interactions",
+            "Maintain consistent error handling and logging patterns",
+            "Follow the same testing patterns across all modules",
+            "Ensure consistent API response formats",
+            "Maintain uniform database access patterns",
+            "Follow consistent security practices across all modules",
+            "Verify completion of current stage before proceeding to next stage",
+            "Check for any missing components or incomplete implementations",
+            "Validate all relationships and dependencies are properly set up",
+            "Ensure all necessary imports and exports are correctly configured",
+            "Verify that all required fields and constraints are properly defined",
+            "Check for any potential circular imports or dependency issues",
+            "Validate that all models follow the established patterns and guidelines",
+            "Ensure proper documentation is in place for all components",
+            "Verify that all changes are properly reflected in task tracking",
+            "Preemptively check for potential import errors and missing dependencies",
+            "Verify all required imports are present before writing code",
+            "Ensure module paths are correct and consistent",
+            "Check for circular imports before they occur",
+            "Validate all external dependencies are properly imported",
+            "Ensure test files have all necessary imports before writing tests"
+        ]
+    },
+    "code_style": {
+        "python": {
+            "formatter": "black",
+            "linter": "flake8",
+            "type_checker": "mypy",
+            "import_sorter": "isort"
+        }
+    },
+    "tasks": {
+        "tracking_file": "task.md",
+        "status_indicators": {
+            "completed": "[x]",
+            "pending": "[ ]",
+            "in_progress": "[-]"
+        }
+    },
+    "multi_tenant": {
+        "key_components": [
+            "TenantMixin",
+            "UUIDMixin",
+            "TimestampMixin",
+            "TenantModel"
+        ],
+        "required_fields": [
+            "tenant_id",
+            "created_at",
+            "updated_at"
+        ]
+    }
+} 

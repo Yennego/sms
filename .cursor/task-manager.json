@@ -1,0 +1,87 @@
+{
+    "version": "1.0",
+    "project": "Multi-tenant School Management System",
+    "rules": {
+        "task_tracking": {
+            "enabled": true,
+            "file": "task.md",
+            "format": "markdown",
+            "status_indicators": {
+                "completed": "[x]",
+                "pending": "[ ]",
+                "in_progress": "[-]"
+            }
+        },
+        "code_quality": {
+            "enabled": true,
+            "rules": [
+                "Follow PEP 8 style guide",
+                "Use type hints",
+                "Document all public functions and classes",
+                "Write unit tests for new features",
+                "Maintain 80% test coverage"
+            ]
+        },
+        "git_workflow": {
+            "enabled": true,
+            "branch_naming": "feature/{task_number}-{description}",
+            "commit_message_format": "{task_number}: {description}",
+            "require_code_review": true
+        },
+        "documentation": {
+            "enabled": true,
+            "required_sections": [
+                "Purpose",
+                "Implementation Details",
+                "Dependencies",
+                "Configuration",
+                "Usage Examples"
+            ]
+        },
+        "testing": {
+            "enabled": true,
+            "required_tests": [
+                "Unit Tests",
+                "Integration Tests",
+                "Tenant Isolation Tests"
+            ]
+        },
+        "security": {
+            "enabled": true,
+            "rules": [
+                "No hardcoded credentials",
+                "Use environment variables",
+                "Implement proper access control",
+                "Validate all inputs",
+                "Sanitize database queries"
+            ]
+        },
+        "multi_tenant": {
+            "enabled": true,
+            "rules": [
+                "All models must include tenant_id",
+                "All queries must filter by tenant",
+                "No cross-tenant data access",
+                "Tenant-specific configurations"
+            ]
+        }
+    },
+    "current_focus": {
+        "section": "2. Multi-tenant Database Design & Migrations",
+        "tasks": [
+            "Define base models with multi-tenant support",
+            "Create ER diagrams",
+            "Implement SQLAlchemy models"
+        ]
+    },
+    "progress_tracking": {
+        "last_updated": "2024-04-29",
+        "completed_sections": [
+            "1. Project Initialization"
+        ],
+        "in_progress_sections": [
+            "2. Multi-tenant Database Design & Migrations"
+        ],
+        "blocked_sections": []
+    }
+} 
