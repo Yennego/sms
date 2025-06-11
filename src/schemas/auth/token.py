@@ -7,7 +7,8 @@ class Token(BaseModel):
     """Schema for token response."""
     access_token: str
     refresh_token: str
-    token_type: str = "bearer"
+    token_type: str
+    requires_password_change: bool = False
 
 
 class TokenPayload(BaseModel):

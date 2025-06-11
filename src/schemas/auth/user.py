@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, EmailStr
 
 from src.schemas.base.base import TenantSchema
+from src.schemas.auth.user_role import UserRole
 
 
 class UserBase(BaseModel):
@@ -12,6 +13,7 @@ class UserBase(BaseModel):
     first_name: str
     last_name: str
     is_active: bool = True
+    is_first_login: bool = True  
     phone_number: Optional[str] = None
     profile_picture: Optional[str] = None
     preferences: Optional[Dict[str, Any]] = None
@@ -53,3 +55,13 @@ class User(UserInDBBase):
 class UserInDB(UserInDBBase):
     """Schema for User model with password hash."""
     password_hash: str
+
+
+class UserWithRoles(User):
+    """Schema for User model response with roles and permissions."""
+    roles: List[UserRole] = []
+
+
+# Add this class to the file
+class UserCreateResponse(User):
+    generated_password: Optional[str] = None
