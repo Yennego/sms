@@ -3,19 +3,7 @@ from fastapi import Depends, HTTPException, status
 
 from src.db.models.auth import User, Permission
 # Change this import to avoid circular dependency
-from src.core.security.auth import get_current_user
-
-
-# Create a get_current_active_user function here instead of importing it
-async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
-    """Check if the current user is active."""
-    if not current_user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Inactive user"
-        )
-    return current_user
-
+from src.core.security.auth import get_current_user, get_current_active_user
 
 def has_permission(required_permission: str):
     """Dependency to check if user has a specific permission."""
@@ -68,7 +56,31 @@ def has_any_role(required_roles: List[str]):
     return dependency
 
 
-# Add this new function to the existing permissions.py file
+# Add this new function to permissions.py
+def admin_with_tenant_check():
+    """Dependency that allows super-admins to access any tenant, but restricts admins to their specific tenant."""
+    async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
+        # Check if user has super-admin role
+        is_super_admin = any(role.name == "super-admin" for role in current_user.roles)
+        
+        # Super-admins can access any tenant
+        if is_super_admin:
+            return current_user
+            
+        # For regular admins, check if they have the admin role
+        is_admin = any(role.name == "admin" for role in current_user.roles)
+        
+        if not is_admin:
+            # Add more detailed error message
+            roles = [role.name for role in current_user.roles]
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Admin or Super-admin privileges required. Current roles: {roles}"
+            )
+        
+        return current_user
+    return dependency
+
 
 def require_super_admin():
     """Dependency to check if user is a super-admin."""

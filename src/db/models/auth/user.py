@@ -53,6 +53,7 @@ class User(Base, TimestampMixin, UUIDMixin):
     first_name = Column(String(100), nullable=False, comment="User's first name")
     last_name = Column(String(100), nullable=False, comment="User's last name")
     is_active = Column(Boolean, nullable=False, default=True, server_default='true', comment="Whether the user is active")
+    is_first_login = Column(Boolean, nullable=False, default=True, server_default='true', comment="Whether this is the user's first login")
     last_login = Column(DateTime(timezone=True))
     profile_picture = Column(String(255))
     phone_number = Column(String(20))
@@ -69,6 +70,7 @@ class User(Base, TimestampMixin, UUIDMixin):
     # Relationships
     # Update this to use user_role_association
     roles = relationship("UserRole", secondary=user_role_association, back_populates="users")
+    password_expiry_date = Column(DateTime, nullable=True, comment="Date when the password expires")
 
     def __init__(self, **kwargs):
         """Initialize a user with validation.

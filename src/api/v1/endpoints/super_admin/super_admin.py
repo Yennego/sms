@@ -5,15 +5,20 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy import text
 
 from src.db.crud import tenant as tenant_crud
 from src.db.crud import tenant_settings as tenant_settings_crud
-# from src.db.crud import user as user_crud
+from src.db.crud import user as user_crud
 from src.db.session import get_super_admin_db
 from src.schemas.tenant import Tenant, TenantCreate, TenantUpdate
 from src.schemas.tenant import TenantSettings, TenantSettingsCreate, TenantSettingsUpdate
-from src.schemas.auth import User
+from src.schemas.auth import User as UserSchema  # Rename to avoid confusion
+from src.db.models.auth.user import User  # Import the SQLAlchemy model
 from src.core.security.permissions import require_super_admin
+from src.schemas.auth.user import UserWithRoles
+from src.db.models.auth.user_role import UserRole
+from sqlalchemy.orm import joinedload
 
 router = APIRouter()
 
@@ -140,11 +145,11 @@ def update_tenant_settings(
     return tenant_settings_crud.update(db, db_obj=settings, obj_in=settings_in)
 
 # Enhanced user listing with filtering and sorting
-@router.get("/users", response_model=List[User])
-def get_all_users(
+@router.get("/users", response_model=List[UserWithRoles])
+async def get_all_users(
     *,
     db: Session = Depends(get_super_admin_db),
-    _: User = Depends(require_super_admin()),
+    _: UserSchema = Depends(require_super_admin()),
     skip: int = 0,
     limit: int = 100,
     email: Optional[str] = None,
@@ -154,14 +159,18 @@ def get_all_users(
     sort_order: str = Query("asc", description="Sort order (asc or desc)")
 ) -> Any:
     """Get all users across all tenants with filtering and sorting (super-admin only)."""
-    query = db.query(User)
+    # Use joinedload to eagerly load roles and their permissions
+    query = db.query(User).options(
+        joinedload(User.roles).joinedload(UserRole.permissions)
+    )
     
     # Apply filters
     if email:
         query = query.filter(User.email.ilike(f"%{email}%"))
     if is_active is not None:
         query = query.filter(User.is_active == is_active)
-    # Add this helper function at the top of the file
+    
+    # Add this helper function at the top of the file if not already present
     def _ensure_uuid(value: Any) -> UUID:
         """Ensure the value is a UUID object."""
         if isinstance(value, str):
@@ -181,7 +190,7 @@ def get_all_users(
         else:
             query = query.order_by(sort_field.asc())
     
-    # Apply pagination
+    # Apply pagination and return results
     return query.offset(skip).limit(limit).all()
 
 # Enhanced reports implementation
@@ -266,3 +275,92 @@ def view_system_reports(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported report type: {report_type}"
         )
+
+# At the top with other imports
+from src.db.crud import user as user_crud
+from src.schemas.auth import UserCreate
+from src.api.v1.endpoints.auth.auth import UserCreateResponse
+from src.services.auth.password import generate_default_password
+from src.services.email import send_new_user_email
+
+# Define UserCreateResponse locally if you don't want to move it to schemas
+class UserCreateResponse(UserSchema):
+    generated_password: Optional[str] = None
+
+# Add this new endpoint for cross-tenant user creation
+@router.post("/users", response_model=UserCreateResponse, status_code=status.HTTP_201_CREATED)
+def create_user_cross_tenant(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: UserSchema = Depends(require_super_admin()),  # Use UserSchema instead of User
+    user_in: UserCreate,
+    tenant_id: UUID = Query(..., description="The tenant ID to create the user in"),
+    role_id: Optional[UUID] = Query(None, description="Role ID to assign to the user")
+) -> Any:
+    """Create a new user in any tenant (super-admin only)."""
+    # Check if tenant exists
+    tenant = tenant_crud.get(db, id=tenant_id)
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenant not found"
+        )
+    
+    # Override the tenant_id in user_in with the one from query parameter
+    # This ensures we use the query parameter tenant_id regardless of what's in the body
+    user_in_dict = user_in.model_dump()
+    user_in_dict["tenant_id"] = tenant_id
+    
+    # Check if user with this email already exists
+    user = user_crud.get_by_email(db, tenant_id=tenant_id, email=user_in.email)
+    if user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User with this email already exists"
+        )
+    
+    # Generate password if not provided
+    password = user_in.password
+    password_was_generated = False
+    if not password:
+        password = generate_default_password()
+        password_was_generated = True
+        # Set the password in the user_in object
+        user_in.password = password
+        
+    # Create user
+    user = user_crud.create(db, tenant_id=tenant_id, obj_in=user_in)
+    
+    # Assign role if provided
+    if role_id:
+        try:
+            # Insert into user_role_association table
+            db.execute(
+                text("INSERT INTO user_role_association (user_id, role_id) VALUES (:user_id, :role_id)"),
+                {"user_id": str(user.id), "role_id": str(role_id)}
+            )
+            db.commit()
+        except Exception as e:
+            # Log the error but don't fail the request
+            print(f"Error assigning role: {e}")
+            # Check if it's a duplicate role assignment
+            try:
+                result = db.execute(
+                    text("SELECT 1 FROM user_role_association WHERE user_id = :user_id AND role_id = :role_id"),
+                    {"user_id": str(user.id), "role_id": str(role_id)}
+                )
+                if result.fetchone():
+                    print("Role association already exists")
+            except Exception:
+                pass
+    
+    # Send email with login details if password was generated
+    if password_was_generated:
+        send_new_user_email(user.email, user.first_name, password)
+    
+    # Create response with the generated password if it exists
+    response = UserCreateResponse.model_validate(user, from_attributes=True)
+    if password_was_generated:
+        response.generated_password = password
+    
+    return response

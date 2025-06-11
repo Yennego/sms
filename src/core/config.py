@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
     REDIS_PASSWORD: Optional[str] = os.getenv("REDIS_PASSWORD", None)
     
+    # Email settings
+    SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+    SENDER_EMAIL: str = os.getenv("SENDER_EMAIL", "your-dev-email@gmail.com")
+    SENDER_PASSWORD: str = os.getenv("SENDER_PASSWORD", "your-app-password")
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

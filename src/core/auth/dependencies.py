@@ -1,4 +1,5 @@
-from src.core.security.permissions import has_role, has_any_role, has_permission, get_current_user, get_current_active_user
+from src.core.security.permissions import has_role, has_any_role, has_permission
+from src.core.security.auth import get_current_user, get_current_active_user
 from fastapi import Depends, Header, HTTPException, status
 from typing import Optional
 from uuid import UUID
