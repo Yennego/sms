@@ -4,6 +4,7 @@ from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
 from src.db.models.base import Base, TimestampMixin, UUIDMixin
 from src.db.models.auth.user_role import user_role_association
+from src.db.models.communication.notification import Notification  # Add this import
 from typing import List, Optional
 import uuid
 
@@ -70,6 +71,8 @@ class User(Base, TimestampMixin, UUIDMixin):
     # Relationships
     # Update this to use user_role_association
     roles = relationship("UserRole", secondary=user_role_association, back_populates="users")
+    # In the relationships section
+    notifications = relationship("Notification", back_populates="user")
     password_expiry_date = Column(DateTime, nullable=True, comment="Date when the password expires")
 
     def __init__(self, **kwargs):

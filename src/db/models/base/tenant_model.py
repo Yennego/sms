@@ -1,9 +1,17 @@
 from typing import Any, ClassVar
-from sqlalchemy.orm import DeclarativeBase, declared_attr
+from sqlalchemy.orm import declared_attr
 from .uuid_mixin import UUIDMixin
 from .timestamp_mixin import TimestampMixin
+# Remove this import as we'll use Base directly
+# from sqlalchemy.orm import declarative_base
 
-class TenantModel(UUIDMixin, TimestampMixin, DeclarativeBase):
+# Import Base from the current package
+from . import Base
+
+# Remove this import as we'll use Base instead
+# from sqlalchemy.ext.declarative import DeclarativeBase
+
+class TenantModel(UUIDMixin, TimestampMixin, Base):
     """Base model for all tenant-aware models in the system.
     
     This model combines UUIDMixin and TimestampMixin to provide:
@@ -54,4 +62,4 @@ class TenantModel(UUIDMixin, TimestampMixin, DeclarativeBase):
         Returns:
             str: String representation including class name and id.
         """
-        return f"{self.__class__.__name__}(id={self.id})" 
+        return f"{self.__class__.__name__}(id={self.id})"

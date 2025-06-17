@@ -80,8 +80,11 @@ class Student(User):
         self.transfer_school = new_school
         self.transfer_reason = reason
     
-    # Relationships
-    # This will be defined when we implement enrollment and other academic models
+    # Relationships - Fix for circular import
+    # Use string references instead of direct class references
+    enrollments = relationship("Enrollment", back_populates="student", lazy="dynamic")
+    # In the Student model
+    grades = relationship("Grade", back_populates="student", lazy="dynamic", foreign_keys="[Grade.student_id]")
     
     def __repr__(self):
         return f"<Student {self.email} - {self.admission_number}>"

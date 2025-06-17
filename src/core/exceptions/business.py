@@ -1,6 +1,4 @@
-"""
-Business logic related exceptions.
-"""
+"""Business logic related exceptions."""
 
 class BusinessLogicError(Exception):
     """Base class for all business logic errors."""
@@ -41,6 +39,18 @@ class BusinessRuleViolationError(BusinessLogicError):
     def __init__(self, message: str):
         self.message = message
         super().__init__(message)
+
+
+class PermissionDeniedError(BusinessLogicError):
+    """Raised when a user does not have permission to perform an action."""
+    def __init__(self, action: str, resource_type: str = None):
+        self.action = action
+        self.resource_type = resource_type
+        if resource_type:
+            self.message = f"Permission denied: Cannot {action} {resource_type}"
+        else:
+            self.message = f"Permission denied: Cannot {action}"
+        super().__init__(self.message)
 
 
 class DatabaseError(Exception):

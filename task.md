@@ -23,11 +23,12 @@ A step-by-step guide to build a production-grade Multi-tenant School Management 
   - [x] Tenant, TenantSettings models
   - [x] User, UserRole, Permission models
   - [x] Admin model (polymorphic inheritance from User)
-  - [ ] Student, Teacher, Parent models
-  - [ ] Complete academic models: Grade, Section, Subject, Class_model, Enrollment, Assignment, Exam, Shedule, Timetable
-  - [ ] Communication/admin models: Notification, Announcement, Event, Feedback, Message
-  - [ ] logging/admin models: activity_Log model
-  - [ ] resource/admin models: resource model
+  - [x] Student, Teacher, Parent models
+  - [x] Complete academic models: Grade, Section, Subject, Class_model, Enrollment, Assignment, Exam, Schedule, Timetable
+    - [x] Implemented polymorphic relationships between Grade, Assignment, and Exam models
+  - [x] Communication/admin models: Notification, Announcement, Event, Feedback, Message
+  - [x] logging/admin models: activity_Log model
+  - [x] resource/admin models: resource model
   
 - [x] Configure `src/db/session.py` (connection pooling with tenant context)
 - [x] Initialize Alembic (`alembic init alembic`)  
@@ -47,7 +48,7 @@ A step-by-step guide to build a production-grade Multi-tenant School Management 
 
 ## 4. Database CRUD Layer (`src/db/crud/`)  
 - [ ] Implement base CRUD for non-tenant models
-- [ ] Implement tenant-aware CRUD: `get_by_id()`, `list()`, `create()`, `update()`, `delete()` with mandatory tenant filtering  
+- [ ] Implement tenant-aware CRUD: `get_by_id()`, `list()`, `create()`, `update()`, `delete()` with mandatory tenant filtering
 - [ ] Add pagination (limit/offset), filtering helpers with tenant context
 - [ ] Implement CRUD for the following models:
   - [ ] Tenant, TenantSettings
@@ -82,20 +83,20 @@ A step-by-step guide to build a production-grade Multi-tenant School Management 
   - [ ] Notification dispatch service
   - [ ] Audit and activity logging service
 - [ ] Implement tenant settings service
-- [ ] Inject CRUD dependencies into service classes  
-- [ ] Manage transactions & rollback on errors  
+- [ ] Inject CRUD dependencies into service classes
+- [ ] Manage transactions & rollback on errors
 - [ ] Write unit tests for tenant-isolated services
 
 ---
 
 ## 6. Authentication & Authorization (`src/core/security/`)  
-- [ ] Implement JWT auth: token creation & verification, refresh tokens (with tenant claims)
-- [ ] Password hashing with bcrypt  
+- [x] Implement JWT auth: token creation & verification, refresh tokens (with tenant claims)
+- [x] Password hashing with bcrypt  
 - [x] Role-based access control using UserRole
 - [x] Permission model for granular access control
-- [ ] Tenant-aware permissions system (tenant admin, tenant user)
+- [x] Tenant-aware permissions system (tenant admin, tenant user)
 - [ ] OAuth provider integration (Google, Microsoft)
-- [ ] FastAPI dependencies for permission enforcement with tenant context
+- [x] FastAPI dependencies for permission enforcement with tenant context
 
 ---
 
@@ -105,7 +106,7 @@ A step-by-step guide to build a production-grade Multi-tenant School Management 
   - [x] Tenant models (Tenant, TenantSettings)
   - [ ] CRUD layer with tenant isolation
   - [ ] Services layer with tenant context
-  - [ ] Auth utilities with tenant-specific permissions
+  - [x] Auth utilities with tenant-specific permissions
 - [ ] Integration tests for API endpoints (using `fastapi.testclient` or `httpx`) with tenant headers
 - [x] Fixtures for test database (SQLite in-memory) with tenant data
 - [ ] CI configuration to run tests on pull requests
