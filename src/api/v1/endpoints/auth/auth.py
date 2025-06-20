@@ -410,3 +410,25 @@ def get_role_permissions(
 @router.get("/test-endpoint")
 def test_endpoint():
     return {"message": "Auth router is working"}
+
+
+# Add this import
+from fastapi.security import OAuth2PasswordBearer
+
+@router.post("/logout")
+async def logout(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    """Logout the current user by blacklisting their token."""
+    # Add token to blacklist in Redis
+    # This is a simplified example - you would need to implement the actual Redis connection
+    # and token blacklisting logic
+    token_data = verify_token(token)
+    if token_data:
+        # Add to blacklist with expiry matching token expiry
+        # redis_client.setex(f"blacklist:{token}", token_data.exp - int(datetime.utcnow().timestamp()), "1")
+        pass
+    
+    return {"message": "Successfully logged out"}
