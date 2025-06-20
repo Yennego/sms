@@ -54,6 +54,13 @@ def verify_token(token: str) -> Optional[TokenPayload]:
         
         if datetime.fromtimestamp(token_data.exp) < datetime.utcnow():
             return None
+            
+        # Check if token is blacklisted
+        # This is a simplified example - implement actual Redis check
+        # is_blacklisted = redis_client.exists(f"blacklist:{token}")
+        # if is_blacklisted:
+        #     return None
+            
         return token_data
     except (jwt.JWTError, ValidationError):
         return None
