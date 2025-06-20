@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Union
 from uuid import UUID
 
@@ -18,9 +18,9 @@ REFRESH_TOKEN_EXPIRE_DAYS = settings.REFRESH_TOKEN_EXPIRE_DAYS
 def create_access_token(subject: Union[str, UUID], tenant_id: Union[str, UUID], expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT access token."""
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode = {
         "exp": expire,
@@ -34,7 +34,7 @@ def create_access_token(subject: Union[str, UUID], tenant_id: Union[str, UUID], 
 
 def create_refresh_token(subject: Union[str, UUID], tenant_id: Union[str, UUID]) -> str:
     """Create a JWT refresh token."""
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     
     to_encode = {
         "exp": expire,

@@ -38,53 +38,56 @@ A step-by-step guide to build a production-grade Multi-tenant School Management 
 ---
 
 ## 3. Core Module (`src/core/`)  
-- [ ] Define Pydantic schemas (`schemas/`) for all models
-- [ ] Define constants & enums (`constants/roles.py`, `constants/status_codes.py`)
-- [ ] Define custom exceptions (`exceptions.py`)
-- [ ] Implement tenant middleware (`middleware/tenant.py`)
-- [ ] Implement tenant identification strategies (header, domain, subdomain)
+- [x] Define Pydantic schemas (`schemas/`) for all models
+- [x] Define constants & enums (`constants/roles.py`, `constants/status_codes.py`)
+- [x] Define custom exceptions (`exceptions.py`)
+- [x] Implement tenant middleware (`middleware/tenant.py`)
+- [x] Implement tenant identification strategies (header, domain, subdomain)
 
 ---
 
 ## 4. Database CRUD Layer (`src/db/crud/`)  
-- [ ] Implement base CRUD for non-tenant models
-- [ ] Implement tenant-aware CRUD: `get_by_id()`, `list()`, `create()`, `update()`, `delete()` with mandatory tenant filtering
-- [ ] Add pagination (limit/offset), filtering helpers with tenant context
-- [ ] Implement CRUD for the following models:
-  - [ ] Tenant, TenantSettings
-  - [ ] User, UserRole
-  - [ ] Student, Teacher, Parent
-  - [ ] Grade, Section, Subject
-  - [ ] Class (linked to Grade, Section, Subject, Teacher)
-  - [ ] Enrollment
-  - [ ] Assignment
-  - [ ] Notification
-  - [ ] ActivityLog
-  - [ ] Admin
-  - [ ] Announcement
-  - [ ] Event
-  - [ ] Exam
-  - [ ] Feedback
-  - [ ] Message
-  - [ ] ParentPortal
-  - [ ] Resource
-  - [ ] Schedule
-  - [ ] Timetable
+- [x] Implement base CRUD for non-tenant models
+- [x] Implement tenant-aware CRUD: `get_by_id()`, `list()`, `create()`, `update()`, `delete()` with mandatory tenant filtering
+- [x] Add pagination (limit/offset), filtering helpers with tenant context
+- [x] Implement CRUD for the following models:
+  - [x] Tenant, TenantSettings
+  - [x] User, UserRole
+  - [x] Student, Teacher, Parent
+  - [x] Grade, Section, Subject
+  - [x] Class (linked to Grade, Section, Subject, Teacher)
+  - [x] Enrollment
+  - [x] Assignment
+  - [x] Notification
+  - [x] ActivityLog
+  - [x] Admin
+  - [x] Announcement
+  - [x] Event
+  - [x] Exam
+  - [x] Feedback
+  - [x] Message
+  - [x] Resource
+  - [x] Schedule
+  - [x] Timetable
 - [ ] Write unit tests for tenant-aware CRUD functions
 
 ---
 
 ## 5. Services Layer (`src/services/`)  
-- [ ] Implement TenantBaseService with automatic tenant context injection
-- [ ] Implement entity-specific services:
-  - [ ] Enrollment service (enrollment rules)
-  - [ ] Assignment service
-  - [ ] Grade calculation service
-  - [ ] Notification dispatch service
-  - [ ] Audit and activity logging service
-- [ ] Implement tenant settings service
-- [ ] Inject CRUD dependencies into service classes
-- [ ] Manage transactions & rollback on errors
+- [x] Implement TenantBaseService with automatic tenant context injection
+- [x] Implement entity-specific services:
+  - [x] Enrollment service (enrollment rules)
+  - [x] Assignment service
+  - [x] Grade calculation service
+  - [x] Notification dispatch service
+  - [x] Audit and activity logging service
+  - [x] Class service
+  - [x] Schedule service
+  - [x] Timetable service
+  - [x] Admin service
+- [x] Implement tenant settings service
+- [x] Inject CRUD dependencies into service classes
+- [x] Manage transactions & rollback on errors
 - [ ] Write unit tests for tenant-isolated services
 
 ---
