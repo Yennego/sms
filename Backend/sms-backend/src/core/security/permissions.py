@@ -8,6 +8,9 @@ from src.core.security.auth import get_current_user, get_current_active_user
 def has_permission(required_permission: str):
     """Dependency to check if user has a specific permission."""
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
+        if "super_admin" in {role.name for role in current_user.roles}:
+            return current_user
+
         # Check if user has the required permission through any of their roles
         has_perm = False
         for role in current_user.roles:
@@ -30,6 +33,9 @@ def has_permission(required_permission: str):
 def has_role(required_role: str):
     """Dependency to check if user has a specific role."""
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
+        if "super_admin" in {role.name for role in current_user.roles}:
+            return current_user
+
         # Check if user has the required role
         has_required_role = any(role.name == required_role for role in current_user.roles)
                 
@@ -45,6 +51,9 @@ def has_role(required_role: str):
 def has_any_role(required_roles: List[str]):
     """Dependency to check if user has any of the specified roles."""
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
+        if "super_admin" in {role.name for role in current_user.roles}:
+            return current_user
+            
         # Check if user has any of the required roles
         user_roles = {role.name for role in current_user.roles}
         if not any(role in user_roles for role in required_roles):

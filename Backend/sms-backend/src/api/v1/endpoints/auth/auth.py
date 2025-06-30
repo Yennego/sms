@@ -183,17 +183,25 @@ def rate_limit_login(request: Request):
 # Update login endpoint
 @router.post("/login", response_model=Token)
 def login(
-    request: Request,  # Add this
+    request: Request,
     db: Session = Depends(get_db),
     form_data: OAuth2PasswordRequestForm = Depends(),
-    tenant_id: UUID = Depends(get_tenant_id_from_request),
-    _: None = Depends(rate_limit_login)  # Add this
+    tenant_id: Optional[UUID] = Depends(get_tenant_id_from_request),
+    _: None = Depends(rate_limit_login)
 ) -> Any:
     """OAuth2 compatible token login, get an access token for future requests."""
     try:
-        user = user_crud.authenticate(
-            db, tenant_id=tenant_id, email=form_data.username, password=form_data.password
-        )
+        user = None
+        if tenant_id:
+            user = user_crud.authenticate(
+                db, tenant_id=tenant_id, email=form_data.username, password=form_data.password
+                )
+
+        if not user:
+            user = user_crud.authenticate_global(
+                db, email=form_data.username, password=form_data.password
+            )
+
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

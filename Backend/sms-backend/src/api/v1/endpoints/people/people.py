@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 # Replace CRUD imports with service imports
+from src.db.crud.people import student
+from src.schemas import tenant
 from src.services.people import StudentService, TeacherService, ParentService
 from src.services.people import SuperAdminStudentService, SuperAdminTeacherService, SuperAdminParentService
 from src.db.session import get_db
@@ -14,7 +16,7 @@ from src.schemas.people import Student, StudentCreate, StudentUpdate
 from src.schemas.people import Teacher, TeacherCreate, TeacherUpdate
 from src.schemas.people import Parent, ParentCreate, ParentUpdate
 from src.core.middleware.tenant import get_tenant_from_request
-from src.core.auth.dependencies import has_any_role, get_current_user
+from src.core.auth.dependencies import has_any_role, get_current_user, get_current_active_user
 from src.schemas.auth import User
 from src.core.exceptions.business import (
     BusinessLogicError,
@@ -33,12 +35,13 @@ def create_student(
     *,
     student_service: StudentService = Depends(),
     student_in: StudentCreate,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_any_role(["admin"]))
 ) -> Any:
-    """Create a new student (requires admin or teacher role)."""
+    """Create a new student (requires admin role)."""
     # Service handles tenant context automatically
     try:
-        return student_service.create(obj_in=student_in)
+        return student_service.create(obj_in=student_in,
+        tenant_id=current_user.tenant_id)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -49,6 +52,7 @@ def create_student(
 def get_students(
     *,
     student_service: StudentService = Depends(),
+    current_user: User = Depends(get_current_active_user),
     skip: int = 0,
     limit: int = 100,
     grade: Optional[str] = None,
@@ -63,41 +67,67 @@ def get_students(
         filters["section"] = section
     if status:
         filters["status"] = status
+
+    if "super_admin" in {role.name for role in current_user.roles}:
         
-    return student_service.list(skip=skip, limit=limit, filters=filters)
+        return student_service.list(skip=skip, limit=limit, filters=filters, is_super_admin=True)
+    else:
+        return student_service.list(skip=skip, limit=limit, filters=filters, tenant_id=current_user.tenant_id)
 
 @router.get("/students/{student_id}", response_model=Student)
-def get_student(*, db: Session = Depends(get_db), tenant_id: UUID, student_id: UUID) -> Any:
+def get_student(
+    *,
+    student_service: StudentService = Depends(),
+    student_id: UUID,
+    # Allow admin and teacher to read student data
+    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+) -> Any:
     """Get a specific student by ID."""
-    student = student_crud.get_by_id(db, tenant_id=tenant_id, id=student_id)
-    if not student:
+    try:
+        if "super_admin" in {role.name for role in current_user.roles}:
+            return student_service.get_by_id(id=student_id)
+        else:
+            return student_service.get_by_id(id=student_id, tenant_id=current_user.tenant_id)
+    except EntityNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Student not found"
         )
-    return student
 
 @router.put("/students/{student_id}", response_model=Student)
-def update_student(*, db: Session = Depends(get_db), tenant_id: UUID, student_id: UUID, student_in: StudentUpdate) -> Any:
+def update_student(
+    *,
+    student_service: StudentService = Depends(),
+    student_id: UUID,
+    student_in: StudentUpdate,
+    # Only allow users with 'admin' role to update students
+    current_user: User = Depends(has_any_role(["admin"]))
+) -> Any:
     """Update a student."""
-    student = student_crud.get_by_id(db, tenant_id=tenant_id, id=student_id)
-    if not student:
+    try:
+        return student_service.update(id=student_id, obj_in=student_in, tenant_id=current_user.tenant_id)
+    except EntityNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Student not found"
         )
-    return student_crud.update(db, tenant_id=tenant_id, db_obj=student, obj_in=student_in)
 
 @router.delete("/students/{student_id}", response_model=Student)
-def delete_student(*, db: Session = Depends(get_db), tenant_id: UUID, student_id: UUID) -> Any:
+def delete_student(
+    *,
+    student_service: StudentService = Depends(),
+    student_id: UUID,
+    # Only allow users with 'admin' role to delete students
+    current_user: User = Depends(has_any_role(["admin"]))
+) -> Any:
     """Delete a student."""
-    student = student_crud.get_by_id(db, tenant_id=tenant_id, id=student_id)
-    if not student:
+    try:
+        return student_service.delete(id=student_id, tenant_id=current_user.tenant_id)
+    except EntityNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Student not found"
         )
-    return student_crud.delete(db, tenant_id=tenant_id, id=student_id)
 
 @router.put("/students/{student_id}/status", response_model=Student)
 def update_student_status(

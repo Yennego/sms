@@ -8,6 +8,7 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import jwt
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import joinedload
 
 from src.core.security.jwt import verify_token
 from src.db.crud.auth import user as user_crud
@@ -43,7 +44,8 @@ async def get_current_user(
         tenant_id_uuid = UUID(tenant_id)
         set_tenant_id(tenant_id_uuid)
     
-    user = user_crud.get_by_id(db, tenant_id=UUID(tenant_id), id=UUID(user_id))
+    # user = user_crud.get_by_id(db, tenant_id=UUID(tenant_id), id=UUID(user_id))
+    user = db.query(User).options(joinedload(User.roles)).filter(User.id == UUID(user_id)).first()
 
     if not user:
         user = user_crud.get_by_id_global(db, id=UUID(user_id))

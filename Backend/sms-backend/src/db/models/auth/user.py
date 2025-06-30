@@ -42,7 +42,7 @@ class User(Base, TimestampMixin, UUIDMixin):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     # Tenant relationship
-    tenant_id = Column(UUID(as_uuid=True), nullable=False)
+    tenant_id = Column(UUID(as_uuid=True), nullable=True)
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())

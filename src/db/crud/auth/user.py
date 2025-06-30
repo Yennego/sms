@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional, Union
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload ## it is here
+print("DEBUG: user.py loaded and joinedload imported!") 
 from sqlalchemy import text  
 
 from src.db.crud.base import TenantCRUDBase
@@ -53,11 +54,20 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
         ).first()
         
         return result is not None
+
+    def authenticate_global(self, db: Session, email: str, password: str) -> Optional[User]:
+        # Authenticate user globally (without tenant_id)
+        user = db.query(self.model).options(joinedload(self.model.roles)).filter(self.model.email == email).first()
+        if not user or not verify_password(password, user.password_hash):
+            return None
+        return user
     
-    def authenticate(self, db: Session, tenant_id: Any, *, email: str, password: str) -> Optional[User]:
-        """Authenticate a user by email and password."""
-        tenant_id_uuid = ensure_uuid(tenant_id)
-        logger.debug(f"Authenticating user: email={email}, tenant_id={tenant_id}, converted={tenant_id_uuid}")
+    def authenticate(self, db: Session, tenant_id: UUID, email: str, password: str) -> Optional[User]:
+        # Authenticate user within a specific tenant
+        user = db.query(self.model).options(joinedload(self.model.roles)).filter(self.model.tenant_id == tenant_id, self.model.email == email).first()
+        if not user or not verify_password(password, user.password_hash):
+            return None
+        return user
         
         # First try to find the user in the specified tenant
         user = self.get_by_email(db, tenant_id=tenant_id_uuid, email=email)
