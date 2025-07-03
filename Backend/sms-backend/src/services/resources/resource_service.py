@@ -59,3 +59,4 @@ class SuperAdminResourceService(SuperAdminBaseService[Resource, ResourceCreate, 
     
     def __init__(self, *args, **kwargs):
         super().__init__(crud=resource_crud, model=Resource, *args, **kwargs)
+

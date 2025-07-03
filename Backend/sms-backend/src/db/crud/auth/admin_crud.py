@@ -28,3 +28,4 @@ class CRUDAdmin(CRUDBase[Admin, AdminCreate, AdminUpdate]):
 
 
 admin_crud = CRUDAdmin(Admin)
+

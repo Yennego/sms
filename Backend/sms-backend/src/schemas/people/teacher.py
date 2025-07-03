@@ -79,3 +79,4 @@ class Teacher(User):
 
     class Config:
         from_attributes = True
+

@@ -102,3 +102,5 @@ class SuperAdminEventService(SuperAdminBaseService[Event, EventCreate, EventUpda
         
         # Apply pagination and ordering
         return query.order_by(Event.start_datetime).offset(skip).limit(limit).all()
+
+        

@@ -3,7 +3,6 @@ from sqlalchemy.orm import relationship
 
 from src.db.models.base import TenantModel
 
-
 class AcademicGrade(TenantModel):
     """Model representing a grade level in the school.
     

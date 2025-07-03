@@ -43,3 +43,4 @@ class Schedule(ScheduleInDB):
 class ScheduleWithDetails(Schedule):
     """Schema for Schedule with additional details."""
     class_name: str
+

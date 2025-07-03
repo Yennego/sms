@@ -44,3 +44,4 @@ class NotificationInDB(NotificationBase):
 class Notification(NotificationInDB):
     """Schema for Notification model response."""
     pass
+

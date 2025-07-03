@@ -34,6 +34,7 @@ app = FastAPI(
     redoc_url="/redocs",   
     lifespan=lifespan,
     debug=True,      
+    redirect_slashes=False,
 )
 
 # Set up CORS middleware
@@ -98,4 +99,4 @@ app.openapi = custom_openapi
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=True)

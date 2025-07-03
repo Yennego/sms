@@ -153,3 +153,4 @@ def graduate_student(self, id: UUID, graduation_date: date, honors: Optional[Lis
         "status": "graduated",
         "graduation_details": graduation_details
     })
+

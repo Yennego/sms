@@ -55,3 +55,4 @@ class CRUDClass(TenantCRUDBase[Class, ClassCreate, ClassUpdate]):
 
 
 class_crud = CRUDClass(Class)
+

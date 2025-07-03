@@ -88,3 +88,5 @@ class Student(User):
     
     def __repr__(self):
         return f"<Student {self.email} - {self.admission_number}>"
+
+        

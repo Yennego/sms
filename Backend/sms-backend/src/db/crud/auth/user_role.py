@@ -34,3 +34,4 @@ class CRUDUserRole(CRUDBase[UserRole, UserRoleCreate, UserRoleUpdate]):
 
 
 user_role = CRUDUserRole(UserRole)
+

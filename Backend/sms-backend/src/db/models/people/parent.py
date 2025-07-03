@@ -90,3 +90,5 @@ class Parent(User):
     
     def __repr__(self):
         return f"<Parent {self.email} - {self.relationship_type}>"
+
+        

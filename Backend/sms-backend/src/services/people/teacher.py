@@ -115,3 +115,4 @@ def set_as_class_teacher(self, teacher_id: UUID, grade: str, section: str) -> Te
         "primary_grade": grade,
         "primary_section": section
     })
+

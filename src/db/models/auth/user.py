@@ -108,3 +108,5 @@ class User(Base, TimestampMixin, UUIDMixin):
     
     def __repr__(self):
         return f"<User {self.email}>"
+
+

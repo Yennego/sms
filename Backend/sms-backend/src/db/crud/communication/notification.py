@@ -73,3 +73,4 @@ class CRUDNotification(TenantCRUDBase[Notification, NotificationCreate, Notifica
 
 
 notification_crud = CRUDNotification(Notification)
+

@@ -45,3 +45,4 @@ class TenantSettings(TenantSettingsBase, TimestampSchema):
 
     class Config:
         from_attributes = True
+

@@ -81,3 +81,4 @@ class CRUDEnrollment(TenantCRUDBase[Enrollment, EnrollmentCreate, EnrollmentUpda
 
 
 enrollment = CRUDEnrollment(Enrollment)
+

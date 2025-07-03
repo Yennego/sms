@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, Table
+from sqlalchemy import Column, String, ForeignKey, Table, Integer
 from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.dialects.postgresql import UUID
 from src.db.models.base import TimestampMixin, UUIDMixin, Base
@@ -27,6 +27,7 @@ class UserRole(Base, TimestampMixin, UUIDMixin):
     
     __tablename__ = "user_roles"
     
+    # user_id = Column(Integer, ForeignKey("users.id"))
     name = Column(String(50), nullable=False, unique=True, comment="Name of the role")
     description = Column(String(200), nullable=True, comment="Description of the role")
     
@@ -56,3 +57,5 @@ class UserRole(Base, TimestampMixin, UUIDMixin):
     
     def __repr__(self):
         return f"<UserRole {self.name}>"
+
+

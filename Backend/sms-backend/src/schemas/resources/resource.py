@@ -61,3 +61,4 @@ class ResourceWithDetails(Resource):
     uploader_name: str
     subject_name: Optional[str] = None
     grade_name: Optional[str] = None
+

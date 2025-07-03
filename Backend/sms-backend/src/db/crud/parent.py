@@ -19,3 +19,5 @@ def add_student(db: Session, tenant_id: Any, parent_id: UUID, student_id: UUID, 
         db.refresh(parent)
     
     return parent
+
+    

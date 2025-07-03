@@ -142,3 +142,4 @@ class SuperAdminAssignmentService(SuperAdminBaseService[Assignment, AssignmentCr
         
         # Apply pagination
         return query.offset(skip).limit(limit).all()
+

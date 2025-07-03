@@ -86,3 +86,5 @@ class SuperAdminBaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaTyp
     
     # Super-admin specific methods that don't filter by tenant_id
     # These methods will be implemented in derived classes
+
+    

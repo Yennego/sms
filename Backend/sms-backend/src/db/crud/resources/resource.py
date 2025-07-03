@@ -54,3 +54,4 @@ class CRUDResource(TenantCRUDBase[Resource, ResourceCreate, ResourceUpdate]):
 
 
 resource = CRUDResource(Resource)
+

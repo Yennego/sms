@@ -118,3 +118,4 @@ class CRUDExam(TenantCRUDBase[Exam, ExamCreate, ExamUpdate]):
 
 
 exam_crud = CRUDExam(Exam)
+

@@ -5,7 +5,6 @@ from datetime import date, time
 
 from src.db.models.base import TenantModel
 
-
 class Exam(TenantModel):
     """Model representing an exam given to students.
     

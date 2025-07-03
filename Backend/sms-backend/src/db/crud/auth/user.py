@@ -151,3 +151,4 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
         return db.query(User).filter(User.tenant_id == tenant_id, User.id == id).first()
 
 user = CRUDUser(User)
+

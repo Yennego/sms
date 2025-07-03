@@ -55,3 +55,5 @@ class Message(TenantModel):
     
     def __repr__(self):
         return f"<Message {self.id} - {self.subject}>"
+
+        

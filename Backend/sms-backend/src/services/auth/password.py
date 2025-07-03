@@ -36,3 +36,4 @@ def generate_default_password(length=12):
     
     # Convert list to string and return
     return ''.join(password)
+

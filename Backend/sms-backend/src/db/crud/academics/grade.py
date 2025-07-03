@@ -94,3 +94,4 @@ class CRUDGrade(TenantCRUDBase[Grade, GradeCreate, GradeUpdate]):
 
 
 grade = CRUDGrade(Grade)
+

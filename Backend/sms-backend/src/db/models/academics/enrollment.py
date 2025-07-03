@@ -52,3 +52,5 @@ class Enrollment(TenantModel):
     
     def __repr__(self):
         return f"<Enrollment {self.student_id} - {self.academic_year} - {self.grade} {self.section}>"
+
+        

@@ -56,3 +56,5 @@ class UserRole(Base, TimestampMixin, UUIDMixin):
     
     def __repr__(self):
         return f"<UserRole {self.name}>"
+
+

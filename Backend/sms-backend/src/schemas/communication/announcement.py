@@ -52,3 +52,4 @@ class AnnouncementWithDetails(Announcement):
     """Schema for Announcement with additional details."""
     author_name: str
     target_name: Optional[str] = None
+

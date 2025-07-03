@@ -54,3 +54,4 @@ class CRUDEvent(TenantCRUDBase[Event, EventCreate, EventUpdate]):
 
 
 event_crud = CRUDEvent(Event)
+

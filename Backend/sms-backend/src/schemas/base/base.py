@@ -21,3 +21,4 @@ class TimestampSchema(BaseSchema):
 class TenantSchema(TimestampSchema):
     """Schema for tenant-aware models."""
     tenant_id: UUID
+

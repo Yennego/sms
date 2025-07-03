@@ -16,6 +16,7 @@ class GradeType(str, Enum):
     OTHER = "other"
 
 
+
 class GradeBase(BaseModel):
     """Base schema for Grade model."""
     student_id: UUID

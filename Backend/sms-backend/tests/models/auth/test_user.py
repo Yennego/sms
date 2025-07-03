@@ -58,3 +58,5 @@ def test_user_is_active_explicit():
         tenant_id=uuid4()
     )
     assert user.is_active is False 
+
+    

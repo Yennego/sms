@@ -63,3 +63,5 @@ class TenantModel(UUIDMixin, TimestampMixin, Base):
             str: String representation including class name and id.
         """
         return f"{self.__class__.__name__}(id={self.id})"
+
+        

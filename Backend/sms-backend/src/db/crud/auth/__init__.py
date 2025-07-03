@@ -6,3 +6,4 @@ from src.db.crud.auth.admin_crud import admin_crud
 
 
 __all__ = ["user", "permission", "user_role", "admin_crud"]
+

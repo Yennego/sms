@@ -3,6 +3,7 @@ from sqlalchemy import Column, String, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 from src.db.models.base import TimestampMixin, UUIDMixin, Base
+# from datetime import datetime, timezone
 
 class Tenant(Base, TimestampMixin, UUIDMixin):
     """Model representing a tenant in the multi-tenant system.
@@ -74,3 +75,5 @@ class Tenant(Base, TimestampMixin, UUIDMixin):
     
     def __repr__(self):
         return f"<Tenant {self.code}: {self.name}>"
+
+        

@@ -5,7 +5,6 @@ from pydantic import BaseModel
 
 from src.schemas.base.base import TimestampSchema, TenantSchema
 
-
 class ClassBase(BaseModel):
     """Base schema for Class model."""
     name: Optional[str] = None

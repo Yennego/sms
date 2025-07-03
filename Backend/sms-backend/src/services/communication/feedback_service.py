@@ -108,3 +108,4 @@ class SuperAdminFeedbackService(SuperAdminBaseService[Feedback, FeedbackCreate, 
         
         # Apply pagination and ordering
         return query.order_by(Feedback.submission_date.desc()).offset(skip).limit(limit).all()
+

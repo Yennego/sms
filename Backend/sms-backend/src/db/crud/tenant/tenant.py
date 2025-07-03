@@ -16,7 +16,7 @@ class CRUDTenant(CRUDBase[Tenant, TenantCreate, TenantUpdate]):
     def create(self, db: Session, *, obj_in: TenantCreate) -> Tenant:
         """Create a new tenant."""
         # Ensure code is uppercase
-        obj_in_data = obj_in.dict()
+        obj_in_data = obj_in.model_dump()
         obj_in_data["code"] = obj_in_data["code"].upper()
         
         db_obj = Tenant(**obj_in_data)
@@ -34,9 +34,13 @@ class CRUDTenant(CRUDBase[Tenant, TenantCreate, TenantUpdate]):
             if "code" in update_data and update_data["code"]:
                 update_data["code"] = update_data["code"].upper()
         else:
-            update_data = obj_in.dict(exclude_unset=True)
+            update_data = obj_in.model_dump(exclude_unset=True)
             if update_data.get("code"):
                 update_data["code"] = update_data["code"].upper()
+
+        db.add(db_obj)
+        db.commit()
+        db.refresh(db_obj)
         
         return super().update(db, db_obj=db_obj, obj_in=update_data)
     
@@ -46,3 +50,4 @@ class CRUDTenant(CRUDBase[Tenant, TenantCreate, TenantUpdate]):
 
 
 tenant = CRUDTenant(Tenant)
+

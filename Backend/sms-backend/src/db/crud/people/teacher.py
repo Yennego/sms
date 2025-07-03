@@ -32,3 +32,4 @@ class CRUDTeacher(TenantCRUDBase[Teacher, TeacherCreate, TeacherUpdate]):
 
 
 teacher = CRUDTeacher(Teacher)
+

@@ -72,3 +72,4 @@ class SuperAdminClassService(SuperAdminBaseService[Class, ClassCreate, ClassUpda
             query = query.filter(Class.tenant_id == tenant_id)
         
         return query.offset(skip).limit(limit).all()
+

@@ -8,3 +8,4 @@ from src.db.models.academics.schedule import Schedule
 from src.db.models.academics.section import Section
 from src.db.models.academics.subject import Subject
 from src.db.models.academics.timetable import Timetable
+

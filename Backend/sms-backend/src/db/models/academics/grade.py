@@ -8,7 +8,7 @@ import enum
 
 from src.db.models.base import TenantModel
 
-
+# Enum for grade types
 class GradeType(str, enum.Enum):
     """Enum for grade types."""
     ASSIGNMENT = "assignment"

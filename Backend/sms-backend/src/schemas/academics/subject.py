@@ -1,3 +1,4 @@
+from asyncio import LimitOverrunError
 from typing import Optional
 from uuid import UUID
 from pydantic import BaseModel
@@ -37,3 +38,9 @@ class SubjectInDB(SubjectBase, TenantSchema):
 class Subject(SubjectInDB):
     """Schema for Subject model response."""
     pass
+
+class SubjectWithDetails(Subject):
+    """Schema for Subject with additional details."""
+    teacher_name: str
+    grade_name: str
+    section_name: str

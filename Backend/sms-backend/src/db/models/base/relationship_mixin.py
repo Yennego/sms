@@ -26,3 +26,5 @@ class RelationshipMixin:
     def parent(cls):
         """One-to-one relationship with Parent model."""
         return relationship("Parent", back_populates="user", uselist=False) 
+
+        

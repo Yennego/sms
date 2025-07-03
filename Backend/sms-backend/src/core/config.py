@@ -28,7 +28,8 @@ class Settings(BaseSettings):
     PASSWORD_MAX_AGE_DAYS: int = int(os.getenv("PASSWORD_MAX_AGE_DAYS", "90"))
     
     # CORS settings
-    BACKEND_CORS_ORIGINS: List[str] = ["*"]
+    # BACKEND_CORS_ORIGINS: List[str] = ["*"]
+    BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000", "https://yourdomain.com"]
     
     # Database settings
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:199922@localhost:5432/sms_db")

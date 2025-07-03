@@ -47,3 +47,4 @@ class ActivityLogInDB(ActivityLogBase):
 class ActivityLog(ActivityLogInDB):
     """Schema for ActivityLog model response."""
     pass
+

@@ -1,6 +1,6 @@
 from typing import Any, List, Optional, Dict
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -18,6 +18,7 @@ from src.db.models.auth.user import User  # Import the SQLAlchemy model
 from src.core.security.permissions import require_super_admin
 from src.schemas.auth.user import UserWithRoles
 from src.db.models.auth.user_role import UserRole
+from src.services.tenant.dashboard import DashboardMetricsService
 from sqlalchemy.orm import joinedload
 
 router = APIRouter()
@@ -364,3 +365,169 @@ def create_user_cross_tenant(
         response.generated_password = password
     
     return response
+
+# Add this import at the top of the file with other imports
+from src.services.tenant.dashboard import DashboardMetricsService
+from sqlalchemy.orm import joinedload
+
+# Add these new endpoints after the existing endpoints
+
+@router.get("/dashboard/tenant-stats")
+def get_tenant_stats(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin())
+) -> Any:
+    """Get tenant statistics for the super-admin dashboard."""
+    dashboard_service = DashboardMetricsService(db)
+    tenant_metrics = dashboard_service.get_tenant_growth_metrics()
+    
+    return {
+        "total": tenant_metrics["total_tenants"],
+        "active": tenant_metrics["active_tenants"],
+        "inactive": tenant_metrics["inactive_tenants"],
+        "newThisMonth": tenant_metrics["new_tenants"],
+        "growthRate": tenant_metrics["growth_rate"]
+    }
+
+@router.get("/dashboard/user-stats")
+def get_user_stats(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin())
+) -> Any:
+    """Get user statistics for the super-admin dashboard."""
+    dashboard_service = DashboardMetricsService(db)
+    user_metrics = dashboard_service.get_user_metrics()
+    
+    return {
+        "total": user_metrics["total_users"],
+        "active": user_metrics["active_users"],
+        "inactive": user_metrics["inactive_users"],
+        "avgPerTenant": user_metrics["average_users_per_tenant"],
+        "recentLogins": user_metrics["recent_logins"]
+    }
+
+@router.get("/dashboard/system-metrics")
+def get_system_metrics(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin())
+) -> Any:
+    """Get system metrics for the super-admin dashboard."""
+    dashboard_service = DashboardMetricsService(db)
+    system_overview = dashboard_service.get_system_overview()
+    
+    # Mock data for CPU, memory, disk usage and active connections
+    # In a real implementation, these would come from system monitoring
+    cpu_usage = 45.5  # percentage
+    memory_usage = 62.3  # percentage
+    disk_usage = 38.7  # percentage
+    active_connections = 128  # count
+    
+    # Generate some mock tenant growth data
+    # In a real implementation, this would be calculated from the database
+    current_month = datetime.now(timezone.utc).month
+    tenant_growth = []
+    for i in range(6):
+        month = (current_month - i) % 12
+        if month == 0:
+            month = 12
+        month_name = datetime(2000, month, 1).strftime('%b')
+        tenant_growth.append({
+            "month": month_name,
+            "tenants": system_overview["tenant_metrics"]["total_tenants"] - i * 5  # Mock decreasing count
+        })
+    tenant_growth.reverse()  # Show oldest to newest
+    
+    # Generate some mock system alerts
+    alerts = [
+        {"message": "System update scheduled for next weekend", "level": "info"},
+        {"message": "Database approaching 80% capacity", "level": "warning"}
+    ]
+    
+    return {
+        "cpuUsage": cpu_usage,
+        "memoryUsage": memory_usage,
+        "diskUsage": disk_usage,
+        "activeConnections": active_connections,
+        "alerts": alerts,
+        "tenantGrowth": tenant_growth
+    }
+
+@router.get("/dashboard/recent-tenants")
+def get_recent_tenants(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+    limit: int = Query(5, description="Maximum number of recent tenants to return")
+) -> Any:
+    """Get list of recently created tenants for the super-admin dashboard."""
+    try:
+        # Get the most recently created tenants
+        recent_tenants = db.query(Tenant).order_by(Tenant.created_at.desc()).limit(limit).all()
+        
+        result = []
+        for tenant in recent_tenants:
+            # Count users for this tenant
+            user_count = db.query(func.count(User.id)).filter(User.tenant_id == tenant.id).scalar() or 0
+            
+            result.append({
+                "id": str(tenant.id),
+                "name": tenant.name,
+                "domain": tenant.domain if hasattr(tenant, 'domain') else None,
+                "isActive": tenant.is_active,
+                "createdAt": tenant.created_at.isoformat(),
+                "updatedAt": tenant.updated_at.isoformat() if tenant.updated_at else None,
+                "userCount": user_count
+            })
+        
+        return result
+    except Exception as e:
+        # Log the error
+        print(f"Error in get_recent_tenants: {e}")
+        # Return an empty list instead of failing
+        return []
+
+@router.put("/tenants/{tenant_id}/activate", response_model=Tenant)
+def activate_tenant(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+    tenant_id: UUID
+) -> Any:
+    """Activate a tenant (super-admin only)."""
+    print(f"Activating tenant with ID: {tenant_id}")
+    tenant_obj = tenant_crud.get(db, id=tenant_id)
+    if not tenant_obj:
+        print(f"Tenant with ID {tenant_id} not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenant not found"
+        )
+    
+    # Update the tenant's active status
+    update_data = {"is_active": True}
+    print(f"Updating tenant {tenant_id} with data: {update_data}")  # Add logging
+    result = tenant_crud.update(db, db_obj=tenant_obj, obj_in=update_data)
+    print(f"Tenant updated: {result.is_active}")  # Add logging
+    return result
+
+@router.put("/tenants/{tenant_id}/deactivate", response_model=Tenant)
+def deactivate_tenant(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+    tenant_id: UUID
+) -> Any:
+    """Deactivate a tenant (super-admin only)."""
+    tenant_obj = tenant_crud.get(db, id=tenant_id)
+    if not tenant_obj:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenant not found"
+        )
+    
+    # Update the tenant's active status
+    update_data = {"is_active": False}
+    return tenant_crud.update(db, db_obj=tenant_obj, obj_in=update_data)

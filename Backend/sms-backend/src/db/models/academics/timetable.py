@@ -5,7 +5,6 @@ from datetime import date
 
 from src.db.models.base import TenantModel
 
-
 class Timetable(TenantModel):
     """Model representing a complete timetable for a grade and section.
     

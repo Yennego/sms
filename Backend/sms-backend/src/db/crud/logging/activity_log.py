@@ -42,3 +42,4 @@ class CRUDActivityLog(TenantCRUDBase[ActivityLog, ActivityLogCreate, ActivityLog
 
 
 activity_log_crud = CRUDActivityLog(ActivityLog)
+

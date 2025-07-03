@@ -4,7 +4,6 @@ class BusinessLogicError(Exception):
     """Base class for all business logic errors."""
     pass
 
-
 class EntityNotFoundError(BusinessLogicError):
     """Raised when an entity is not found."""
     def __init__(self, entity_type: str, entity_id: str):

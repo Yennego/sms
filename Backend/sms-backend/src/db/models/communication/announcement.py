@@ -60,3 +60,5 @@ class Announcement(TenantModel):
     
     def __repr__(self):
         return f"<Announcement {self.id} - {self.title}>"
+
+        

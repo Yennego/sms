@@ -51,3 +51,4 @@ class EmailService:
         </html>
         """
         return self.send_email(user_email, subject, message)
+

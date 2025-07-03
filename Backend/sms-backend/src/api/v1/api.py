@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 # Endpoint imports (core service endpoint etc)
+# from src.api.v1.endpoints import auth
 from src.api.v1.endpoints import tenant, auth, people, super_admin, academics, communication, logging, resources
 from src.api.v1.endpoints.specialized import financial_academic
 

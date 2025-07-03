@@ -67,3 +67,4 @@ class MessageWithDetails(Message):
     sender_name: str
     recipient_names: List[str] = []
     parent_subject: Optional[str] = None
+

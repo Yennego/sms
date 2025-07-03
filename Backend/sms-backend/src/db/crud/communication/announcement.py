@@ -50,3 +50,4 @@ class CRUDAnnouncement(TenantCRUDBase[Announcement, AnnouncementCreate, Announce
 
 
 announcement_crud = CRUDAnnouncement(Announcement)
+

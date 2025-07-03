@@ -39,3 +39,4 @@ class AdminService(SuperAdminBaseService[Admin, AdminCreate, AdminUpdate]):
         
         # Create the admin
         return self.crud.create(db=self.db, obj_in=obj_in)
+

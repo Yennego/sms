@@ -67,3 +67,5 @@ class Feedback(TenantModel):
     
     def __repr__(self):
         return f"<Feedback {self.id} - {self.subject}>"
+
+        

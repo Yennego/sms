@@ -19,3 +19,4 @@ class CRUDAcademicGrade(CRUDBase[AcademicGrade, Dict[str, Any], Dict[str, Any]])
 
 
 academic_grade = CRUDAcademicGrade(AcademicGrade)
+

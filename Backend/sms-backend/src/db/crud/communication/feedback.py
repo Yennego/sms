@@ -41,3 +41,4 @@ class CRUDFeedback(TenantCRUDBase[Feedback, FeedbackCreate, FeedbackUpdate]):
 
 
 feedback_crud = CRUDFeedback(Feedback)
+

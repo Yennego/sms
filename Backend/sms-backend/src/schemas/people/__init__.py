@@ -7,3 +7,4 @@ __all__ = [
     "Teacher", "TeacherCreate", "TeacherUpdate",
     "Parent", "ParentCreate", "ParentUpdate"
 ]
+

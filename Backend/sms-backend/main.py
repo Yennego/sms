@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from fastapi import FastAPI
+# from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from fastapi.staticfiles import StaticFiles
@@ -7,8 +7,8 @@ from fastapi.openapi.utils import get_openapi
 
 from src.api.v1.api import api_router
 from src.core.config import settings
-from src.db.init_db import init_db
-from src.db.session import SessionLocal
+# from src.db.init_db import init_db
+# from src.db.session import SessionLocal
 from src.core.logging import setup_logging
 
 setup_logging()
@@ -16,14 +16,14 @@ setup_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create database tables first
-    from src.db.models.base import Base
-    from src.db.session import engine
-    Base.metadata.create_all(bind=engine)
+    # from src.db.models.base import Base
+    # from src.db.session import engine
+    # Base.metadata.create_all(bind=engine)
     
     # Then initialize data
-    db = SessionLocal()
-    init_db(db)
-    db.close()
+    # db = SessionLocal()
+    # init_db(db)
+    # db.close()
     yield
 
 app = FastAPI(
@@ -34,16 +34,19 @@ app = FastAPI(
     docs_url="/docs",      
     redoc_url="/redocs",   
     lifespan=lifespan,
-    debug=True,      
+    debug=True,
+    redirect_slashes=False,      
 )
 
 # Set up CORS middleware
 if settings.BACKEND_CORS_ORIGINS:
+    print(f"CORS Origins: {settings.BACKEND_CORS_ORIGINS}")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
         allow_credentials=True,
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        # allow_methods=["*"],
         allow_headers=["*"],
     )
 
@@ -53,6 +56,23 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 @app.get("/")
 def root():
     return {"message": "Welcome to the School Management System API"}
+
+# @app.get("/api/v1/super-admin/dashboard/recent-tenants")
+# async def get_recent_tenants(limit: int = 5):
+#     return [{"id": "1", "name": "Tenant 1", "domain": "example.com", "isActive": True, "createdAt": "2023-01-01", "updatedAt": "2023-01-01", "userCount": 10}]
+
+# @app.get("/api/v1/super-admin/dashboard/tenant-stats")
+# async def get_tenant_stats():
+#     return {"total": 10, "active": 8, "inactive": 2, "newThisMonth": 1, "growthRate": 0.1}
+
+# @app.get("/api/v1/super-admin/dashboard/user-stats")
+# async def get_user_stats():
+#     return {"total": 100, "active": 80, "inactive": 20, "avgPerTenant": 10, "recentLogins": 5}
+
+# @app.get("/api/v1/super-admin/dashboard/system-metrics")
+# async def get_system_metrics():
+#     return {"cpuUsage": 0.5, "memoryUsage": 0.6, "diskUsage": 0.7, "activeConnections": 10, "alerts": [], "tenantGrowth": []}
+
 
 # Mount static files directory
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -96,6 +116,10 @@ def custom_openapi():
 
 # Override the default OpenAPI schema
 app.openapi = custom_openapi
+
+@app.get("/test-cors")
+async def test_cors():
+    return {"message": "CORS is working!"}
 
 if __name__ == "__main__":
     import uvicorn

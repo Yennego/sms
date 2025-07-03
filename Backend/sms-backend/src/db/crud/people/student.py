@@ -41,3 +41,4 @@ class CRUDStudent(TenantCRUDBase[Student, StudentCreate, StudentUpdate]):
 
 
 student = CRUDStudent(Student)
+

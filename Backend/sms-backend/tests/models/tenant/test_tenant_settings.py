@@ -52,3 +52,5 @@ def test_tenant_settings_relationship(db_session, tenant, tenant_settings):
     """Test the relationship between TenantSettings and Tenant."""
     assert tenant_settings.tenant == tenant
     assert tenant.settings == tenant_settings 
+
+    

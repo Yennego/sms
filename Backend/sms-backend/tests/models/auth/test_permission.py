@@ -49,3 +49,5 @@ def test_permission_roles_relationship(db_session):
     assert len(permission.roles) == 1
     assert permission.roles[0] == role
     assert permission in role.permissions
+
+    

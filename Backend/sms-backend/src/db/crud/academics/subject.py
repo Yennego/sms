@@ -16,3 +16,4 @@ class CRUDSubject(CRUDBase[Subject, Dict[str, Any], Dict[str, Any]]):
 
 
 subject = CRUDSubject(Subject)
+

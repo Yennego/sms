@@ -111,3 +111,4 @@ class CRUDAssignment(TenantCRUDBase[Assignment, AssignmentCreate, AssignmentUpda
 
 
 assignment = CRUDAssignment(Assignment)
+

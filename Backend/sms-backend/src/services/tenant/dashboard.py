@@ -1,19 +1,26 @@
 from typing import Dict, Any, List, Optional
 from uuid import UUID
-from datetime import datetime, timedelta
-from sqlalchemy import func
+from datetime import datetime, timedelta, timezone
+from sqlalchemy import func, select
 
 from src.db.models.auth import User
 from src.db.models.tenant import Tenant
 from src.services.base.base import SuperAdminBaseService
 
-class DashboardMetricsService(SuperAdminBaseService):
+class DashboardMetricsService:
     """
     Service for providing aggregated statistics for the super-admin dashboard.
     """
+    def __init__(self, db):
+        """
+        Initialize the dashboard metrics service with just the database session.
+        This service doesn't need the crud and model parameters that SuperAdminBaseService requires.
+        """
+        self.db = db
+    
     def get_tenant_growth_metrics(self, period_days: int = 30) -> Dict[str, Any]:
         """Get tenant growth metrics over time."""
-        end_date = datetime.utcnow()
+        end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=period_days)
         
         # Get total tenant count
@@ -45,13 +52,14 @@ class DashboardMetricsService(SuperAdminBaseService):
         # Active users
         active_users = self.db.query(func.count(User.id)).filter(User.is_active == True).scalar()
         
-        # Users per tenant (average)
-        users_per_tenant = self.db.query(
-            func.avg(func.count(User.id))
-        ).group_by(User.tenant_id).scalar() or 0
+        # Users per tenant (average) - Fixed to avoid nested aggregates
+        # First, get a count of users per tenant
+        subquery = select(User.tenant_id, func.count(User.id).label('user_count')).group_by(User.tenant_id).subquery()
+        # Then, calculate the average of those counts
+        users_per_tenant = self.db.query(func.avg(subquery.c.user_count)).scalar() or 0
         
         # Recent logins (last 24 hours)
-        yesterday = datetime.utcnow() - timedelta(days=1)
+        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
         recent_logins = self.db.query(func.count(User.id)).filter(
             User.last_login >= yesterday
         ).scalar()

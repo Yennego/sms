@@ -43,3 +43,4 @@ def calculate_password_strength(password: str) -> float:
     
     # Ensure score is between 0 and 1
     return min(max(score, 0.0), 1.0)
+

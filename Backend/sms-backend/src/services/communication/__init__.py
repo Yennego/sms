@@ -4,3 +4,4 @@ from src.core.exceptions.business import EntityNotFoundError
 
 __all__ = ["AnnouncementService", "SuperAdminAnnouncementService"]
 __all__ = ["EventService", "SuperAdminEventService"]
+

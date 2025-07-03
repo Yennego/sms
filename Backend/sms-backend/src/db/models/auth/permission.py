@@ -1,7 +1,7 @@
 from sqlalchemy import Column, String, Table, ForeignKey
 from sqlalchemy.orm import relationship, Mapped
 from typing import List
-# from Backend.sms.src.db.models.auth.user_role import UserRole
+from src.db.models.auth.user_role import UserRole
 from src.db.models.base import Base, TimestampMixin, UUIDMixin
 
 # Association table for many-to-many relationship between permissions and roles
@@ -45,3 +45,4 @@ class Permission(Base, TimestampMixin, UUIDMixin):
     
     def __repr__(self):
         return f"<Permission {self.name}>" 
+

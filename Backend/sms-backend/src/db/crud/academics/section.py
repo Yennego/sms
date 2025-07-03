@@ -25,3 +25,4 @@ class CRUDSection(CRUDBase[Section, Dict[str, Any], Dict[str, Any]]):
 
 
 section = CRUDSection(Section)
+

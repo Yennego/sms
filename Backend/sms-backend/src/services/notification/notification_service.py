@@ -143,3 +143,5 @@ class SuperAdminNotificationDispatchService(SuperAdminBaseService[Notification, 
         
         # Apply pagination
         return query.offset(skip).limit(limit).all()
+
+        

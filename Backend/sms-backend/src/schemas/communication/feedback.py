@@ -50,3 +50,4 @@ class FeedbackWithDetails(Feedback):
     """Schema for Feedback with additional details."""
     submitter_name: str
     assignee_name: Optional[str] = None
+

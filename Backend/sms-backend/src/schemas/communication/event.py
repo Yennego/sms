@@ -55,3 +55,4 @@ class Event(EventInDB):
 class EventWithDetails(Event):
     """Schema for Event with additional details."""
     organizer_name: str
+

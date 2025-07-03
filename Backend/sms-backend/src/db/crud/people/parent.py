@@ -60,3 +60,4 @@ class CRUDParent(TenantCRUDBase[Parent, ParentCreate, ParentUpdate]):
 
 
 parent = CRUDParent(Parent)
+

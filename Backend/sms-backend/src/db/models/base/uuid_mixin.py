@@ -27,3 +27,5 @@ class UUIDMixin:
             
         for key, value in kwargs.items():
             setattr(self, key, value) 
+
+            

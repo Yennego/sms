@@ -142,3 +142,4 @@ class SuperAdminEnrollmentService(SuperAdminBaseService[Enrollment, EnrollmentCr
         
         # Apply pagination
         return query.offset(skip).limit(limit).all()
+

@@ -1,0 +1,63 @@
+Backend/sms-backend.zip
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# PyInstaller
+*.spec
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pytest
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+
+# coverage reports
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+
+# IDEs
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Secrets and config
+.env
+.env.*
+*.db
+*.sqlite3
+
+# Cache
+*.cache
+.cache/
+__pypackages__/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+*.pid
+

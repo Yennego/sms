@@ -62,3 +62,5 @@ class Event(TenantModel):
     
     def __repr__(self):
         return f"<Event {self.id} - {self.title}>"
+
+        

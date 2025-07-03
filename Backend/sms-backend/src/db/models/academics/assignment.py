@@ -2,7 +2,6 @@ from sqlalchemy import Column, String, ForeignKey, Float, Integer, Date, Text, B
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from datetime import date, datetime
-# Remove this import as it's not available
 # from sqlalchemy.sql.expression import foreign
 
 from src.db.models.base import TenantModel

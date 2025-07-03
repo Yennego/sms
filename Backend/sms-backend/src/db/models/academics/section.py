@@ -4,7 +4,6 @@ from sqlalchemy.dialects.postgresql import UUID
 
 from src.db.models.base import TenantModel
 
-
 class Section(TenantModel):
     """Model representing a section within a grade level.
     

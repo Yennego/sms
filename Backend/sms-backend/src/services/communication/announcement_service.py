@@ -114,3 +114,5 @@ class SuperAdminAnnouncementService(SuperAdminBaseService[Announcement, Announce
         
         # Apply pagination and ordering
         return query.order_by(Announcement.publish_date.desc()).offset(skip).limit(limit).all()
+
+        

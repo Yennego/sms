@@ -5,7 +5,6 @@ import enum
 
 from src.db.models.base import TenantModel
 
-
 class DayOfWeek(str, enum.Enum):
     """Enum for days of the week."""
     MONDAY = "monday"

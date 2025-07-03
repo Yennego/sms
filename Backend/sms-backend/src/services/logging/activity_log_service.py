@@ -108,3 +108,5 @@ class SuperAdminAuditLoggingService(SuperAdminBaseService[ActivityLog, ActivityL
         
         # Apply pagination
         return query.offset(skip).limit(limit).all()
+
+        

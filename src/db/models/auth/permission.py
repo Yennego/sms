@@ -45,3 +45,5 @@ class Permission(Base, TimestampMixin, UUIDMixin):
     
     def __repr__(self):
         return f"<Permission {self.name}>" 
+
+        

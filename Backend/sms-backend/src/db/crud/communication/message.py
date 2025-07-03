@@ -63,3 +63,4 @@ class CRUDMessage(TenantCRUDBase[Message, MessageCreate, MessageUpdate]):
 
 
 message_crud = CRUDMessage(Message)
+

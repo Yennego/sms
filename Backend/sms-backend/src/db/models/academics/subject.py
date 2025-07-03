@@ -4,7 +4,6 @@ from sqlalchemy.dialects.postgresql import UUID
 
 from src.db.models.base import TenantModel
 
-
 class Subject(TenantModel):
     """Model representing a subject taught in the school.
     

@@ -63,3 +63,4 @@ class Parent(User):
 
     class Config:
         from_attributes = True
+

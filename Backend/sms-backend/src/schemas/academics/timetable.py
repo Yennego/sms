@@ -1,4 +1,5 @@
 from datetime import date
+import fnmatch
 from typing import Optional, Dict, Any
 from uuid import UUID
 from pydantic import BaseModel
@@ -52,3 +53,4 @@ class TimetableWithDetails(Timetable):
     """Schema for Timetable with additional details."""
     grade_name: str
     section_name: Optional[str] = None
+    # teacher_name: Optional[str] = None

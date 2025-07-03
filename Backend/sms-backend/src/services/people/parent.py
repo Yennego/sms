@@ -157,3 +157,4 @@ def update_communication_preferences(self, parent_id: UUID, preferences: Dict[st
     
     # Save updated preferences
     return self.update(id=parent_id, obj_in={"communication_preferences": current_preferences})
+

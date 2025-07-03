@@ -97,3 +97,4 @@ class Student(User):
 
     class Config:
         from_attributes = True
+

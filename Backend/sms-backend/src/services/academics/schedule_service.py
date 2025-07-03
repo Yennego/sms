@@ -52,3 +52,4 @@ class SuperAdminScheduleService(SuperAdminBaseService[Schedule, ScheduleCreate, 
             query = query.filter(Schedule.tenant_id == tenant_id)
         
         return query.offset(skip).limit(limit).all()
+

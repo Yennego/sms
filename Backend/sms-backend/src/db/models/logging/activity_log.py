@@ -34,3 +34,5 @@ class ActivityLog(TenantModel):
     
     def __repr__(self):
         return f"<ActivityLog {self.id} - {self.action} - {self.entity_type}>"
+
+        

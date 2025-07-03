@@ -81,3 +81,5 @@ class Teacher(User):
     
     def __repr__(self):
         return f"<Teacher {self.email} - {self.employee_id}>"
+
+        

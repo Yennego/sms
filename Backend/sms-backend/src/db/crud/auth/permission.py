@@ -19,3 +19,4 @@ class CRUDPermission(CRUDBase[Permission, PermissionCreate, PermissionUpdate]):
 
 
 permission = CRUDPermission(Permission)
+

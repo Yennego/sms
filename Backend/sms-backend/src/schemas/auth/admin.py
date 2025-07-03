@@ -30,3 +30,4 @@ class Admin(User):
 
     class Config:
         from_attributes = True
+

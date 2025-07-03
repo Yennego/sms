@@ -1,4 +1,5 @@
 from typing import Optional, Dict, Any
+from datetime import datetime
 from uuid import UUID
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator
@@ -12,6 +13,8 @@ class TenantBase(BaseModel):
     name: str
     code: str
     is_active: bool = True
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
     domain: Optional[str] = None
     subdomain: Optional[str] = None
     logo: Optional[str] = None
@@ -39,6 +42,7 @@ class TenantUpdate(BaseModel):
     name: Optional[str] = None
     code: Optional[str] = None
     is_active: Optional[bool] = None
+    updated_at: Optional[datetime] = None
     domain: Optional[str] = None
     subdomain: Optional[str] = None
     logo: Optional[str] = None
@@ -63,4 +67,6 @@ class Tenant(TenantBase, TimestampSchema):
     class Config:
         from_attributes = True
         populate_by_name = True
+
+
         

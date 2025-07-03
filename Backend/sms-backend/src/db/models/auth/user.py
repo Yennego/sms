@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, JSON, ForeignKey, Table
+from sqlalchemy import Column, String, Boolean, DateTime, JSON, ForeignKey, Table, Integer
 from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
@@ -108,3 +108,5 @@ class User(Base, TimestampMixin, UUIDMixin):
     
     def __repr__(self):
         return f"<User {self.email}>"
+
+

@@ -1,11 +1,13 @@
 from sqlalchemy import Column, String, ForeignKey, Text, Boolean, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
+# from datetime import datetime
+from sqlalchemy import DateTime, func
 
-from src.db.models.base import TenantModel
+from src.db.models.base import Base, UUIDMixin
 
 
-class Notification(TenantModel):
+class Notification(Base, UUIDMixin):
     """Model representing a notification sent to users.
     
     This model tracks notifications sent to users, including details about the notification,
@@ -32,7 +34,9 @@ class Notification(TenantModel):
     notification_type = Column(String(50), nullable=False)  # email, sms, in-app
     status = Column(String(50), nullable=False, default="pending")  # pending, sent, delivered, read, failed
     is_read = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     notification_metadata = Column(JSON, nullable=True)  # Additional data like links, buttons, etc.
     
     def __repr__(self):
         return f"<Notification {self.id} - {self.title} - {self.notification_type}>"
+

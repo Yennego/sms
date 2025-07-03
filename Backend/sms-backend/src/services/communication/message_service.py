@@ -93,3 +93,4 @@ class SuperAdminMessageService(SuperAdminBaseService[Message, MessageCreate, Mes
         
         # Apply pagination and ordering
         return query.order_by(Message.sent_at.desc()).offset(skip).limit(limit).all()
+

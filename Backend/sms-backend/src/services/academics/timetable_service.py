@@ -72,3 +72,4 @@ class SuperAdminTimetableService(SuperAdminBaseService[Timetable, TimetableCreat
             query = query.filter(Timetable.tenant_id == tenant_id)
         
         return query.offset(skip).limit(limit).all()
+

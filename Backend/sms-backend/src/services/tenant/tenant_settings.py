@@ -43,3 +43,4 @@ class SuperAdminTenantSettingsService(SuperAdminBaseService[TenantSettings, Tena
         if not settings:
             return None
         return tenant_settings_crud.update(self.db, db_obj=settings, obj_in=settings_in)
+

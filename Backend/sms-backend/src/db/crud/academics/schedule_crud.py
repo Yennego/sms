@@ -41,3 +41,4 @@ class CRUDSchedule(TenantCRUDBase[Schedule, ScheduleCreate, ScheduleUpdate]):
 
 
 schedule_crud = CRUDSchedule(Schedule)
+

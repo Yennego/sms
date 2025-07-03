@@ -30,3 +30,4 @@ class PasswordPolicy:
             errors.append("Password must contain at least one special character")
             
         return errors
+

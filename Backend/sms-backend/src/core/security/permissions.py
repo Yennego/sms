@@ -65,6 +65,7 @@ def has_any_role(required_roles: List[str]):
     return dependency
 
 
+
 # Add this new function to permissions.py
 def admin_with_tenant_check():
     """Dependency that allows super-admins to access any tenant, but restricts admins to their specific tenant."""

@@ -5,3 +5,4 @@ __all__ = [
     "Tenant", "TenantCreate", "TenantUpdate",
     "TenantSettings", "TenantSettingsCreate", "TenantSettingsUpdate"
 ]
+

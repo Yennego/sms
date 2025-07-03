@@ -2,6 +2,7 @@
 Status code constants for the application.
 """
 
+
 # Success codes
 SUCCESS = 200
 CREATED = 201

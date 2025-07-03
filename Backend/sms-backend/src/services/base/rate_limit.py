@@ -139,3 +139,5 @@ def rate_limit(limit: int = 100, period: int = 60):
         return await rate_limiter.check_rate_limit(request)
     
     return check_rate_limit_dependency
+
+    

@@ -183,3 +183,5 @@ class TenantCRUDBase(Generic[TenantModelType, CreateSchemaType, UpdateSchemaType
         db.delete(obj)
         db.commit()
         return obj
+
+        

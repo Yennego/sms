@@ -67,3 +67,4 @@ class ExamWithDetails(Exam):
     teacher_name: str
     grade_name: str
     section_name: Optional[str] = None
+

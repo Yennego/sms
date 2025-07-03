@@ -32,3 +32,4 @@ class CRUDTenantSettings(TenantCRUDBase[TenantSettings, TenantSettingsCreate, Te
 
 
 tenant_settings = CRUDTenantSettings(TenantSettings)
+

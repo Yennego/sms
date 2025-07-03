@@ -53,3 +53,4 @@ class CRUDTimetable(TenantCRUDBase[Timetable, TimetableCreate, TimetableUpdate])
 
 
 timetable_crud = CRUDTimetable(Timetable)
+
