@@ -45,9 +45,21 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         self, db: Session, *, skip: int = 0, limit: int = 100
     ) -> List[ModelType]:
         """Get multiple records with pagination and optional filters."""
-        # id = self._ensure_uuid(id)
         return db.query(self.model).offset(skip).limit(limit).all()
     
+    def count(self, db: Session) -> int:
+        """Get total count of records."""
+        return db.query(self.model).count()
+    
+    def get_multi_with_count(
+        self, db: Session, *, skip: int = 0, limit: int = 100
+    ) -> tuple[List[ModelType], int]:
+        """Get multiple records with total count for pagination."""
+        query = db.query(self.model)
+        total = query.count()
+        items = query.offset(skip).limit(limit).all()
+        return items, total
+
     def create(self, db: Session, *, obj_in: CreateSchemaType) -> ModelType:
         """Create a new record."""
         obj_in_data = jsonable_encoder(obj_in)
@@ -131,7 +143,13 @@ class TenantCRUDBase(Generic[TenantModelType, CreateSchemaType, UpdateSchemaType
     ) -> TenantModelType:
         """Create a new record with tenant ID."""
         tenant_id = self._ensure_uuid(tenant_id)
-
+        
+        # Validate tenant exists
+        from src.db.models.tenant import Tenant
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id, Tenant.is_active == True).first()
+        if not tenant:
+            raise ValueError(f"Tenant {tenant_id} not found or inactive")
+    
         obj_in_data = jsonable_encoder(obj_in)
         # Ensure tenant_id is set
         obj_in_data["tenant_id"] = tenant_id

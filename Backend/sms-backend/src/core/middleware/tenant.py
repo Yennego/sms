@@ -34,17 +34,26 @@ async def get_tenant_from_request(
 ) -> Tenant:
     """
     Get tenant from request using multiple strategies:
-    1. X-Tenant-ID header
+    1. X-Tenant-ID header (UUID or code)
     2. Domain/subdomain
     """
     tenant = None
     
     # Strategy 1: Get from header
     if x_tenant_id:
-        tenant = db.query(Tenant).filter(
-            Tenant.slug == x_tenant_id,
-            Tenant.is_active == True
-        ).first()
+        # Try to parse as UUID first
+        try:
+            tenant_uuid = UUID(x_tenant_id)
+            tenant = db.query(Tenant).filter(
+                Tenant.id == tenant_uuid,
+                Tenant.is_active == True
+            ).first()
+        except ValueError:
+            # If not a valid UUID, try as code
+            tenant = db.query(Tenant).filter(
+                Tenant.code == x_tenant_id.upper(),
+                Tenant.is_active == True
+            ).first()
     
     # Strategy 2: Get from domain
     if not tenant:
@@ -80,12 +89,27 @@ async def tenant_middleware(request: Request, call_next):
         
         # Strategy 1: Get from header
         if tenant_header:
-            tenant = db.query(Tenant).filter(Tenant.slug == tenant_header).first()
+            # Try to parse as UUID first
+            try:
+                tenant_uuid = UUID(tenant_header)
+                tenant = db.query(Tenant).filter(
+                    Tenant.id == tenant_uuid,
+                    Tenant.is_active == True
+                ).first()
+            except ValueError:
+                # If not a valid UUID, try as code
+                tenant = db.query(Tenant).filter(
+                    Tenant.code == tenant_header.upper(),
+                    Tenant.is_active == True
+                ).first()
         
         # Strategy 2: Get from domain
         if not tenant:
             domain = request.headers.get("host", "").split(":")[0]
-            tenant = db.query(Tenant).filter(Tenant.domain == domain).first()
+            tenant = db.query(Tenant).filter(
+                Tenant.domain == domain,
+                Tenant.is_active == True
+            ).first()
         
         if tenant and tenant.is_active:
             # Set tenant ID in context

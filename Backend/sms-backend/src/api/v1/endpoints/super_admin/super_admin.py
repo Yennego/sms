@@ -10,20 +10,36 @@ from sqlalchemy import text
 from src.db.crud import tenant as tenant_crud
 from src.db.crud import tenant_settings as tenant_settings_crud
 from src.db.crud import user as user_crud
-from src.db.session import get_super_admin_db
+from src.db.crud import user_role as user_role_crud
+from src.db.crud import permission as permission_crud
+from src.db.session import get_super_admin_db, get_db
+from src.schemas.base.base import PaginatedResponse
 from src.schemas.tenant import Tenant, TenantCreate, TenantUpdate
 from src.schemas.tenant import TenantSettings, TenantSettingsCreate, TenantSettingsUpdate
-from src.schemas.auth import User as UserSchema  # Rename to avoid confusion
-from src.db.models.auth.user import User  # Import the SQLAlchemy model
+from src.schemas.auth import User as UserSchema
+from src.schemas.auth.user import UserWithRoles, UserCreateCrossTenant, UserCreateResponse, UserUpdate
+# Import SQLAlchemy models for database queries
+from src.db.models.auth.user import User
+from src.db.models.auth.user_role import UserRole as UserRoleModel
+from src.db.models.auth.permission import Permission as PermissionModel
 from src.core.security.permissions import require_super_admin
-from src.schemas.auth.user import UserWithRoles
-from src.db.models.auth.user_role import UserRole
+from src.schemas.auth.user_role import UserRole, UserRoleCreate
+from src.schemas.auth.permission import Permission, PermissionCreate
 from src.services.tenant.dashboard import DashboardMetricsService
+from src.services.email import send_new_user_email
 from sqlalchemy.orm import joinedload
+
+
+# Add these imports at the top with other imports
+from src.db.crud import user as user_crud
+from src.schemas.auth import UserCreate
+from src.api.v1.endpoints.auth.auth import UserCreateResponse
+from src.services.auth.password import generate_default_password
+from src.services.email import send_new_user_email
 
 router = APIRouter()
 
-@router.get("/tenants", response_model=List[Tenant])
+@router.get("/tenants", response_model=PaginatedResponse[Tenant])
 def get_all_tenants(
     *,
     db: Session = Depends(get_super_admin_db),
@@ -31,8 +47,17 @@ def get_all_tenants(
     skip: int = 0,
     limit: int = 100
 ) -> Any:
-    """Get all tenants (super-admin only)."""
-    return tenant_crud.get_multi(db, skip=skip, limit=limit)
+    """Get all tenants with pagination (super-admin only)."""
+    tenants, total = tenant_crud.get_multi_with_count(db, skip=skip, limit=limit)
+    
+    return PaginatedResponse(
+        items=tenants,
+        total=total,
+        skip=skip,
+        limit=limit,
+        has_next=skip + limit < total,
+        has_prev=skip > 0
+    )
 
 @router.post("/tenants", response_model=Tenant, status_code=status.HTTP_201_CREATED)
 def create_tenant(
@@ -42,13 +67,81 @@ def create_tenant(
     tenant_in: TenantCreate
 ) -> Any:
     """Create a new tenant (super-admin only)."""
+    # Add detailed logging for debugging
+    print(f"[DEBUG] Attempting to create tenant with data: {tenant_in.model_dump()}")
+    print(f"[DEBUG] Raw tenant data type: {type(tenant_in)}")
+    print(f"[DEBUG] Raw tenant data dir: {dir(tenant_in)}")
+    
+    # Validate code format
+    if not tenant_in.code:
+        print(f"[DEBUG] Tenant code is empty")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Tenant code is required"
+        )
+    
+    print(f"[DEBUG] Tenant code value: '{tenant_in.code}', type: {type(tenant_in.code)}")
+    print(f"[DEBUG] Tenant code length: {len(tenant_in.code)}")
+    
+    if len(tenant_in.code) < 2:
+        print(f"[DEBUG] Tenant code too short: {tenant_in.code}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Tenant code must be at least 2 characters long"
+        )
+    
+    print(f"[DEBUG] Checking if code is alphanumeric: '{tenant_in.code}'")
+    print(f"[DEBUG] isalnum() result: {tenant_in.code.isalnum()}")
+    
+    if not tenant_in.code.isalnum():
+        print(f"[DEBUG] Tenant code contains non-alphanumeric characters: {tenant_in.code}")
+        print(f"[DEBUG] Character analysis: {[(c, c.isalnum()) for c in tenant_in.code]}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Tenant code must contain only alphanumeric characters"
+        )
+    
+    # Check for existing tenant
+    print(f"[DEBUG] Checking for existing tenant with code: {tenant_in.code}")
     tenant_obj = tenant_crud.get_by_code(db, code=tenant_in.code)
     if tenant_obj:
+        print(f"[DEBUG] Tenant with code {tenant_in.code} already exists (ID: {tenant_obj.id})")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Tenant with this code already exists"
         )
-    return tenant_crud.create(db, obj_in=tenant_in)
+    
+    # Validate name
+    if not tenant_in.name:
+        print(f"[DEBUG] Tenant name is empty")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Tenant name is required"
+        )
+    
+    print(f"[DEBUG] Tenant name value: '{tenant_in.name}', type: {type(tenant_in.name)}")
+    print(f"[DEBUG] Tenant name length: {len(tenant_in.name)}")
+    
+    if len(tenant_in.name) < 3:
+        print(f"[DEBUG] Tenant name too short: {tenant_in.name}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Tenant name must be at least 3 characters long"
+        )
+    
+    try:
+        print(f"[DEBUG] Creating tenant in database")
+        new_tenant = tenant_crud.create(db, obj_in=tenant_in)
+        print(f"[DEBUG] Successfully created tenant: {new_tenant.id} - {new_tenant.code}")
+        return new_tenant
+    except Exception as e:
+        print(f"[DEBUG] Error creating tenant: {str(e)}")
+        import traceback
+        print(f"[DEBUG] Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating tenant: {str(e)}"
+        )
 
 @router.put("/tenants/{tenant_id}", response_model=Tenant)
 def update_tenant(
@@ -150,7 +243,7 @@ def update_tenant_settings(
 async def get_all_users(
     *,
     db: Session = Depends(get_super_admin_db),
-    _: UserSchema = Depends(require_super_admin()),
+    _: User = Depends(require_super_admin()),
     skip: int = 0,
     limit: int = 100,
     email: Optional[str] = None,
@@ -162,7 +255,7 @@ async def get_all_users(
     """Get all users across all tenants with filtering and sorting (super-admin only)."""
     # Use joinedload to eagerly load roles and their permissions
     query = db.query(User).options(
-        joinedload(User.roles).joinedload(UserRole.permissions)
+        joinedload(User.roles).joinedload(UserRoleModel.permissions)
     )
     
     # Apply filters
@@ -277,28 +370,28 @@ def view_system_reports(
             detail=f"Unsupported report type: {report_type}"
         )
 
-# At the top with other imports
-from src.db.crud import user as user_crud
-from src.schemas.auth import UserCreate
-from src.api.v1.endpoints.auth.auth import UserCreateResponse
-from src.services.auth.password import generate_default_password
-from src.services.email import send_new_user_email
+
 
 # Define UserCreateResponse locally if you don't want to move it to schemas
 class UserCreateResponse(UserSchema):
     generated_password: Optional[str] = None
 
-# Add this new endpoint for cross-tenant user creation
+# Add these imports at the top
+from src.db.crud import user_role as user_role_crud
+from src.schemas.auth.user import UserUpdate
+
+# In the create_user_cross_tenant function, around line 400-450
 @router.post("/users", response_model=UserCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_user_cross_tenant(
     *,
-    db: Session = Depends(get_super_admin_db),
-    _: UserSchema = Depends(require_super_admin()),  # Use UserSchema instead of User
-    user_in: UserCreate,
-    tenant_id: UUID = Query(..., description="The tenant ID to create the user in"),
-    role_id: Optional[UUID] = Query(None, description="Role ID to assign to the user")
+    db: Session = Depends(get_db),
+    user_in: UserCreateCrossTenant,
+    tenant_id: UUID = Query(..., description="Target tenant ID for user creation"),  # Add this parameter
+    role_id: Optional[UUID] = Query(None, description="Optional role ID to assign"),  # Add this parameter
+    _: UserSchema = Depends(require_super_admin()),
 ) -> Any:
     """Create a new user in any tenant (super-admin only)."""
+    
     # Check if tenant exists
     tenant = tenant_crud.get(db, id=tenant_id)
     if not tenant:
@@ -308,13 +401,11 @@ def create_user_cross_tenant(
         )
     
     # Override the tenant_id in user_in with the one from query parameter
-    # This ensures we use the query parameter tenant_id regardless of what's in the body
-    user_in_dict = user_in.model_dump()
-    user_in_dict["tenant_id"] = tenant_id
+    user_create_data = user_in.model_copy(update={"tenant_id": tenant_id})
     
     # Check if user with this email already exists
-    user = user_crud.get_by_email(db, tenant_id=tenant_id, email=user_in.email)
-    if user:
+    existing_user = user_crud.get_by_email(db, tenant_id=tenant_id, email=user_in.email)
+    if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User with this email already exists"
@@ -323,46 +414,59 @@ def create_user_cross_tenant(
     # Generate password if not provided
     password = user_in.password
     password_was_generated = False
-    if not password:
-        password = generate_default_password()
-        password_was_generated = True
-        # Set the password in the user_in object
-        user_in.password = password
-        
-    # Create user
-    user = user_crud.create(db, tenant_id=tenant_id, obj_in=user_in)
     
-    # Assign role if provided
-    if role_id:
+    if not password or password == '':
+        password_was_generated = True
+        print(f"DEBUG: Password will be generated at CRUD level")
+    
+    # Create user
+    user = user_crud.create(db, tenant_id=tenant_id, obj_in=user_create_data)
+    print(f"DEBUG: User created with ID: {user.id}")
+    
+    # Get the generated password from the user object if it was generated
+    generated_password = getattr(user, 'generated_password', None)
+    
+    # **ENHANCED: Automatic role assignment logic**
+    if role_id or user_in.role_id:
+        # Use provided role_id (query param takes precedence)
+        target_role_id = role_id or user_in.role_id
         try:
-            # Insert into user_role_association table
             db.execute(
                 text("INSERT INTO user_role_association (user_id, role_id) VALUES (:user_id, :role_id)"),
-                {"user_id": str(user.id), "role_id": str(role_id)}
+                {"user_id": str(user.id), "role_id": str(target_role_id)}
             )
             db.commit()
         except Exception as e:
-            # Log the error but don't fail the request
             print(f"Error assigning role: {e}")
-            # Check if it's a duplicate role assignment
-            try:
-                result = db.execute(
-                    text("SELECT 1 FROM user_role_association WHERE user_id = :user_id AND role_id = :role_id"),
-                    {"user_id": str(user.id), "role_id": str(role_id)}
-                )
-                if result.fetchone():
-                    print("Role association already exists")
-            except Exception:
-                pass
+    else:
+        # **NEW: Auto-assign admin role for tenant administrators**
+        # Check if this is the first user in the tenant (making them the tenant admin)
+        tenant_user_count = db.query(User).filter(User.tenant_id == tenant_id).count()
+        
+        if tenant_user_count == 1:  # First user in tenant = tenant admin
+            admin_role = user_role_crud.get_by_name(db, name="admin")
+            if admin_role:
+                try:
+                    db.execute(
+                        text("INSERT INTO user_role_association (user_id, role_id) VALUES (:user_id, :role_id)"),
+                        {"user_id": str(user.id), "role_id": str(admin_role.id)}
+                    )
+                    db.commit()
+                    print(f"Auto-assigned 'admin' role to first user in tenant: {user.email}")
+                except Exception as e:
+                    print(f"Error auto-assigning admin role: {e}")
     
     # Send email with login details if password was generated
-    if password_was_generated:
-        send_new_user_email(user.email, user.first_name, password)
+    if password_was_generated and generated_password:
+        try:
+            send_new_user_email(user.email, user.first_name, generated_password)
+        except Exception as e:
+            print(f"Error sending email: {e}")
     
     # Create response with the generated password if it exists
     response = UserCreateResponse.model_validate(user, from_attributes=True)
-    if password_was_generated:
-        response.generated_password = password
+    if password_was_generated and generated_password:
+        response.generated_password = generated_password
     
     return response
 
@@ -531,3 +635,178 @@ def deactivate_tenant(
     # Update the tenant's active status
     update_data = {"is_active": False}
     return tenant_crud.update(db, db_obj=tenant_obj, obj_in=update_data)
+
+@router.put("/users/{user_id}", response_model=UserSchema)
+def update_user_cross_tenant(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+    user_id: UUID,
+    user_in: UserUpdate
+) -> Any:
+    """Update a user across any tenant (super-admin only)."""
+    # Use global user lookup (not tenant-scoped)
+    user = user_crud.get_by_id_global(db, id=user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Update the user using their actual tenant_id
+    updated_user = user_crud.update(db, tenant_id=user.tenant_id, db_obj=user, obj_in=user_in)
+    return updated_user
+
+# Add these endpoints after the existing endpoints (around line 640)
+
+@router.get("/roles", response_model=List[UserRole])
+def get_all_roles(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+    skip: int = 0,
+    limit: int = 100
+) -> Any:
+    """Get all roles across all tenants (super-admin only)."""
+    return user_role_crud.get_multi(db, skip=skip, limit=limit)
+
+@router.post("/roles", response_model=UserRole, status_code=status.HTTP_201_CREATED)
+def create_role_cross_tenant(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+    role_in: UserRoleCreate
+) -> Any:
+    """Create a new role (super-admin only)."""
+    # Check if role with this name already exists
+    role = user_role_crud.get_by_name(db, name=role_in.name)
+    if role:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Role with this name already exists"
+        )
+    return user_role_crud.create(db, obj_in=role_in)
+
+@router.get("/roles/{role_id}", response_model=UserRole)
+def get_role(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+    role_id: UUID
+) -> Any:
+    """Get a specific role (super-admin only)."""
+    role = user_role_crud.get(db, id=role_id)
+    if not role:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Role not found"
+        )
+    return role
+
+@router.get("/roles/{role_id}/permissions", response_model=List[Permission])
+def get_role_permissions(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+    role_id: UUID
+) -> Any:
+    """Get permissions assigned to a role (super-admin only)."""
+    role = user_role_crud.get(db, id=role_id)
+    if not role:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Role not found"
+        )
+    return role.permissions
+
+@router.post("/roles/{role_id}/permissions", response_model=UserRole)
+def add_permissions_to_role(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+    role_id: UUID,
+    permission_names: List[str]
+) -> Any:
+    """Add permissions to a role (super-admin only)."""
+    # Check if role exists
+    role = user_role_crud.get(db, id=role_id)
+    if not role:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Role not found"
+        )
+    
+    # Get permissions by names
+    permissions = permission_crud.get_multi_by_names(db, names=permission_names)
+    if len(permissions) != len(permission_names):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="One or more permissions not found"
+        )
+    
+    # Add permissions to role
+    permission_ids = [p.id for p in permissions]
+    return user_role_crud.add_permissions_to_role(db, role_id=role_id, permission_ids=permission_ids)
+
+@router.get("/permissions", response_model=List[Permission])
+def get_all_permissions(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+    skip: int = 0,
+    limit: int = 100
+) -> Any:
+    """Get all permissions (super-admin only)."""
+    return permission_crud.get_multi(db, skip=skip, limit=limit)
+
+@router.post("/permissions", response_model=Permission, status_code=status.HTTP_201_CREATED)
+def create_permission(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+    permission_in: PermissionCreate
+) -> Any:
+    """Create a new permission (super-admin only)."""
+    # Check if permission with this name already exists
+    permission = permission_crud.get_by_name(db, name=permission_in.name)
+    if permission:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Permission with this name already exists"
+        )
+    return permission_crud.create(db, obj_in=permission_in)
+
+@router.post("/users/{user_id}/roles")
+def assign_roles_to_user(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+    user_id: UUID,
+    role_ids: List[UUID]
+) -> Any:
+    """Assign roles to a user (super-admin only)."""
+    # Get user using global lookup
+    user = user_crud.get_by_id_global(db, id=user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Get roles
+    roles = []
+    for role_id in role_ids:
+        role = user_role_crud.get(db, id=role_id)
+        if not role:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Role with ID {role_id} not found"
+            )
+        roles.append(role)
+    
+    # Assign roles to user
+    user.roles = roles
+    db.commit()
+    db.refresh(user)
+    
+    return {"message": "Roles assigned successfully"}

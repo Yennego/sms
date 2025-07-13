@@ -1,12 +1,14 @@
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime, timedelta
-from fastapi import Request
+from fastapi import Request, Depends
+from sqlalchemy.orm import Session
 
-from src.db.crud.logging import activity_log as activity_log_crud
+from src.db.crud.logging.activity_log import activity_log_crud
 from src.db.models.logging.activity_log import ActivityLog
 from src.schemas.logging.activity_log import ActivityLogCreate, ActivityLogUpdate
 from src.services.base.base import TenantBaseService, SuperAdminBaseService
+from src.db.session import get_super_admin_db
 
 
 class AuditLoggingService(TenantBaseService[ActivityLog, ActivityLogCreate, ActivityLogUpdate]):
@@ -108,5 +110,37 @@ class SuperAdminAuditLoggingService(SuperAdminBaseService[ActivityLog, ActivityL
         
         # Apply pagination
         return query.offset(skip).limit(limit).all()
+    
+    def get_by_date_range(self, start_date: datetime, end_date: datetime, **filters) -> List[ActivityLog]:
+        """Get audit logs within a date range with additional filters."""
+        return self.get_all_activity_logs(
+            start_date=start_date, end_date=end_date, **filters
+        )
+    
+    def generate_activity_report(self, start_date: datetime, end_date: datetime, 
+                               tenant_id: Optional[UUID] = None) -> Dict[str, Any]:
+        """Generate an activity report for the specified date range."""
+        logs = self.get_all_activity_logs(
+            start_date=start_date, end_date=end_date, tenant_id=tenant_id
+        )
+        
+        # Generate report statistics
+        total_activities = len(logs)
+        unique_users = len(set(log.user_id for log in logs if log.user_id))
+        actions_by_type = {}
+        
+        for log in logs:
+            action = log.action
+            actions_by_type[action] = actions_by_type.get(action, 0) + 1
+        
+        return {
+            "total_activities": total_activities,
+            "unique_users": unique_users,
+            "actions_by_type": actions_by_type,
+            "date_range": {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat()
+            }
+        }
 
         

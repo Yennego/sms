@@ -96,7 +96,7 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
         """Create a new user with password hashing."""
         # If password is not provided or is empty, generate a default password
         password = obj_in.password
-        if not password:
+        if not password:  # This triggers for empty string!
             password = generate_default_password()
             
         db_obj = User(

@@ -18,3 +18,4 @@ class TokenPayload(BaseModel):
     tenant_id: Optional[str] = None
     exp: int
     type: str
+    is_super_admin: bool = False  # Add this field

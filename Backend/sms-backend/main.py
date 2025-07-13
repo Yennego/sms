@@ -10,6 +10,7 @@ from src.core.config import settings
 # from src.db.init_db import init_db
 # from src.db.session import SessionLocal
 from src.core.logging import setup_logging
+from src.core.middleware.audit_middleware import AuditLoggingMiddleware
 
 setup_logging()
 
@@ -41,17 +42,21 @@ app = FastAPI(
 # Set up CORS middleware
 if settings.BACKEND_CORS_ORIGINS:
     print(f"CORS Origins: {settings.BACKEND_CORS_ORIGINS}")
+    from fastapi.middleware.cors import CORSMiddleware
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
+        allow_origins=["http://localhost:3000"],  # Your frontend URL
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        # allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["*"],
+        allow_headers=["*", "X-Tenant-ID"],  # Explicitly allow X-Tenant-ID header
     )
 
+print("📢 API prefix:", settings.API_V1_STR)
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
+for route in app.routes:
+    print(f"🛣️ {route.path}")
 
 @app.get("/")
 def root():
@@ -120,6 +125,9 @@ app.openapi = custom_openapi
 @app.get("/test-cors")
 async def test_cors():
     return {"message": "CORS is working!"}
+
+# Add this after creating the FastAPI app
+app.add_middleware(AuditLoggingMiddleware)
 
 if __name__ == "__main__":
     import uvicorn

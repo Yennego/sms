@@ -45,10 +45,11 @@ class Settings(BaseSettings):
     REDIS_PASSWORD: Optional[str] = os.getenv("REDIS_PASSWORD", None)
     
     # Email settings
-    SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+    SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp-mail.outlook.com")
     SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
-    SENDER_EMAIL: str = os.getenv("SENDER_EMAIL", "your-dev-email@gmail.com")
-    SENDER_PASSWORD: str = os.getenv("SENDER_PASSWORD", "your-app-password")
+    SENDER_EMAIL: str = os.getenv("SENDER_EMAIL", "topfoundation@outlook.com")
+    SENDER_PASSWORD: str = os.getenv("SENDER_PASSWORD", "your-outlook-password")
+    SMTP_USE_TLS: bool = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
     
     class Config:
         env_file = ".env"
@@ -57,3 +58,16 @@ class Settings(BaseSettings):
 
 # Create settings instance
 settings = Settings()
+
+
+# Email settings - require environment variables
+SMTP_SERVER: str = os.getenv("SMTP_SERVER")
+SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+SENDER_EMAIL: str = os.getenv("SENDER_EMAIL")
+SENDER_PASSWORD: str = os.getenv("SENDER_PASSWORD")
+SMTP_USE_TLS: bool = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
+
+# Add validation in __init__ or post_init
+def validate_email_config(self):
+    if not all([self.SMTP_SERVER, self.SENDER_EMAIL, self.SENDER_PASSWORD]):
+        raise ValueError("Email configuration is incomplete. Please set SMTP_SERVER, SENDER_EMAIL, and SENDER_PASSWORD environment variables.")

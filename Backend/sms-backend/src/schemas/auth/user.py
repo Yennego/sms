@@ -21,8 +21,14 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     """Schema for creating a new user."""
-    password: str
+    password: Optional[str] = None 
     tenant_id: UUID
+
+
+class UserCreateCrossTenant(UserCreate):
+    """Schema for creating a user across tenants (super-admin only)."""
+    role_id: Optional[UUID] = None  # Optional role assignment
+    tenant_id: UUID  # Required tenant ID for cross-tenant creation
 
 
 class UserUpdate(BaseModel):
@@ -65,3 +71,7 @@ class UserWithRoles(User):
 # Add this class to the file
 class UserCreateResponse(User):
     generated_password: Optional[str] = None
+
+class UserWithRole(UserWithRoles):
+    """Schema for User model response with role field."""
+    role: Optional[str] = None

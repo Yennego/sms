@@ -34,7 +34,14 @@ if len(db_url_parts) > 1:
     masked_url = db_url_parts[0].split(':')[0] + ':***@' + db_url_parts[1]
     logger.info(f"Connecting to database: {masked_url}")
 
-engine = create_engine(settings.DATABASE_URL)
+# Optimize engine with connection pooling
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_size=10,
+    max_overflow=20,
+    pool_pre_ping=True,
+    pool_recycle=3600
+)
 
 # Add connection event listeners
 @event.listens_for(engine, "connect")

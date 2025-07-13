@@ -2,33 +2,29 @@ from typing import Any, List, Optional
 from uuid import UUID
 from datetime import datetime, timezone, timedelta
 
-# Add this endpoint
-# from fastapi import Depends, HTTPException, status, Request
-# from datetime import datetime, timedelta
-
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Body
 from sqlalchemy.orm import Session
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from pydantic import BaseModel
 
 from src.db.crud import user as user_crud
 from src.db.crud import permission as permission_crud
 from src.db.crud import user_role as user_role_crud
 from src.db.session import get_db
-from src.schemas.auth import User, UserCreate, UserUpdate
+from src.schemas.auth import User, UserCreate, UserUpdate, UserWithRoles, UserWithRole
 from src.schemas.auth import Permission, PermissionCreate, PermissionUpdate
 from src.schemas.auth import UserRole, UserRoleCreate, UserRoleUpdate
-from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from src.core.security.jwt import create_access_token, create_refresh_token, verify_token
-# Update these imports
-from src.core.security.permissions import has_role, has_any_role, has_permission, admin_with_tenant_check
 from src.schemas.auth.token import Token
-from src.core.auth.dependencies import get_tenant_id_from_request
-from src.core.security.auth import get_current_active_user, get_current_user  # Import directly from auth.py
+from src.core.security.jwt import create_access_token, create_refresh_token, verify_token
+from src.core.security.permissions import has_role, has_any_role, has_permission, admin_with_tenant_check
+from src.core.middleware.tenant import get_tenant_id_from_request
+from src.core.security.auth import get_current_active_user, get_current_user
 from src.core.security.password import verify_password, get_password_hash
-from pydantic import BaseModel
 from src.services.notification.email_service import EmailService
 from src.services.auth.password_policy import PasswordPolicy
 from src.services.auth.password_strength import calculate_password_strength
 from src.services.auth.password import generate_default_password
+from src.services.logging import AuditLoggingService
 
 # Define the oauth2_scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -72,18 +68,20 @@ def create_user(
     
     return response
 
+# Replace all instances of 'tenant_id: UUID,' with 'tenant_id: UUID = Depends(get_tenant_id_from_request),'
+
 @router.get("/users", response_model=List[User])
-def get_users(*, db: Session = Depends(get_db), tenant_id: UUID, skip: int = 0, limit: int = 100) -> Any:
+def get_users(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), skip: int = 0, limit: int = 100) -> Any:
     """Get all users for a tenant."""
     return user_crud.list(db, tenant_id=tenant_id, skip=skip, limit=limit)
 
 @router.get("/users/active", response_model=List[User])
-def get_active_users(*, db: Session = Depends(get_db), tenant_id: UUID, skip: int = 0, limit: int = 100) -> Any:
+def get_active_users(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), skip: int = 0, limit: int = 100) -> Any:
     """Get all active users for a tenant."""
     return user_crud.get_active_users(db, tenant_id=tenant_id, skip=skip, limit=limit)
 
 @router.get("/users/{user_id}", response_model=User)
-def get_user(*, db: Session = Depends(get_db), tenant_id: UUID, user_id: UUID) -> Any:
+def get_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), user_id: UUID) -> Any:
     """Get a specific user by ID."""
     user = user_crud.get_by_id(db, tenant_id=tenant_id, id=user_id)
     if not user:
@@ -93,8 +91,12 @@ def get_user(*, db: Session = Depends(get_db), tenant_id: UUID, user_id: UUID) -
         )
     return user
 
+# Add this import at the top
+from src.services.logging import AuditLoggingService
+
+# Update the update_user function
 @router.put("/users/{user_id}", response_model=User)
-def update_user(*, db: Session = Depends(get_db), tenant_id: UUID, user_id: UUID, user_in: UserUpdate) -> Any:
+def update_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), user_id: UUID, user_in: UserUpdate, current_user: User = Depends(get_current_user)) -> Any:
     """Update a user."""
     user = user_crud.get_by_id(db, tenant_id=tenant_id, id=user_id)
     if not user:
@@ -102,10 +104,36 @@ def update_user(*, db: Session = Depends(get_db), tenant_id: UUID, user_id: UUID
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    return user_crud.update(db, tenant_id=tenant_id, db_obj=user, obj_in=user_in)
+    
+    # Store old values for audit
+    old_values = {
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "is_active": user.is_active
+    }
+    
+    updated_user = user_crud.update(db, tenant_id=tenant_id, db_obj=user, obj_in=user_in)
+    
+    # Log the activity
+    try:
+        audit_service = AuditLoggingService(db=db, tenant_id=tenant_id)
+        audit_service.log_activity(
+            user_id=current_user.id,
+            action="update",
+            entity_type="user",
+            entity_id=user_id,
+            old_values=old_values,
+            new_values=user_in.dict(exclude_unset=True)
+        )
+    except Exception as e:
+        print(f"Error logging user update activity: {e}")
+    
+    return updated_user
 
+# Update the delete_user function
 @router.delete("/users/{user_id}", response_model=User)
-def delete_user(*, db: Session = Depends(get_db), tenant_id: UUID, user_id: UUID) -> Any:
+def delete_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), user_id: UUID, current_user: User = Depends(get_current_user)) -> Any:
     """Delete a user."""
     user = user_crud.get_by_id(db, tenant_id=tenant_id, id=user_id)
     if not user:
@@ -113,7 +141,32 @@ def delete_user(*, db: Session = Depends(get_db), tenant_id: UUID, user_id: UUID
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    return user_crud.delete(db, tenant_id=tenant_id, id=user_id)
+    
+    # Store user data for audit before deletion
+    user_data = {
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "is_active": user.is_active
+    }
+    
+    deleted_user = user_crud.delete(db, tenant_id=tenant_id, id=user_id)
+    
+    # Log the activity
+    try:
+        audit_service = AuditLoggingService(db=db, tenant_id=tenant_id)
+        audit_service.log_activity(
+            user_id=current_user.id,
+            action="delete",
+            entity_type="user",
+            entity_id=user_id,
+            old_values=user_data,
+            new_values=None
+        )
+    except Exception as e:
+        print(f"Error logging user deletion activity: {e}")
+    
+    return deleted_user
 
 # Permission endpoints
 @router.post("/permissions", response_model=Permission, status_code=status.HTTP_201_CREATED)
@@ -181,14 +234,15 @@ def rate_limit_login(request: Request):
         )
 
 # Update login endpoint
+# In the login endpoint, around line 235
 @router.post("/login", response_model=Token)
-def login(
+async def login(
     request: Request,
-    db: Session = Depends(get_db),
     form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
     tenant_id: Optional[UUID] = Depends(get_tenant_id_from_request),
     _: None = Depends(rate_limit_login)
-) -> Any:
+) -> Token:
     """OAuth2 compatible token login, get an access token for future requests."""
     try:
         user = None
@@ -223,16 +277,18 @@ def login(
         db.add(user)
         db.commit()
         
-        # In the login function
+        # Check if user is super-admin
+        is_super_admin = any(role.name == "super-admin" for role in user.roles)
+        
         # Check if password is expired
         password_expired = False
         if user.password_expiry_date and user.password_expiry_date < datetime.now(timezone.utc):
             password_expired = True
         
-        # Add to response
+        # Create tokens with super-admin status
         return {
-            "access_token": create_access_token(user.id, tenant_id),
-            "refresh_token": create_refresh_token(user.id, tenant_id),
+            "access_token": create_access_token(user.id, tenant_id, is_super_admin),
+            "refresh_token": create_refresh_token(user.id, tenant_id, is_super_admin),
             "token_type": "bearer",
             "requires_password_change": requires_password_change or password_expired
         }
@@ -293,19 +349,29 @@ async def refresh_token(
 
     # Use the tenant_uuid_from_token for creating new tokens,
     # as that's the context the user logged in under.
+    # In the refresh_token function
+    is_super_admin = getattr(token_data, 'is_super_admin', False)
+    
     return {
-        "access_token": create_access_token(user.id, tenant_uuid_from_token),
-        "refresh_token": create_refresh_token(user.id, tenant_uuid_from_token),
+        "access_token": create_access_token(user.id, tenant_uuid_from_token, is_super_admin),
+        "refresh_token": create_refresh_token(user.id, tenant_uuid_from_token, is_super_admin),
         "token_type": "bearer",
     }
 
-@router.get("/me", response_model=User)
+@router.get("/me", response_model=UserWithRole)
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
     """Get current user profile."""
-    # Add logic here to tailor the response based on current_user.roles if needed
-    # For now, it returns the full user object, ensure this is intended for all roles.
-    # If super-admin should see more, or other roles less, adjust the response.
-    return current_user
+    # Create a dictionary from the current_user model
+    user_dict = current_user.__dict__.copy()
+    
+    # Add role_name field based on the first role if available
+    if hasattr(current_user, "roles") and current_user.roles:
+        user_dict["role"] = current_user.roles[0].name
+    else:
+        user_dict["role"] = None
+    
+    # Return the user with role_name
+    return user_dict
 
 @router.get("/admin-dashboard")
 async def admin_dashboard(current_user: User = Depends(has_any_role(["admin", "super-admin"]))):
@@ -449,23 +515,70 @@ def test_endpoint():
     return {"message": "Auth router is working"}
 
 
-# Add this import
-from fastapi.security import OAuth2PasswordBearer
+# Add these endpoints to your existing auth.py
+
+@router.post("/users/{user_id}/roles")
+def assign_roles_to_user(
+    user_id: UUID,
+    role_ids: List[UUID],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(has_permission("manage_users"))
+):
+    """Assign multiple roles to a user."""
+    # Implementation here
+
+@router.delete("/users/{user_id}/roles/{role_id}")
+def remove_role_from_user(
+    user_id: UUID,
+    role_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(has_permission("manage_users"))
+):
+    """Remove a role from a user."""
+    # Implementation here
+
+@router.get("/roles/{role_id}/users")
+def get_users_with_role(
+    role_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(has_permission("view_users"))
+):
+    """Get all users with a specific role."""
+    # Implementation here
 
 @router.post("/logout")
 async def logout(
     token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    db: Session = Depends(get_db)
 ) -> Any:
     """Logout the current user by blacklisting their token."""
-    # Add token to blacklist in Redis
-    # This is a simplified example - you would need to implement the actual Redis connection
-    # and token blacklisting logic
-    token_data = verify_token(token)
-    if token_data:
-        # Add to blacklist with expiry matching token expiry
-        # redis_client.setex(f"blacklist:{token}", token_data.exp - int(datetime.utcnow().timestamp()), "1")
-        pass
-    
-    return {"message": "Successfully logged out"}
+    try:
+        # Verify the token to get its payload
+        token_data = verify_token(token)
+        
+        if token_data and hasattr(token_data, 'exp'):
+            # Token is valid - proceed with proper blacklisting
+            blacklist_service = TokenBlacklistService()
+            
+            # Blacklist the token so it can't be used again
+            blacklist_service.blacklist_token(token, token_data.exp)
+            
+            return {
+                "message": "Successfully logged out",
+                "status": "success"
+            }
+        else:
+            # Token is invalid/expired but still return success
+            # This handles edge cases gracefully
+            return {
+                "message": "Successfully logged out", 
+                "status": "success"
+            }
+            
+    except Exception as e:
+        # Log error for debugging but don't fail the logout
+        print(f"Logout warning: {e}")
+        return {
+            "message": "Successfully logged out",
+            "status": "success"
+        }

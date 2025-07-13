@@ -15,7 +15,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 REFRESH_TOKEN_EXPIRE_DAYS = settings.REFRESH_TOKEN_EXPIRE_DAYS
 
 
-def create_access_token(subject: Union[str, UUID], tenant_id: Union[str, UUID], expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(subject: Union[str, UUID], tenant_id: Union[str, UUID], is_super_admin: bool = False, expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT access token."""
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
@@ -26,13 +26,14 @@ def create_access_token(subject: Union[str, UUID], tenant_id: Union[str, UUID], 
         "exp": expire,
         "sub": str(subject),
         "tenant_id": str(tenant_id),
-        "type": "access"
+        "type": "access",
+        "is_super_admin": is_super_admin  # Add this field
     }
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
 
-def create_refresh_token(subject: Union[str, UUID], tenant_id: Union[str, UUID]) -> str:
+def create_refresh_token(subject: Union[str, UUID], tenant_id: Union[str, UUID], is_super_admin: bool = False) -> str:
     """Create a JWT refresh token."""
     expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     
@@ -40,7 +41,8 @@ def create_refresh_token(subject: Union[str, UUID], tenant_id: Union[str, UUID])
         "exp": expire,
         "sub": str(subject),
         "tenant_id": str(tenant_id),
-        "type": "refresh"
+        "type": "refresh",
+        "is_super_admin": is_super_admin  # Add this field
     }
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -52,15 +54,17 @@ def verify_token(token: str) -> Optional[TokenPayload]:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         token_data = TokenPayload(**payload)
         
-        if datetime.fromtimestamp(token_data.exp) < datetime.utcnow():
+        # Fix: Use timezone-aware datetime comparison
+        if datetime.fromtimestamp(token_data.exp, tz=timezone.utc) < datetime.now(timezone.utc):
             return None
             
         # Check if token is blacklisted
-        # This is a simplified example - implement actual Redis check
-        # is_blacklisted = redis_client.exists(f"blacklist:{token}")
-        # if is_blacklisted:
-        #     return None
+        from src.services.auth.token_blacklist import TokenBlacklistService
+        blacklist_service = TokenBlacklistService()
+        if blacklist_service.is_token_blacklisted(token):
+            return None
             
         return token_data
-    except (jwt.JWTError, ValidationError):
+    except (jwt.JWTError, ValidationError) as e:
+        print(f"Token verification failed: {e}")
         return None

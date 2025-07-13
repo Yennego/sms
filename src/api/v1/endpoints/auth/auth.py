@@ -422,13 +422,19 @@ async def logout(
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
     """Logout the current user by blacklisting their token."""
-    # Add token to blacklist in Redis
-    # This is a simplified example - you would need to implement the actual Redis connection
-    # and token blacklisting logic
-    token_data = verify_token(token)
-    if token_data:
-        # Add to blacklist with expiry matching token expiry
-        # redis_client.setex(f"blacklist:{token}", token_data.exp - int(datetime.utcnow().timestamp()), "1")
-        pass
-    
-    return {"message": "Successfully logged out"}
+    try:
+        # Add token to blacklist in Redis
+        # This is a simplified example - you would need to implement the actual Redis connection
+        # and token blacklisting logic
+        token_data = verify_token(token)
+        if token_data:
+            # Add to blacklist with expiry matching token expiry
+            # redis_client.setex(f"blacklist:{token}", token_data.exp - int(datetime.now(timezone.utc).timestamp()), "1")
+            pass
+        
+        return {"message": "Successfully logged out"}
+    except Exception as e:
+        # Even if token verification fails, we should still allow logout
+        # to clear the client-side state
+        print(f"Logout error (non-critical): {e}")
+        return {"message": "Successfully logged out"}

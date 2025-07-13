@@ -1,7 +1,7 @@
 from typing import Any, TYPE_CHECKING
 from sqlalchemy import Column, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, declared_attr
 import uuid
 
 if TYPE_CHECKING:
@@ -25,18 +25,17 @@ class TenantMixin:
     
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("tenant.id", ondelete="CASCADE"),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False
     )
     
-    # Relationship to Tenant model
-    if TYPE_CHECKING:
-        tenant: "Tenant"
-    tenant = relationship(
-        "Tenant",
-        back_populates="records",
-        lazy="joined"  # Eager load tenant by default
-    )
+    # Relationship to Tenant model - must be declared_attr for mixins
+    @declared_attr
+    def tenant(cls):
+        return relationship(
+            "Tenant",
+            lazy="joined"  # Eager load tenant by default
+        )
     
     def __init__(self, **kwargs):
         if 'tenant_id' not in kwargs:

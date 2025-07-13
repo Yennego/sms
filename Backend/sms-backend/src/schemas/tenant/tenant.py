@@ -13,8 +13,8 @@ class TenantBase(BaseModel):
     name: str
     code: str
     is_active: bool = True
-    created_at: Optional[datetime]
-    updated_at: Optional[datetime]
+    # created_at: Optional[datetime]
+    # updated_at: Optional[datetime]
     domain: Optional[str] = None
     subdomain: Optional[str] = None
     logo: Optional[str] = None
@@ -42,7 +42,7 @@ class TenantUpdate(BaseModel):
     name: Optional[str] = None
     code: Optional[str] = None
     is_active: Optional[bool] = None
-    updated_at: Optional[datetime] = None
+    # updated_at: Optional[datetime] = None
     domain: Optional[str] = None
     subdomain: Optional[str] = None
     logo: Optional[str] = None

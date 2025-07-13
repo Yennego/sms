@@ -7,7 +7,6 @@ from src.db.models.base import TenantModel
 from src.db.crud.base import TenantCRUDBase
 from src.db.session import get_db, get_super_admin_db
 from src.core.middleware.tenant import get_tenant_from_request
-# Add this import at the top
 from src.utils.uuid_utils import ensure_uuid
 
 ModelType = TypeVar("ModelType", bound=TenantModel)
@@ -30,14 +29,17 @@ class TenantBaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         self.tenant_id = self._ensure_uuid(tenant_id_value)
         self.db = db
     
-    # Then in your TenantBaseService class
-    class TenantBaseService:
-        def __init__(self, db: Session, tenant_id: Any):
-            self.db = db
-            # Convert tenant_id to UUID if it's not already
-            self.tenant_id = ensure_uuid(tenant_id)
-            if self.tenant_id is None:
-                raise ValueError("Invalid tenant_id format")
+    def _ensure_uuid(self, value: Any) -> UUID:
+        """Ensure the value is a UUID object."""
+        if isinstance(value, str):
+            try:
+                return UUID(value)
+            except ValueError:
+                raise ValueError(f"Invalid UUID format: {value}")
+        elif isinstance(value, UUID):
+            return value
+        else:
+            raise ValueError(f"Value must be a UUID or valid UUID string: {value}")
     
     def get(self, id: Any) -> Optional[ModelType]:
         """Get a record by ID with tenant filtering."""
@@ -84,7 +86,16 @@ class SuperAdminBaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaTyp
         self.model = model
         self.db = db
     
-    # Super-admin specific methods that don't filter by tenant_id
-    # These methods will be implemented in derived classes
+    def _ensure_uuid(self, value: Any) -> UUID:
+        """Ensure the value is a UUID object."""
+        if isinstance(value, str):
+            try:
+                return UUID(value)
+            except ValueError:
+                raise ValueError(f"Invalid UUID format: {value}")
+        elif isinstance(value, UUID):
+            return value
+        else:
+            raise ValueError(f"Value must be a UUID or valid UUID string: {value}")
 
     

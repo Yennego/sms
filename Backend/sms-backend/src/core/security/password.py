@@ -1,8 +1,14 @@
+import time
 from passlib.context import CryptContext
 
-
-# Create password context using bcrypt
-password_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Alternative: Use Argon2 for better performance
+password_context = CryptContext(
+    schemes=["argon2", "bcrypt"], 
+    deprecated="auto",
+    argon2__memory_cost=65536,  # 64 MB
+    argon2__time_cost=3,        # 3 iterations
+    argon2__parallelism=1       # 1 thread
+)
 
 # Add this function to check bcrypt version
 def check_bcrypt_version():
@@ -22,7 +28,11 @@ check_bcrypt_version()
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against a hash."""
     try:
-        return password_context.verify(plain_password, hashed_password)
+        start_time = time.time()
+        result = password_context.verify(plain_password, hashed_password)
+        end_time = time.time()
+        print(f"Password verification took {end_time - start_time:.2f} seconds")
+        return result
     except Exception as e:
         print(f"Password verification error: {e}")
         return False

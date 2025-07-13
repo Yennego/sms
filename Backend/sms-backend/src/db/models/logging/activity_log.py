@@ -2,9 +2,10 @@ from sqlalchemy import Column, String, ForeignKey, JSON, Text
 from sqlalchemy.dialects.postgresql import UUID
 
 from src.db.models.base import TenantModel
+from src.db.models.base.tenant_mixin import TenantMixin
 
 
-class ActivityLog(TenantModel):
+class ActivityLog(TenantMixin, TenantModel):
     """Model representing an activity log entry.
     
     This model tracks user activities and system events within a tenant.

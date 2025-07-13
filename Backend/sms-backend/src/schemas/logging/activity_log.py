@@ -1,6 +1,6 @@
 from typing import Optional, Dict, Any
 from uuid import UUID
-from datetime import date
+from datetime import datetime
 from pydantic import BaseModel
 
 
@@ -37,8 +37,8 @@ class ActivityLogInDB(ActivityLogBase):
     """Schema for ActivityLog model in database."""
     id: UUID
     tenant_id: UUID
-    created_at: date
-    updated_at: date
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

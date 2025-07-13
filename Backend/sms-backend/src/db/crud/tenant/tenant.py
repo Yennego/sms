@@ -13,17 +13,34 @@ class CRUDTenant(CRUDBase[Tenant, TenantCreate, TenantUpdate]):
         """Get a tenant by its code."""
         return db.query(Tenant).filter(Tenant.code == code.upper()).first()
     
+    def get_by_domain(self, db: Session, domain: str) -> Optional[Tenant]:
+        """Get a tenant by its domain."""
+        return db.query(Tenant).filter(Tenant.domain == domain).first()
+    
     def create(self, db: Session, *, obj_in: TenantCreate) -> Tenant:
         """Create a new tenant."""
+        # Add logging
+        print(f"[DEBUG] CRUD create tenant with data: {obj_in.model_dump()}")
+        
         # Ensure code is uppercase
         obj_in_data = obj_in.model_dump()
         obj_in_data["code"] = obj_in_data["code"].upper()
+        print(f"[DEBUG] Processed tenant data: {obj_in_data}")
         
-        db_obj = Tenant(**obj_in_data)
-        db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
-        return db_obj
+        try:
+            db_obj = Tenant(**obj_in_data)
+            print(f"[DEBUG] Created tenant object: {db_obj}")
+            db.add(db_obj)
+            db.commit()
+            db.refresh(db_obj)
+            print(f"[DEBUG] Successfully committed tenant: {db_obj.id} - {db_obj.code}")
+            return db_obj
+        except Exception as e:
+            print(f"[DEBUG] Error in CRUD create: {str(e)}")
+            import traceback
+            print(f"[DEBUG] Traceback: {traceback.format_exc()}")
+            db.rollback()
+            raise
     
     def update(
         self, db: Session, *, db_obj: Tenant, obj_in: Union[TenantUpdate, Dict[str, Any]]

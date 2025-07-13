@@ -6,51 +6,43 @@ from datetime import date
 from src.db.models.base import TenantModel
 
 class Enrollment(TenantModel):
-    """Model representing a student's enrollment in a specific academic year, grade, and section.
+    """Enhanced enrollment model with semester support."""
     
-    This model tracks a student's enrollment status, including the academic year,
-    grade, section, enrollment date, and any withdrawal information.
+    student_id = Column(UUID(as_uuid=True), ForeignKey("students.id"), nullable=False)
+    academic_year = Column(String(20), nullable=False)  # e.g., "2025-2026"
+    academic_year_id = Column(UUID(as_uuid=True), ForeignKey("academic_years.id"), nullable=True)
+    semester = Column(Integer, nullable=False, default=1)  # 1 or 2
+    grade = Column(String(50), nullable=False)
+    section = Column(String(10), nullable=False)
+    enrollment_date = Column(Date, default=date.today)
+    roll_number = Column(Integer)
+    status = Column(String(20), default="active")  # active, completed, withdrawn, graduated
+    is_active = Column(Boolean, default=True)
+    withdrawal_date = Column(Date)
+    withdrawal_reason = Column(Text)
+    comments = Column(Text)
     
-    Attributes:
-        student_id (UUID): Foreign key to the student
-        academic_year (str): The academic year (e.g., "2023-2024")
-        grade (str): The grade level (e.g., "Grade 10")
-        section (str): The section within the grade (e.g., "A")
-        enrollment_date (Date): Date when the student was enrolled
-        status (str): Current enrollment status
-        is_active (bool): Whether this enrollment is currently active
-        withdrawal_date (Date): Date when the student withdrew (if applicable)
-        withdrawal_reason (str): Reason for withdrawal (if applicable)
-        comments (str): Additional comments about the enrollment
-    """
-    
-    __tablename__ = "enrollments"
+    # Semester-specific fields
+    semester_1_status = Column(String(20), default="pending")  # pending, active, completed, failed
+    semester_2_status = Column(String(20), default="pending")
+    semester_1_completion_date = Column(Date)
+    semester_2_completion_date = Column(Date)
     
     # Relationships
-    student_id = Column(UUID(as_uuid=True), ForeignKey("students.id"), nullable=False)
     student = relationship("Student", back_populates="enrollments")
+    academic_year_obj = relationship("AcademicYear", back_populates="enrollments")
     grades = relationship("Grade", back_populates="enrollment")
     
-    # Enrollment details
-    academic_year = Column(String(20), nullable=False, index=True)
-    grade = Column(String(20), nullable=False, index=True)
-    section = Column(String(10), nullable=False, index=True)
-    enrollment_date = Column(Date, nullable=False, default=date.today)
-    roll_number = Column(Integer, nullable=True)
+    def can_promote_to_next_semester(self) -> bool:
+        """Check if student can be promoted to next semester."""
+        if self.semester == 1:
+            return self.semester_1_status == "completed"
+        return False  # Already in semester 2
     
-    # Status tracking
-    status = Column(
-        String(20),
-        nullable=False,
-        default="active",
-        comment="One of: active, completed, withdrawn, transferred"
-    )
-    is_active = Column(Boolean, nullable=False, default=True)
-    withdrawal_date = Column(Date, nullable=True)
-    withdrawal_reason = Column(String(255), nullable=True)
-    comments = Column(Text, nullable=True)
-    
-    def __repr__(self):
-        return f"<Enrollment {self.student_id} - {self.academic_year} - {self.grade} {self.section}>"
+    def can_promote_to_next_grade(self) -> bool:
+        """Check if student can be promoted to next grade."""
+        return (self.semester == 2 and 
+                self.semester_1_status == "completed" and 
+                self.semester_2_status == "completed")
 
         

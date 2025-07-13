@@ -30,7 +30,7 @@ class Tenant(Base, TimestampMixin, UUIDMixin):
     is_active = Column(Boolean, nullable=False, default=True, comment="Whether the tenant is active")
     
     # Additional fields for frontend compatibility
-    domain = Column(String(255), nullable=True, comment="Domain for the tenant")
+    domain = Column(String(255), unique=True, nullable=True, comment="Domain for the tenant")
     subdomain = Column(String(100), nullable=True, comment="Subdomain for the tenant")
     logo = Column(String(500), nullable=True, comment="Logo URL for the tenant")
     primary_color = Column(String(7), nullable=True, comment="Primary color for branding (hex)")
