@@ -98,7 +98,18 @@ from src.services.logging import AuditLoggingService
 @router.put("/users/{user_id}", response_model=User)
 def update_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), user_id: UUID, user_in: UserUpdate, current_user: User = Depends(get_current_user)) -> Any:
     """Update a user."""
-    user = user_crud.get_by_id(db, tenant_id=tenant_id, id=user_id)
+    
+    # Check if current user is super admin updating their own profile
+    is_super_admin = any(role.name == "super-admin" for role in current_user.roles)
+    is_self_update = current_user.id == user_id
+    
+    if is_super_admin and is_self_update:
+        # For super admin self-updates, use global lookup to bypass tenant restrictions
+        user = user_crud.get_by_id_global(db, id=user_id)
+    else:
+        # Regular tenant-scoped lookup for all other cases
+        user = user_crud.get_by_id(db, tenant_id=tenant_id, id=user_id)
+    
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -113,11 +124,14 @@ def update_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_
         "is_active": user.is_active
     }
     
-    updated_user = user_crud.update(db, tenant_id=tenant_id, db_obj=user, obj_in=user_in)
+    # For super admin self-updates, use the user's actual tenant_id for the update
+    update_tenant_id = user.tenant_id if (is_super_admin and is_self_update) else tenant_id
+    
+    updated_user = user_crud.update(db, tenant_id=update_tenant_id, db_obj=user, obj_in=user_in)
     
     # Log the activity
     try:
-        audit_service = AuditLoggingService(db=db, tenant_id=tenant_id)
+        audit_service = AuditLoggingService(db=db, tenant_id=update_tenant_id)
         audit_service.log_activity(
             user_id=current_user.id,
             action="update",

@@ -17,6 +17,7 @@ class UserBase(BaseModel):
     phone_number: Optional[str] = None
     profile_picture: Optional[str] = None
     preferences: Optional[Dict[str, Any]] = None
+    address: Optional[str] = None
 
 
 class UserCreate(UserBase):
@@ -41,6 +42,7 @@ class UserUpdate(BaseModel):
     profile_picture: Optional[str] = None
     preferences: Optional[Dict[str, Any]] = None
     password: Optional[str] = None
+    address: Optional[str] = None
 
 
 class UserInDBBase(UserBase, TenantSchema):
