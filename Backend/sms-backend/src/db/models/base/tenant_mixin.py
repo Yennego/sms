@@ -1,11 +1,11 @@
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from sqlalchemy import Column, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship, declared_attr
+from sqlalchemy.orm import relationship, declared_attr
 import uuid
 
 if TYPE_CHECKING:
-    from ..tenant.tenant import Tenant  # Avoid circular imports
+    from ..tenant.tenant import Tenant
 
 class TenantMixin:
     """Mixin that adds tenant_id foreign key for multi-tenancy support.
@@ -23,18 +23,20 @@ class TenantMixin:
             ...
     """
     
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("tenants.id", ondelete="CASCADE"),
-        nullable=False
-    )
+    @declared_attr
+    def tenant_id(cls):
+        return Column(
+            UUID(as_uuid=True),
+            ForeignKey("tenants.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True
+        )
     
-    # Relationship to Tenant model - must be declared_attr for mixins
     @declared_attr
     def tenant(cls):
         return relationship(
             "Tenant",
-            lazy="joined"  # Eager load tenant by default
+            lazy="select"  # Load tenant when accessed
         )
     
     def __init__(self, **kwargs):

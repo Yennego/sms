@@ -2,10 +2,11 @@ from sqlalchemy import Column, String, ForeignKey, JSON, Text
 from sqlalchemy.dialects.postgresql import UUID
 
 from src.db.models.base import TenantModel
-from src.db.models.base.tenant_mixin import TenantMixin
+# Remove this import since TenantModel already includes TenantMixin
+# from src.db.models.base.tenant_mixin import TenantMixin
 
 
-class ActivityLog(TenantMixin, TenantModel):
+class ActivityLog(TenantModel):  # Only inherit from TenantModel
     """Model representing an activity log entry.
     
     This model tracks user activities and system events within a tenant.

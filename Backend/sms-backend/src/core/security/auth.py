@@ -36,15 +36,28 @@ async def get_current_user(
     tenant_id = token_data.tenant_id
     user_id = token_data.sub
 
-    # Set tenant ID in context
-    # In get_current_user function
-    # tenant_id = token_data.tenant_id
-    if tenant_id:
-        # Convert string to UUID object
-        tenant_id_uuid = UUID(tenant_id)
-        set_tenant_id(tenant_id_uuid)
-    
-    # user = user_crud.get_by_id(db, tenant_id=UUID(tenant_id), id=UUID(user_id))
+    # Set tenant ID in context with proper validation
+    if tenant_id and tenant_id != "None" and tenant_id != "null":
+        try:
+            tenant_id_uuid = UUID(tenant_id)
+            set_tenant_id(tenant_id_uuid)  # Pass UUID object directly
+            print(f"Successfully set tenant_id in context: {tenant_id_uuid}")
+        except (ValueError, TypeError) as e:
+            # Log the error and raise an exception instead of silently ignoring
+            print(f"Failed to set tenant_id in context: {tenant_id}, error: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid tenant context in token: {tenant_id}"
+            )
+    else:
+        print(f"No valid tenant_id in token: {tenant_id}")
+        # For dashboard endpoints, we need tenant context
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No tenant context found in token"
+        )
+
+    # Get user by ID
     user = db.query(User).options(joinedload(User.roles)).filter(User.id == UUID(user_id)).first()
 
     if not user:

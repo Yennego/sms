@@ -14,5 +14,6 @@ __all__ = [
     "TenantModel",
     "Base"
 ]
+from .tenant_mixin import TenantMixin
 
 

@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-# from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from fastapi.staticfiles import StaticFiles
@@ -7,24 +6,14 @@ from fastapi.openapi.utils import get_openapi
 
 from src.api.v1.api import api_router
 from src.core.config import settings
-# from src.db.init_db import init_db
-# from src.db.session import SessionLocal
 from src.core.logging import setup_logging
 from src.core.middleware.audit_middleware import AuditLoggingMiddleware
+from src.core.middleware.tenant import tenant_middleware  # Add this import
 
 setup_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create database tables first
-    # from src.db.models.base import Base
-    # from src.db.session import engine
-    # Base.metadata.create_all(bind=engine)
-    
-    # Then initialize data
-    # db = SessionLocal()
-    # init_db(db)
-    # db.close()
     yield
 
 app = FastAPI(
@@ -38,6 +27,9 @@ app = FastAPI(
     debug=True,
     redirect_slashes=False,      
 )
+
+# Add tenant middleware BEFORE other middlewares
+app.middleware("http")(tenant_middleware)
 
 # Set up CORS middleware
 if settings.BACKEND_CORS_ORIGINS:

@@ -2,21 +2,17 @@ from typing import Any, ClassVar
 from sqlalchemy.orm import declared_attr
 from .uuid_mixin import UUIDMixin
 from .timestamp_mixin import TimestampMixin
-# Remove this import as we'll use Base directly
-# from sqlalchemy.orm import declarative_base
-
+from .tenant_mixin import TenantMixin
 # Import Base from the current package
 from . import Base
 
-# Remove this import as we'll use Base instead
-# from sqlalchemy.ext.declarative import DeclarativeBase
-
-class TenantModel(UUIDMixin, TimestampMixin, Base):
+class TenantModel(UUIDMixin, TimestampMixin, TenantMixin, Base):
     """Base model for all tenant-aware models in the system.
     
-    This model combines UUIDMixin and TimestampMixin to provide:
+    This model combines UUIDMixin, TimestampMixin, and TenantMixin to provide:
     - UUID primary keys
     - Created/updated timestamps
+    - Tenant isolation via tenant_id foreign key
     - Automatic table naming
     
     All tenant-aware models should inherit from this class.

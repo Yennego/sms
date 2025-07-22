@@ -2,7 +2,7 @@ from fastapi import APIRouter
 
 # Endpoint imports (core service endpoint etc)
 # from src.api.v1.endpoints import auth
-from src.api.v1.endpoints.tenant import router as tenant_router
+# from src.api.v1.endpoints.tenant import router as tenant_router
 from src.api.v1.endpoints import tenant, auth, people, super_admin, academics, communication, logging, resources
 from src.api.v1.endpoints.specialized import financial_academic
 
@@ -12,7 +12,7 @@ api_router = APIRouter()
 
 
 # Include routers for each module
-api_router.include_router(tenant_router, prefix="/tenants", tags=["tenants"])
+api_router.include_router(tenant.router, prefix="/tenants", tags=["tenants"])
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(people.router, prefix="/people", tags=["people"])
 api_router.include_router(academics.router, prefix="/academics", tags=["academics"])

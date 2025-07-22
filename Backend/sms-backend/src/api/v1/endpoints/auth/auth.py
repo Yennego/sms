@@ -15,9 +15,10 @@ from src.schemas.auth import User, UserCreate, UserUpdate, UserWithRoles, UserWi
 from src.schemas.auth import Permission, PermissionCreate, PermissionUpdate
 from src.schemas.auth import UserRole, UserRoleCreate, UserRoleUpdate
 from src.schemas.auth.token import Token
+from src.core.config import settings
 from src.core.security.jwt import create_access_token, create_refresh_token, verify_token
 from src.core.security.permissions import has_role, has_any_role, has_permission, admin_with_tenant_check
-from src.core.middleware.tenant import get_tenant_id_from_request
+from src.core.middleware.tenant import get_tenant_id_from_request, get_optional_tenant_id_from_request
 from src.core.security.auth import get_current_active_user, get_current_user
 from src.core.security.password import verify_password, get_password_hash
 from src.services.notification.email_service import EmailService
@@ -100,7 +101,7 @@ def update_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_
     """Update a user."""
     
     # Check if current user is super admin updating their own profile
-    is_super_admin = any(role.name == "super-admin" for role in current_user.roles)
+    is_super_admin = any(role.name == "superadmin" for role in current_user.roles)
     is_self_update = current_user.id == user_id
     
     if is_super_admin and is_self_update:
@@ -138,7 +139,7 @@ def update_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_
             entity_type="user",
             entity_id=user_id,
             old_values=old_values,
-            new_values=user_in.dict(exclude_unset=True)
+            new_values=user_in.model_dump(exclude_unset=True)
         )
     except Exception as e:
         print(f"Error logging user update activity: {e}")
@@ -247,148 +248,133 @@ def rate_limit_login(request: Request):
             detail="Too many login attempts. Please try again later."
         )
 
-# Update login endpoint
-# In the login endpoint, around line 235
+
 @router.post("/login", response_model=Token)
-async def login(
-    request: Request,
+def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
-    tenant_id: Optional[UUID] = Depends(get_tenant_id_from_request),
-    _: None = Depends(rate_limit_login)
-) -> Token:
+    tenant_id: str = Depends(get_optional_tenant_id_from_request)
+) -> Any:
     """OAuth2 compatible token login, get an access token for future requests."""
-    try:
-        user = None
-        if tenant_id:
-            user = user_crud.authenticate(
-                db, tenant_id=tenant_id, email=form_data.username, password=form_data.password
-                )
-
-        if not user:
-            user = user_crud.authenticate_global(
-                db, email=form_data.username, password=form_data.password
-            )
-
+    # tenant_id is now injected properly by FastAPI
+    # CRITICAL FIX: Handle None tenant_id properly
+    if tenant_id is None or str(tenant_id).lower() in ['none', 'null', 'undefined']:
+        user = user_crud.authenticate_global(db, email=form_data.username, password=form_data.password)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect email or password",
+                detail="Incorrect username or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        if not user.is_active:
+        tenant_id = user.tenant_id
+    else:
+        user = user_crud.authenticate(db, tenant_id=tenant_id, email=form_data.username, password=form_data.password)
+        if not user:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, 
-                detail="Inactive user"
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Bearer"},
             )
-        
-        # Update last login timestamp
-        user.last_login = datetime.now(timezone.utc)
-        
-        # Check if it's the first login
-        requires_password_change = user.is_first_login
-        
-        db.add(user)
-        db.commit()
-        
-        # Check if user is super-admin
-        is_super_admin = any(role.name == "super-admin" for role in user.roles)
-        
-        # Check if password is expired
-        password_expired = False
-        if user.password_expiry_date and user.password_expiry_date < datetime.now(timezone.utc):
-            password_expired = True
-        
-        # Create tokens with super-admin status
-        return {
-            "access_token": create_access_token(user.id, tenant_id, is_super_admin),
-            "refresh_token": create_refresh_token(user.id, tenant_id, is_super_admin),
-            "token_type": "bearer",
-            "requires_password_change": requires_password_change or password_expired
-        }
-    except Exception as e:
-        # Log the error for debugging
-        print(f"Login error: {str(e)}")
+    if not user.is_active:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred during login: {str(e)}"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Inactive user"
         )
-
-@router.post("/refresh", response_model=Token)
-async def refresh_token(
-    db: Session = Depends(get_db),
-    token: str = Depends(oauth2_scheme)
-) -> Any:
-    """Refresh access token."""
-    token_data = verify_token(token)
-    print(f"DEBUG: token_data: {token_data}")
-    if not token_data or token_data.type != "refresh":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    from uuid import UUID
-    try:
-        user_id = UUID(token_data.sub)
-        # The tenant_id from the token is the tenant context the user logged in with.
-        # For super-admins, this might be a specific tenant, or a "global" one.
-        tenant_uuid_from_token = UUID(token_data.tenant_id)
-        print(f"DEBUG: Converted UUIDs - user_id: {user_id}, tenant_id_from_token: {tenant_uuid_from_token}")
-    except (ValueError, TypeError) as e:
-        print(f"DEBUG: UUID conversion error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token format",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # First, try to get the user by ID and the tenant_id from the token
-    user = user_crud.get_by_id(db, tenant_id=tenant_uuid_from_token, id=user_id)
-    print(f"DEBUG: user found with tenant_id from token: {user}")
-
-    # If user not found with the specific tenant_id from token,
-    # try to find them globally (e.g., for super-admins not tied to a specific tenant_id in the DB)
-    if not user:
-        user = user_crud.get_by_id_global(db, id=user_id)
-        print(f"DEBUG: user found globally: {user}")
-
-    if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token for user or user is inactive",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Use the tenant_uuid_from_token for creating new tokens,
-    # as that's the context the user logged in under.
-    # In the refresh_token function
-    is_super_admin = getattr(token_data, 'is_super_admin', False)
-    
+    final_tenant_id = tenant_id if tenant_id is not None else user.tenant_id
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        subject=user.id,
+        tenant_id=final_tenant_id,
+        is_super_admin=getattr(user, "is_super_admin", False),
+        expires_delta=access_token_expires
+    )
+    # Fix the create_refresh_token call around line 291
+    refresh_token = create_refresh_token(
+        subject=str(user.id),
+        tenant_id=str(final_tenant_id),
+        is_super_admin=getattr(user, "is_super_admin", False)
+    )
     return {
-        "access_token": create_access_token(user.id, tenant_uuid_from_token, is_super_admin),
-        "refresh_token": create_refresh_token(user.id, tenant_uuid_from_token, is_super_admin),
+        "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
     }
+
+@router.post("/refresh", response_model=Token)
+def refresh_access_token(
+    refresh_token: str = Body(..., embed=True),
+    db: Session = Depends(get_db)
+) -> Any:
+    """Refresh access token using refresh token."""
+    try:
+        # Verify refresh token
+        token_data = verify_token(refresh_token)
+        if not token_data:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token"
+            )
+        
+        # Get user
+        user = user_crud.get_by_id_global(db, id=UUID(token_data.sub))
+        if not user or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found or inactive"
+            )
+        
+        # CRITICAL FIX: Handle tenant_id properly from token
+        token_tenant_id = token_data.tenant_id
+        if token_tenant_id is None or str(token_tenant_id).lower() in ['none', 'null', 'undefined']:
+            # Use the user's actual tenant_id from database
+            final_tenant_id = user.tenant_id
+        else:
+            final_tenant_id = token_tenant_id
+        
+        # Create new tokens with proper tenant_id
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        new_access_token = create_access_token(
+            subject=str(user.id),
+            tenant_id=str(final_tenant_id),
+            expires_delta=access_token_expires
+        )
+        new_refresh_token = create_refresh_token(
+            subject=str(user.id),
+            tenant_id=str(final_tenant_id),
+            is_super_admin=getattr(user, "is_super_admin", False)
+        )
+        
+        return {
+            "access_token": new_access_token,
+            "refresh_token": new_refresh_token,
+            "token_type": "bearer",
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token"
+        )
+
 
 @router.get("/me", response_model=UserWithRole)
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
     """Get current user profile."""
-    # Create a dictionary from the current_user model
     user_dict = current_user.__dict__.copy()
     
-    # Add role_name field based on the first role if available
+    # Add role_name field
     if hasattr(current_user, "roles") and current_user.roles:
         user_dict["role"] = current_user.roles[0].name
     else:
         user_dict["role"] = None
     
-    # Return the user with role_name
+    # The tenant_id comes directly from the database user record
+    # No hardcoding needed - it's already in current_user.tenant_id
+    
     return user_dict
 
 @router.get("/admin-dashboard")
-async def admin_dashboard(current_user: User = Depends(has_any_role(["admin", "super-admin"]))):
+async def admin_dashboard(current_user: User = Depends(has_any_role(["admin", "superadmin"]))):
     """Admin dashboard - accessible by admin and super-admin roles."""
     return {"message": "Welcome to the admin dashboard", "user": current_user.email}
 

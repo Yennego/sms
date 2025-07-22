@@ -10,12 +10,12 @@ from uuid import uuid4
 
 def init_db(db):
     # Create super-admin role if it doesn't exist
-    super_admin_role = user_role_crud.get_by_name(db, name="super-admin")
+    super_admin_role = user_role_crud.get_by_name(db, name="superadmin")
     if not super_admin_role:
         super_admin_role = user_role_crud.create(
             db,
             obj_in=UserRoleCreate(
-                name="super-admin",
+                name="superadmin",
                 description="Super administrator with cross-tenant privileges"
             )
         )
@@ -63,14 +63,9 @@ def init_db(db):
                 tenant_id=system_tenant_id
             )
         )
-        
-        # Assign super-admin role to user
-        db.execute(
-            "INSERT INTO user_role_association (user_id, role_id) VALUES (:user_id, :role_id)",
-            {"user_id": str(super_admin_user.id), "role_id": str(super_admin_role.id)}
-        )
-        db.commit()
+        print(f"Created super-admin with tenant_id: {system_tenant_id}")
     else:
+        print(f"Super-admin exists with tenant_id: {existing_user.tenant_id}")
         super_admin_user = existing_user
     
     # Create a test tenant and user

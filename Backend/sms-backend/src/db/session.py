@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from src.core.config import settings
 import contextvars
 from uuid import UUID
-
+from typing import Optional
 # Create a context variable to store tenant ID
 tenant_id_var = contextvars.ContextVar('tenant_id', default=None)
 
@@ -12,7 +12,7 @@ def set_tenant_id(tenant_id: UUID) -> None:
     """Set the tenant ID for the current context."""
     tenant_id_var.set(tenant_id)
 
-def get_tenant_id() -> UUID:
+def get_tenant_id() -> Optional [UUID]:
     """Get the tenant ID for the current context."""
     return tenant_id_var.get()
 
