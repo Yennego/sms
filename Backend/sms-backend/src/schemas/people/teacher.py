@@ -8,7 +8,7 @@ from src.schemas.auth.user import UserBase, UserCreate, UserUpdate, User
 
 class TeacherBase(UserBase):
     """Base schema for Teacher model."""
-    employee_id: str
+    employee_id: Optional[str] = None
     department: Optional[str] = None
     qualification: Optional[str] = None
     joining_date: Optional[date] = None
@@ -24,7 +24,7 @@ class TeacherBase(UserBase):
 
 class TeacherCreate(UserCreate):
     """Schema for creating a new teacher."""
-    employee_id: str
+    employee_id: Optional[str] = None
     department: Optional[str] = None
     qualification: Optional[str] = None
     joining_date: Optional[date] = None
@@ -77,6 +77,13 @@ class Teacher(User):
     resignation_date: Optional[date] = None
     resignation_reason: Optional[str] = None
 
+    class Config:
+        from_attributes = True
+
+
+class TeacherCreateResponse(Teacher):
+    """Schema for teacher creation response with optional generated password."""
+    generated_password: Optional[str] = None
     class Config:
         from_attributes = True
 

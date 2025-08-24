@@ -44,7 +44,7 @@ class Teacher(User):
         String(20),
         nullable=False,
         default="active",
-        comment="One of: active, retired, resigned"
+        comment="One of: active, inactive, retired, resigned"
     )
     exit_date          = Column(Date, nullable=True)
     retirement_date            = Column(Date, nullable=True)
@@ -55,7 +55,7 @@ class Teacher(User):
         "polymorphic_identity": "teacher",
     }
 
-    def is_active(self) -> bool:
+    def is_teacher_active(self) -> bool:
         return self.status == "active"
 
     def retire(self, date_left: date):
@@ -74,6 +74,23 @@ class Teacher(User):
         self.exit_date = date_left
         self.resignation_date = date_left
         self.resignation_reason = reason
+
+    def deactivate(self, date_left: date = None, reason: str = None):
+        """
+        Mark the teacher as inactive.
+        """
+        self.status = "inactive"
+        if date_left:
+            self.exit_date = date_left
+        self.resignation_reason = reason
+
+    def activate(self):
+        """
+        Reactivate the teacher.
+        """
+        self.status = "active"
+        self.exit_date = None
+        self.resignation_reason = None
 
     
     # Relationships

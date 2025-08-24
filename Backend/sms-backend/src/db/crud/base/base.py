@@ -136,6 +136,12 @@ class TenantCRUDBase(Generic[TenantModelType, CreateSchemaType, UpdateSchemaType
             if hasattr(self.model, field):
                 query = query.filter(getattr(self.model, field) == value)
         
+        # Add default ordering by created_at to maintain consistent order
+        if hasattr(self.model, 'created_at'):
+            query = query.order_by(self.model.created_at.asc())
+        elif hasattr(self.model, 'id'):
+            query = query.order_by(self.model.id.asc())
+        
         return query.offset(skip).limit(limit).all()
     
     def create(

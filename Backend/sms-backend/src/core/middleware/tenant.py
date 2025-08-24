@@ -144,9 +144,10 @@ def get_optional_tenant_id_from_request(
 async def tenant_middleware(request: Request, call_next):
     """Middleware to extract tenant from request and set in context."""
     path = request.url.path
-    # Skip non-API routes, tenant management, auth, and allow dashboard stats
+    
+    # Skip non-API routes, tenant lookup endpoints, and auth endpoints
     if (not path.startswith("/api/") or
-        path.startswith("/api/v1/tenants/") and not path == "/api/v1/tenants/dashboard/stats" or
+        path.startswith("/api/v1/tenants/") or  # Allow all tenant endpoints
         path.startswith("/api/tenant/") or
         path.startswith("/api/v1/auth/")):
         return await call_next(request)

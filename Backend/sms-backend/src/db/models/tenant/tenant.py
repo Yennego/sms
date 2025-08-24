@@ -38,6 +38,7 @@ class Tenant(Base, TimestampMixin, UUIDMixin):
     
     # Relationships
     settings = relationship("TenantSettings", back_populates="tenant", uselist=False, cascade="all, delete-orphan")
+    notification_config = relationship("TenantNotificationConfig", back_populates="tenant", uselist=False, cascade="all, delete-orphan")
     
     def __init__(self, **kwargs):
         """Initialize a tenant with the given attributes.

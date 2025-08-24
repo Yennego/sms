@@ -240,6 +240,27 @@ def delete_teacher(*, db: Session = Depends(get_db), tenant_id: UUID, teacher_id
         )
     return teacher_crud.delete(db, tenant_id=tenant_id, id=teacher_id)
 
+@router.post("/teachers/bulk", response_model=List[Teacher], status_code=status.HTTP_201_CREATED)
+def create_bulk_teachers(
+    *, 
+    teacher_service: TeacherService = Depends(),
+    teachers_in: List[TeacherCreate],
+    current_user: User = Depends(has_any_role(["admin"]))
+) -> Any:
+    """Create multiple teachers at once (admin only)."""
+    try:
+        return teacher_service.create_bulk(teachers_data=teachers_in)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create teachers: {str(e)}"
+        )
+
 # Parent endpoints
 @router.post("/parents", response_model=Parent, status_code=status.HTTP_201_CREATED)
 def create_parent(*, db: Session = Depends(get_db), tenant_id: UUID, parent_in: ParentCreate) -> Any:

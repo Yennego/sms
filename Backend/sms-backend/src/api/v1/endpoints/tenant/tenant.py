@@ -67,10 +67,8 @@ def get_tenants(
     # If no domain filter, return all tenants
     return tenant_crud.get_multi(db, skip=skip, limit=limit)
 
-# Move this route AFTER all the specific routes
-# Update line 67
 @router.get("/{tenant_id}", response_model=Tenant)
-def get_tenant(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request)) -> Any:
+def get_tenant(*, db: Session = Depends(get_db), tenant_id: UUID) -> Any:
     """Get a specific tenant by ID."""
     tenant_obj = tenant_crud.get(db, id=tenant_id)
     if not tenant_obj:
@@ -80,7 +78,6 @@ def get_tenant(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_t
         )
     return tenant_obj
 
-# Update line 76
 @router.put("/{tenant_id}", response_model=Tenant)
 def update_tenant(
     *, 
@@ -98,7 +95,6 @@ def update_tenant(
         )
     return tenant_crud.update(db, db_obj=tenant_obj, obj_in=tenant_in)
 
-# Update line 87
 @router.delete("/{tenant_id}", response_model=Tenant)
 def delete_tenant(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request)) -> Any:
     """Delete a tenant."""
@@ -130,7 +126,6 @@ def create_tenant_settings(*, db: Session = Depends(get_db), tenant_id: UUID = D
     
     return tenant_settings_crud.create(db, tenant_id=tenant_id, obj_in=settings_in)
 
-# Update line 110
 @router.get("/{tenant_id}/settings", response_model=TenantSettings)
 def get_tenant_settings(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request)) -> Any:
     """Get settings for a tenant."""
@@ -150,7 +145,6 @@ def get_tenant_settings(*, db: Session = Depends(get_db), tenant_id: UUID = Depe
     
     return settings
 
-# Update line 125
 @router.put("/{tenant_id}/settings", response_model=TenantSettings)
 def update_tenant_settings(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), settings_in: TenantSettingsUpdate) -> Any:
     """Update settings for a tenant."""

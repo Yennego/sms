@@ -35,7 +35,6 @@ from src.db.crud import user as user_crud
 from src.schemas.auth import UserCreate
 from src.api.v1.endpoints.auth.auth import UserCreateResponse
 from src.services.auth.password import generate_default_password
-from src.services.email import send_new_user_email
 
 router = APIRouter()
 
@@ -133,6 +132,20 @@ def create_tenant(
         print(f"[DEBUG] Creating tenant in database")
         new_tenant = tenant_crud.create(db, obj_in=tenant_in)
         print(f"[DEBUG] Successfully created tenant: {new_tenant.id} - {new_tenant.code}")
+        
+        # Create default notification configuration for the tenant
+        notification_config = TenantNotificationConfigCreate(
+            tenant_id=str(new_tenant.id),
+            whatsapp_enabled=True,
+            school_name=new_tenant.name,
+            notify_admin_on_user_creation=True,
+            notify_parents_on_student_creation=True,
+            teacher_welcome_template="Welcome to {school_name}! Your login credentials are: Email: {email}, Password: {password}",
+            student_welcome_template="Welcome {student_name} to {school_name}! Your login credentials are: Email: {email}, Password: {password}",
+            parent_welcome_template="Welcome! Your child {student_name} has been enrolled at {school_name}. Your login credentials are: Email: {email}, Password: {password}"
+        )
+        notification_config_crud.create(db, obj_in=notification_config)
+        
         return new_tenant
     except Exception as e:
         print(f"[DEBUG] Error creating tenant: {str(e)}")
@@ -645,7 +658,7 @@ def update_user_cross_tenant(
     user_in: UserUpdate
 ) -> Any:
     """Update a user across any tenant (super-admin only)."""
-    # Use global user lookup (not tenant-scoped)
+    # Global user lookup
     user = user_crud.get_by_id_global(db, id=user_id)
     if not user:
         raise HTTPException(

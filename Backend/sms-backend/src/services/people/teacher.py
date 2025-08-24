@@ -1,5 +1,6 @@
 from typing import List, Optional, Dict, Any
 from uuid import UUID
+from datetime import date
 
 from src.db.crud import teacher as teacher_crud
 from src.db.models.people import Teacher
@@ -25,6 +26,33 @@ class TeacherService(TenantBaseService[Teacher, TeacherCreate, TeacherUpdate]):
         """Get teachers by department within the current tenant."""
         filters = {"department": department}
         return teacher_crud.list(self.db, tenant_id=self.tenant_id, skip=skip, limit=limit, filters=filters)
+
+    def deactivate_teacher(self, teacher_id: UUID, date_left: date = None, reason: Optional[str] = None) -> Optional[Teacher]:
+        """Deactivate a teacher."""
+        teacher = self.get(id=teacher_id)
+        if not teacher:
+            return None
+        
+        teacher.deactivate(date_left, reason)
+        return self.update(id=teacher_id, obj_in={"status": "inactive", "exit_date": date_left, "resignation_reason": reason})
+
+    def activate_teacher(self, teacher_id: UUID) -> Optional[Teacher]:
+        """Activate a teacher."""
+        teacher = self.get(id=teacher_id)
+        if not teacher:
+            return None
+        
+        teacher.activate()
+        return self.update(id=teacher_id, obj_in={"status": "active", "exit_date": None, "resignation_reason": None})
+    
+    def create_bulk(self, teachers_data: List[TeacherCreate]) -> List[Teacher]:
+        """Create multiple teachers with auto-generated employee IDs."""
+        created_teachers = []
+        for teacher_data in teachers_data:
+            # Employee ID will be auto-generated in CRUD if not provided
+            teacher = self.create(obj_in=teacher_data)
+            created_teachers.append(teacher)
+        return created_teachers
 
 
 class SuperAdminTeacherService(SuperAdminBaseService[Teacher, TeacherCreate, TeacherUpdate]):
