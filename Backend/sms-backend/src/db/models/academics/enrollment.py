@@ -6,14 +6,24 @@ from datetime import date
 from src.db.models.base import TenantModel
 
 class Enrollment(TenantModel):
-    """Enhanced enrollment model with semester support."""
+    """Enhanced enrollment model with semester support and proper foreign key relationships.
     
+    This model represents a student's enrollment in a specific grade and section
+    for an academic year. It now uses proper foreign keys instead of string fields.
+    """
+    
+    __tablename__ = "enrollments"
+    
+    # Core relationships
     student_id = Column(UUID(as_uuid=True), ForeignKey("students.id"), nullable=False)
-    academic_year = Column(String(20), nullable=False)  # e.g., "2025-2026"
-    academic_year_id = Column(UUID(as_uuid=True), ForeignKey("academic_years.id"), nullable=True)
+    academic_year_id = Column(UUID(as_uuid=True), ForeignKey("academic_years.id"), nullable=False)
+    
+    # UPDATED: Use foreign keys instead of string fields
+    grade_id = Column(UUID(as_uuid=True), ForeignKey("academic_grades.id"), nullable=False)
+    section_id = Column(UUID(as_uuid=True), ForeignKey("sections.id"), nullable=False)
+    
+    # Enrollment details
     semester = Column(Integer, nullable=False, default=1)  # 1 or 2
-    grade = Column(String(50), nullable=False)
-    section = Column(String(10), nullable=False)
     enrollment_date = Column(Date, default=date.today)
     roll_number = Column(Integer)
     status = Column(String(20), default="active")  # active, completed, withdrawn, graduated
@@ -28,10 +38,19 @@ class Enrollment(TenantModel):
     semester_1_completion_date = Column(Date)
     semester_2_completion_date = Column(Date)
     
+    # DEPRECATED: Keep for backward compatibility during migration
+    academic_year = Column(String(20), nullable=True)  # Will be removed after migration
+    grade = Column(String(50), nullable=True)  # Will be removed after migration
+    section = Column(String(10), nullable=True)  # Will be removed after migration
+    
     # Relationships
     student = relationship("Student", back_populates="enrollments")
     academic_year_obj = relationship("AcademicYear", back_populates="enrollments")
-    grades = relationship("Grade", back_populates="enrollment")
+    grade_obj = relationship("AcademicGrade", back_populates="enrollments")
+    section_obj = relationship("Section", back_populates="enrollments")
+    
+    # FIXED: Relationship to assessment grades (not grade levels)
+    assessment_grades = relationship("Grade", back_populates="enrollment", foreign_keys="Grade.enrollment_id")
     
     def can_promote_to_next_semester(self) -> bool:
         """Check if student can be promoted to next semester."""
@@ -44,5 +63,18 @@ class Enrollment(TenantModel):
         return (self.semester == 2 and 
                 self.semester_1_status == "completed" and 
                 self.semester_2_status == "completed")
+    
+    @property
+    def grade_name(self) -> str:
+        """Get the grade name from the related AcademicGrade object."""
+        return self.grade_obj.name if self.grade_obj else self.grade or "Unknown"
+    
+    @property
+    def section_name(self) -> str:
+        """Get the section name from the related Section object."""
+        return self.section_obj.name if self.section_obj else self.section or "Unknown"
+    
+    def __repr__(self):
+        return f"<Enrollment {self.student_id} - {self.grade_name} {self.section_name} - {self.academic_year or 'Current'}>"
 
         

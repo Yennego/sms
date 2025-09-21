@@ -29,7 +29,7 @@ class StudentBase(UserBase):
 
 class StudentCreate(UserCreate):
     """Schema for creating a new student."""
-    admission_number: str
+    admission_number: Optional[str] = None
     roll_number: Optional[int] = None
     grade: Optional[str] = None
     section: Optional[str] = None
@@ -95,6 +95,12 @@ class Student(User):
     graduation_date: Optional[date] = None
     withdrawal_reason: Optional[str] = None
 
+
+class StudentCreateResponse(Student):
+    """Schema for student creation response with optional generated password and admission number."""
+    generated_password: Optional[str] = None
+    generated_admission_number: Optional[str] = None
+    
     class Config:
         from_attributes = True
 

@@ -174,22 +174,24 @@ class TenantCRUDBase(Generic[TenantModelType, CreateSchemaType, UpdateSchemaType
         obj_in: Union[UpdateSchemaType, Dict[str, Any]]
     ) -> TenantModelType:
         """Update a record with tenant validation."""
-
+    
         tenant_id = self._ensure_uuid(tenant_id)
-
+    
         # Ensure the object belongs to the tenant
         if str(db_obj.tenant_id) != str(tenant_id):
             raise ValueError("Object does not belong to the tenant")
             
-        obj_data = jsonable_encoder(db_obj)
         if isinstance(obj_in, dict):
             update_data = obj_in
         else:
             update_data = obj_in.model_dump(exclude_unset=True)
-        for field in obj_data:
-            if field in update_data:
-                setattr(db_obj, field, update_data[field])
-        db.add(db_obj)
+        
+        # Use SQLAlchemy's bulk update to avoid triggering __init__ validation
+        db.query(self.model).filter(
+            self.model.id == db_obj.id,
+            self.model.tenant_id == tenant_id
+        ).update(update_data)
+        
         db.commit()
         db.refresh(db_obj)
         return db_obj

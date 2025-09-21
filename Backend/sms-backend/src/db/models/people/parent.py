@@ -14,43 +14,33 @@ parent_student = Table(
 )
 
 class Parent(User):
-    """Model representing a parent in the system.
-    
-    Parents are users with additional parent-specific attributes.
-    This class extends the base User class with parent-specific attributes.
-    
-    Attributes:
-        relationship_type (str): Relationship with the student (e.g., 'father', 'mother', 'guardian')
-        occupation (str): Parent's occupation
-        students (List[Student]): Students associated with this parent
-    """
+    """Model representing a parent in the system."""
     
     __tablename__ = "parents"
     
     # Link to parent table
-    id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True) 
+    id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
     
     # Parent-specific fields
-    relationship_type = Column(String(50), nullable=False) # e.g. father, mother, guardian
+    relationship_type = Column(String(50), nullable=False)
     occupation = Column(String(100), nullable=True)
 
-    # Extended info
-    address = Column(String(255), nullable=True)
+    # Override address column from User model to avoid conflicts
+    address = Column('parent_address', String(255), nullable=True)
     city = Column(String(50), nullable=True)
     county = Column(String(50), nullable=True)
     country = Column(String(50), nullable=True)
-    whatsapp_number = Column(String(20), nullable=True) #e.g +231 777 123 4567
+    whatsapp_number = Column(String(20), nullable=True)
     
     # Status & deactivation tracking
-    status            = Column(
+    status = Column(
         String(20),
         nullable=False,
         default="active",
         comment="One of: active, inactive"
     )
-    deactivated_date  = Column(Date, nullable=True)
+    deactivated_date = Column(Date, nullable=True)
     deactivation_reason = Column(String(255), nullable=True)
-
 
     __mapper_args__ = {
         "polymorphic_identity": "parent",

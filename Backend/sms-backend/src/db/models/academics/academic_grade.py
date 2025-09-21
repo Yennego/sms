@@ -27,6 +27,7 @@ class AcademicGrade(TenantModel):
     sections = relationship("Section", back_populates="grade")
     assignments = relationship("Assignment", back_populates="grade")
     exams = relationship("Exam", back_populates="grade")
+    enrollments = relationship("Enrollment", back_populates="grade_obj")
     
     def __repr__(self):
         return f"<AcademicGrade {self.name} - Sequence: {self.sequence}>"

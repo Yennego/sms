@@ -21,11 +21,18 @@ from src.core.exceptions.business import (
 
 router = APIRouter()
 
+# Dependency function for ScheduleService
+def get_schedule_service(
+    tenant_id: Any = Depends(get_tenant_from_request),
+    db: Session = Depends(get_db)
+) -> ScheduleService:
+    return ScheduleService(tenant_id=tenant_id, db=db)
+
 # Schedule endpoints
 @router.post("/schedules", response_model=Schedule, status_code=status.HTTP_201_CREATED)
 def create_schedule(
     *,
-    schedule_service: ScheduleService = Depends(),
+    schedule_service: ScheduleService = Depends(get_schedule_service),
     schedule_in: ScheduleCreate,
     current_user: User = Depends(has_any_role(["admin", "teacher"]))
 ) -> Any:
@@ -41,7 +48,7 @@ def create_schedule(
 @router.get("/schedules", response_model=List[Schedule])
 def get_schedules(
     *,
-    schedule_service: ScheduleService = Depends(),
+    schedule_service: ScheduleService = Depends(get_schedule_service),
     skip: int = 0,
     limit: int = 100,
     class_id: Optional[UUID] = None,
@@ -69,7 +76,7 @@ def get_schedules(
 @router.get("/schedules/{schedule_id}", response_model=Schedule)
 def get_schedule(
     *,
-    schedule_service: ScheduleService = Depends(),
+    schedule_service: ScheduleService = Depends(get_schedule_service),
     schedule_id: UUID
 ) -> Any:
     """Get a specific schedule by ID."""
@@ -84,7 +91,7 @@ def get_schedule(
 @router.put("/schedules/{schedule_id}", response_model=Schedule)
 def update_schedule(
     *,
-    schedule_service: ScheduleService = Depends(),
+    schedule_service: ScheduleService = Depends(get_schedule_service),
     schedule_id: UUID,
     schedule_in: ScheduleUpdate,
     current_user: User = Depends(has_any_role(["admin", "teacher"]))
@@ -107,7 +114,7 @@ def update_schedule(
 @router.delete("/schedules/{schedule_id}", response_model=Schedule)
 def delete_schedule(
     *,
-    schedule_service: ScheduleService = Depends(),
+    schedule_service: ScheduleService = Depends(get_schedule_service),
     schedule_id: UUID,
     current_user: User = Depends(has_any_role(["admin"]))
 ) -> Any:

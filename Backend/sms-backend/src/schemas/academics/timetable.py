@@ -10,7 +10,9 @@ from src.schemas.base.base import TimestampSchema, TenantSchema
 class TimetableBase(BaseModel):
     """Base schema for Timetable model."""
     name: str
-    academic_year: str
+    # Replace: academic_year: str
+    # With: academic_year_id: UUID
+    academic_year_id: UUID
     grade_id: UUID
     section_id: Optional[UUID] = None
     is_active: bool = True
@@ -28,7 +30,9 @@ class TimetableCreate(TimetableBase):
 class TimetableUpdate(BaseModel):
     """Schema for updating a timetable."""
     name: Optional[str] = None
-    academic_year: Optional[str] = None
+    # Replace: academic_year: Optional[str] = None
+    # With: academic_year_id: Optional[UUID] = None
+    academic_year_id: Optional[UUID] = None
     grade_id: Optional[UUID] = None
     section_id: Optional[UUID] = None
     is_active: Optional[bool] = None
@@ -53,4 +57,5 @@ class TimetableWithDetails(Timetable):
     """Schema for Timetable with additional details."""
     grade_name: str
     section_name: Optional[str] = None
+    academic_year_name: str  # Add this for display purposes
     # teacher_name: Optional[str] = None

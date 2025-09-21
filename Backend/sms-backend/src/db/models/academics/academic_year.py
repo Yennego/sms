@@ -6,7 +6,7 @@ from src.db.models.base import TenantModel
 class AcademicYear(TenantModel):
     """Model representing an academic year with semester support."""
     
-    name = Column(String(20), nullable=False)  # e.g., "2025-2026"
+    name = Column(String(50), nullable=False)  # Increased from 20 to 50 characters
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
     is_current = Column(Boolean, default=False)
@@ -22,6 +22,8 @@ class AcademicYear(TenantModel):
     
     # Relationships
     enrollments = relationship("Enrollment", back_populates="academic_year_obj")
+    attendances = relationship("Attendance", back_populates="academic_year")
+    class_enrollments = relationship("ClassEnrollment", back_populates="academic_year")
     
     def get_current_semester(self) -> int:
         """Determine current semester based on current date."""

@@ -10,6 +10,7 @@ from src.services.academics.timetable_service import TimetableService, SuperAdmi
 from .grade_calculation import GradeCalculationService, SuperAdminGradeCalculationService
 from .assignment import AssignmentService, SuperAdminAssignmentService
 from .exam import ExamService, SuperAdminExamService
+from .attendance_service import AttendanceService, SuperAdminAttendanceService
 
 __all__ = [
     "EnrollmentService",
@@ -19,6 +20,8 @@ __all__ = [
     "AssignmentService",
     "SuperAdminAssignmentService",
     "ExamService",
-    "SuperAdminExamService"
+    "SuperAdminExamService",
+    "AttendanceService",
+    "SuperAdminAttendanceService"
 ]
 

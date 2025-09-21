@@ -16,5 +16,5 @@ class TokenPayload(BaseModel):
     sub: Optional[str] = None
     tenant_id: Optional[str] = None
     exp: int
-    type: str
+    type: Optional[str] = None
     is_super_admin: bool = False  # Add this field

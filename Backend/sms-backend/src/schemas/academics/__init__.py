@@ -45,6 +45,11 @@ from src.schemas.academics.exam import (
     ExamWithDetails
 )
 
+from .attendance import (
+    Attendance, AttendanceCreate, AttendanceUpdate, AttendanceWithDetails,
+    AttendanceSummary, BulkAttendanceCreate, AttendanceReport
+)
+
 __all__ = [
     "EnrollmentBase",
     "EnrollmentCreate",
@@ -72,3 +77,4 @@ __all__ = [
     "Exam",
     "ExamWithDetails"
 ]
+# Add the attendance schemas to the __all__ list

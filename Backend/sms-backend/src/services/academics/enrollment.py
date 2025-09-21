@@ -13,12 +13,20 @@ from src.core.exceptions.business import (
     InvalidStatusTransitionError,
     BusinessRuleViolationError
 )
+from src.core.middleware.tenant import get_tenant_from_request
+from src.db.session import get_db
+from sqlalchemy.orm import Session
+from fastapi import Depends
 
 class EnrollmentService(TenantBaseService[Enrollment, EnrollmentCreate, EnrollmentUpdate]):
     """Service for managing student enrollments within a tenant."""
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(crud=enrollment_crud, model=Enrollment, *args, **kwargs)
+    def __init__(
+        self,
+        tenant_id: Any = Depends(get_tenant_from_request),
+        db: Session = Depends(get_db)
+    ):
+        super().__init__(crud=enrollment_crud, model=Enrollment, tenant_id=tenant_id, db=db)
     
     def get_by_student_academic_year(self, student_id: UUID, academic_year: str) -> Optional[Enrollment]:
         """Get a student's enrollment for a specific academic year."""

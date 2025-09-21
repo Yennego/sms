@@ -25,7 +25,15 @@ class TenantBaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
     ):
         self.crud = crud
         self.model = model
-        tenant_id_value = tenant_id["id"] if isinstance(tenant_id, dict) else tenant_id
+        
+        # Handle different tenant_id formats properly
+        if isinstance(tenant_id, dict):
+            tenant_id_value = tenant_id["id"]
+        elif hasattr(tenant_id, 'id'):  # Tenant object
+            tenant_id_value = tenant_id.id
+        else:
+            tenant_id_value = tenant_id
+            
         self.tenant_id = self._ensure_uuid(tenant_id_value)
         self.db = db
     

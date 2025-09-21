@@ -2,51 +2,37 @@ from sqlalchemy import Column, String, Date, ForeignKey, Integer
 from sqlalchemy.orm import relationship
 from src.db.models.auth.user import User
 from datetime import date
-# from uuid import UUID
 from sqlalchemy.dialects.postgresql import UUID
 
 class Student(User):
-    """Model representing a student in the system.
-    
-    Students are users with additional student-specific attributes.
-    This class extends the base User class with student-specific attributes.
-    
-    Attributes:
-        admission_number (str): Unique admission number for the student
-        grade (str): Current grade/class of the student
-        section (str): Section within the grade
-        admission_date (Date): Date when the student was admitted
-        roll_number (int): Roll number in the class
-    """
+    """Model representing a student in the system."""
     
     __tablename__ = "students"
     
     # Link to parent table
     id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
     
-    
     # Student-specific fields
-    # academic info
     admission_number = Column(String(50), nullable=False, unique=True)
-    roll_number = Column(Integer, nullable=True) #e.g 1
-    grade = Column(String(20), nullable=True) #e.g 10
-    section = Column(String(10), nullable=True) #e.g A
-    admission_date = Column(Date, nullable=True) #e.g 2020-01-01
+    roll_number = Column(Integer, nullable=True)
+    # grade = Column(String(20), nullable=True) class_enrollments instead
+    # section = Column(String(10), nullable=True)  
+    admission_date = Column(Date, nullable=True)
 
     # Personal info
-    date_of_birth = Column(Date, nullable=True) #e.g 2000-01-01
-    gender = Column(String(10), nullable=True) #e.g Male
-    blood_group = Column(String(5), nullable=True) #e.g A+
-    nationality = Column(String(50), nullable=True) #e.g Liberian
-    religion = Column(String(50), nullable=True) #e.g Christianity
+    date_of_birth = Column(Date, nullable=True)
+    gender = Column(String(10), nullable=True)
+    blood_group = Column(String(5), nullable=True)
+    nationality = Column(String(50), nullable=True)
+    religion = Column(String(50), nullable=True)
 
-    # contact info
-    address = Column(String(255), nullable=True)
-    city = Column(String(100), nullable=True)  #e.g Paynesville
-    County = Column(String(100), nullable=True) #e.g Lofa
-    country = Column(String(100), nullable=True) #e.g Liberia
-    whatsapp_number = Column(String(20), nullable=True) #e.g +231 777 123 4567
-    emergency_contact = Column(String(255), nullable=True) #e.g John Doe, +231 777 123 4567
+    # Override address column from User model to avoid conflicts
+    address = Column('student_address', String(255), nullable=True)
+    city = Column(String(100), nullable=True)
+    county = Column(String(100), nullable=True)
+    country = Column(String(100), nullable=True)
+    whatsapp_number = Column(String(20), nullable=True)
+    emergency_contact = Column(String(255), nullable=True)
 
     status = Column(
         String(20),
@@ -54,16 +40,13 @@ class Student(User):
         default="active",
         comment="One of: active, graduated, transferred, withdrawn"
     )
-    exit_date         = Column(Date, nullable=True)
-    graduation_date   = Column(Date, nullable=True)
+    exit_date = Column(Date, nullable=True)
+    graduation_date = Column(Date, nullable=True)
     withdrawal_reason = Column(String(255), nullable=True)
     
     __mapper_args__ = {
         "polymorphic_identity": "student",
     }
-
-    def is_active(self) -> bool:
-        return self.status == "active"
 
     def graduate(self, grad_date: date):
         self.status = "graduated"
@@ -80,11 +63,31 @@ class Student(User):
         self.transfer_school = new_school
         self.transfer_reason = reason
     
-    # Relationships - Fix for circular import
-    # Use string references instead of direct class references
+    # Relationships - Updated with proper class enrollment relationship
+    class_enrollments = relationship("ClassEnrollment", back_populates="student", lazy="dynamic")
     enrollments = relationship("Enrollment", back_populates="student", lazy="dynamic")
-    # In the Student model
     grades = relationship("Grade", back_populates="student", lazy="dynamic", foreign_keys="[Grade.student_id]")
+    attendances = relationship("Attendance", back_populates="student")
+    
+    # Helper methods to get current grade/section information
+    def get_current_grade_section(self, academic_year_id=None):
+        """Get the current grade and section for the student."""
+        # Get active enrollment for the specified or current academic year
+        enrollment_query = self.enrollments.filter_by(is_active=True)
+        if academic_year_id:
+            enrollment_query = enrollment_query.filter_by(academic_year_id=academic_year_id)
+        
+        enrollment = enrollment_query.first()
+        if enrollment:
+            return enrollment.grade, enrollment.section
+        return None, None
+    
+    def get_enrolled_classes(self, academic_year_id=None):
+        """Get all classes the student is enrolled in for a specific academic year."""
+        query = self.class_enrollments.filter_by(is_active=True)
+        if academic_year_id:
+            query = query.filter_by(academic_year_id=academic_year_id)
+        return [enrollment.class_obj for enrollment in query.all()]
     
     def __repr__(self):
         return f"<Student {self.email} - {self.admission_number}>"

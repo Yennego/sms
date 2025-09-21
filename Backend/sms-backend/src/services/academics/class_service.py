@@ -1,18 +1,28 @@
 from typing import List, Optional, Dict, Any
 from uuid import UUID
+from fastapi import Depends
+from sqlalchemy.orm import Session
+from sqlalchemy import delete
 
 from src.db.crud.academics import class_crud
 from src.db.models.academics.class_model import Class
+from src.db.models.academics.schedule import Schedule
 from src.schemas.academics.class_schema import ClassCreate, ClassUpdate
 from src.services.base.base import TenantBaseService, SuperAdminBaseService
 from src.core.exceptions.business import EntityNotFoundError, DuplicateEntityError
+from src.db.session import get_db, get_super_admin_db
+from src.core.middleware.tenant import get_tenant_from_request
 
 
 class ClassService(TenantBaseService[Class, ClassCreate, ClassUpdate]):
     """Service for managing classes within a tenant."""
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(crud=class_crud, model=Class, *args, **kwargs)
+    def __init__(
+        self,
+        tenant_id: Any = Depends(get_tenant_from_request),
+        db: Session = Depends(get_db)
+    ):
+        super().__init__(crud=class_crud, model=Class, tenant_id=tenant_id, db=db)
     
     def get_by_name(self, name: str) -> Optional[Class]:
         """Get a class by name."""
@@ -48,13 +58,31 @@ class ClassService(TenantBaseService[Class, ClassCreate, ClassUpdate]):
         
         # Create the class
         return super().create(obj_in=obj_in)
+    
+    def delete(self, *, id: Any) -> Optional[Class]:
+        """Delete a class and handle related schedules to avoid foreign key constraint violations."""
+        # First get the class to ensure it exists
+        class_obj = self.get(id=id)
+        if not class_obj:
+            return None
+        
+        # Delete all schedules associated with this class to avoid foreign key constraint violations
+        # Since Schedule.class_id has nullable=False, we must delete the schedules first
+        delete_stmt = delete(Schedule).where(
+            Schedule.tenant_id == self.tenant_id,
+            Schedule.class_id == id
+        )
+        self.db.execute(delete_stmt)
+        
+        # Now delete the class using the parent implementation
+        return super().delete(id=id)
 
 
 class SuperAdminClassService(SuperAdminBaseService[Class, ClassCreate, ClassUpdate]):
     """Super-admin service for managing classes across all tenants."""
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(crud=class_crud, model=Class, *args, **kwargs)
+    def __init__(self, db: Session = Depends(get_super_admin_db)):
+        super().__init__(crud=class_crud, model=Class, db=db)
     
     def get_all_classes(self, skip: int = 0, limit: int = 100,
                        academic_year: Optional[str] = None,

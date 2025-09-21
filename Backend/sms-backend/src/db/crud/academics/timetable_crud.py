@@ -17,11 +17,11 @@ class CRUDTimetable(TenantCRUDBase[Timetable, TimetableCreate, TimetableUpdate])
             Timetable.name == name
         ).first()
     
-    def get_by_academic_year(self, db: Session, tenant_id: Any, academic_year: str) -> List[Timetable]:
-        """Get timetables by academic year within a tenant."""
+    def get_by_academic_year_id(self, db: Session, tenant_id: Any, academic_year_id: UUID) -> List[Timetable]:
+        """Get timetables by academic year ID within a tenant."""
         return db.query(Timetable).filter(
             Timetable.tenant_id == tenant_id,
-            Timetable.academic_year == academic_year
+            Timetable.academic_year_id == academic_year_id
         ).all()
     
     def get_by_grade_and_section(self, db: Session, tenant_id: Any, grade_id: UUID, section_id: UUID = None) -> List[Timetable]:

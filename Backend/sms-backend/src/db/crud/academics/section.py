@@ -4,10 +4,11 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from src.db.models.academics.section import Section
-from src.db.crud.base import CRUDBase
+from src.db.crud.base import TenantCRUDBase
+from src.schemas.academics.section import SectionCreate, SectionUpdate
 
 
-class CRUDSection(CRUDBase[Section, Dict[str, Any], Dict[str, Any]]):
+class CRUDSection(TenantCRUDBase[Section, SectionCreate, SectionUpdate]):
     def get_by_name(self, db: Session, *, tenant_id: UUID, name: str, grade_id: UUID) -> Optional[Section]:
         return db.query(Section).filter(
             Section.tenant_id == tenant_id, 

@@ -4,10 +4,11 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from src.db.models.academics.subject import Subject
-from src.db.crud.base import CRUDBase
+from src.db.crud.base import TenantCRUDBase
+from src.schemas.academics.subject import SubjectCreate, SubjectUpdate
 
 
-class CRUDSubject(CRUDBase[Subject, Dict[str, Any], Dict[str, Any]]):
+class CRUDSubject(TenantCRUDBase[Subject, SubjectCreate, SubjectUpdate]):
     def get_by_code(self, db: Session, *, tenant_id: UUID, code: str) -> Optional[Subject]:
         return db.query(Subject).filter(Subject.tenant_id == tenant_id, Subject.code == code).first()
     

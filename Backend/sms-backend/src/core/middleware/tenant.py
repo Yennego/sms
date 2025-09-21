@@ -145,9 +145,11 @@ async def tenant_middleware(request: Request, call_next):
     """Middleware to extract tenant from request and set in context."""
     path = request.url.path
     
-    # Skip non-API routes, tenant lookup endpoints, and auth endpoints
+    # Skip non-API routes, specific tenant lookup endpoints, and auth endpoints
     if (not path.startswith("/api/") or
-        path.startswith("/api/v1/tenants/") or  # Allow all tenant endpoints
+        path.startswith("/api/v1/tenants/by-domain/") or  # Only skip domain lookup
+        path.startswith("/api/v1/tenants/active") or     # Only skip active tenants list
+        path == "/api/v1/tenants/" or                    # Only skip tenant list endpoint
         path.startswith("/api/tenant/") or
         path.startswith("/api/v1/auth/")):
         return await call_next(request)
@@ -182,6 +184,27 @@ async def tenant_middleware(request: Request, call_next):
             ).first()
             if tenant:
                 print(f"Middleware found tenant by domain: {domain}")
+        
+        # Strategy 3: Extract tenant from URL path for path-based routing
+        if not tenant:
+            # Extract tenant domain from URL path (e.g., /top-foundation.com/api/...)
+            referer = request.headers.get("referer", "")
+            if referer:
+                # Parse referer URL to extract tenant domain from path
+                from urllib.parse import urlparse
+                parsed_referer = urlparse(referer)
+                path_segments = parsed_referer.path.strip('/').split('/')
+                
+                if path_segments and path_segments[0] and not path_segments[0].startswith('_'):
+                    potential_tenant_domain = path_segments[0]
+                    # Check if it looks like a domain (contains dots or hyphens)
+                    if '.' in potential_tenant_domain or '-' in potential_tenant_domain:
+                        tenant = db.query(Tenant).filter(
+                            Tenant.domain == potential_tenant_domain,
+                            Tenant.is_active == True
+                        ).first()
+                        if tenant:
+                            print(f"Middleware found tenant by path domain: {potential_tenant_domain}")
 
         if tenant and tenant.is_active:
             set_tenant_id(tenant.id)

@@ -6,18 +6,7 @@ from datetime import date
 from sqlalchemy.dialects.postgresql import UUID
 
 class Teacher(User):
-    """Model representing a teacher in the system.
-    
-    Teachers are users with additional teacher-specific attributes.
-    This class extends the base User class with teacher-specific attributes.
-    
-    Attributes:
-        employee_id (str): Unique employee ID for the teacher
-        department (str): Department the teacher belongs to
-        qualification (str): Educational qualification
-        joining_date (Date): Date when the teacher joined
-        is_class_teacher (bool): Whether the teacher is a class teacher
-    """
+    """Model representing a teacher in the system."""
     
     __tablename__ = "teachers"
     
@@ -31,13 +20,13 @@ class Teacher(User):
     joining_date = Column(Date, nullable=True)
     is_class_teacher = Column(Boolean, default=False)
 
-    # personal info
-    address = Column(String(255), nullable=True)
+    # Override address column from User model to avoid conflicts
+    address = Column('teacher_address', String(255), nullable=True)
     city = Column(String(50), nullable=True)
     county = Column(String(50), nullable=True)
     country = Column(String(50), nullable=True)
     gender = Column(String(10), nullable=True)
-    whatsapp_number = Column(String(20), nullable=True) #e.g +231 777 123 4567
+    whatsapp_number = Column(String(20), nullable=True)
    
     # status
     status = Column(

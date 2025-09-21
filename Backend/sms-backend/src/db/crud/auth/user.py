@@ -133,7 +133,13 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
             update_data["password_hash"] = get_password_hash(update_data["password"])
             del update_data["password"]
         
-        return super().update(db, tenant_id=tenant_id, db_obj=db_obj, obj_in=update_data)
+        # Use SQLAlchemy's update() method to avoid triggering __init__
+        if update_data:
+            db.query(User).filter(User.id == db_obj.id).update(update_data)
+            db.commit()
+            db.refresh(db_obj)
+        
+        return db_obj
     
     def get_active_users(self, db: Session, tenant_id: Any, skip: int = 0, limit: int = 100) -> List[User]:
         """Get all active users within a tenant."""

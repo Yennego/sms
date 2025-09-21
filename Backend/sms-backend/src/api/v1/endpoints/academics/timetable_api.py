@@ -20,11 +20,18 @@ from src.core.exceptions.business import (
 
 router = APIRouter()
 
+# Dependency function for TimetableService
+def get_timetable_service(
+    tenant_id: Any = Depends(get_tenant_from_request),
+    db: Session = Depends(get_db)
+) -> TimetableService:
+    return TimetableService(tenant_id=tenant_id, db=db)
+
 # Timetable endpoints
 @router.post("/timetables", response_model=Timetable, status_code=status.HTTP_201_CREATED)
 def create_timetable(
     *,
-    timetable_service: TimetableService = Depends(),
+    timetable_service: TimetableService = Depends(get_timetable_service),
     timetable_in: TimetableCreate,
     current_user: User = Depends(has_any_role(["admin"]))
 ) -> Any:
@@ -40,7 +47,7 @@ def create_timetable(
 @router.get("/timetables", response_model=List[Timetable])
 def get_timetables(
     *,
-    timetable_service: TimetableService = Depends(),
+    timetable_service: TimetableService = Depends(get_timetable_service),
     skip: int = 0,
     limit: int = 100,
     academic_year: Optional[str] = None,
@@ -64,7 +71,7 @@ def get_timetables(
 @router.get("/timetables/current", response_model=List[Timetable])
 def get_current_timetables(
     *,
-    timetable_service: TimetableService = Depends(),
+    timetable_service: TimetableService = Depends(get_timetable_service),
     date: Optional[date] = None
 ) -> Any:
     """Get timetables effective on the current date or specified date."""
@@ -73,7 +80,7 @@ def get_current_timetables(
 @router.get("/timetables/{timetable_id}", response_model=Timetable)
 def get_timetable(
     *,
-    timetable_service: TimetableService = Depends(),
+    timetable_service: TimetableService = Depends(get_timetable_service),
     timetable_id: UUID
 ) -> Any:
     """Get a specific timetable by ID."""
@@ -88,7 +95,7 @@ def get_timetable(
 @router.put("/timetables/{timetable_id}", response_model=Timetable)
 def update_timetable(
     *,
-    timetable_service: TimetableService = Depends(),
+    timetable_service: TimetableService = Depends(get_timetable_service),
     timetable_id: UUID,
     timetable_in: TimetableUpdate,
     current_user: User = Depends(has_any_role(["admin"]))
@@ -111,7 +118,7 @@ def update_timetable(
 @router.delete("/timetables/{timetable_id}", response_model=Timetable)
 def delete_timetable(
     *,
-    timetable_service: TimetableService = Depends(),
+    timetable_service: TimetableService = Depends(get_timetable_service),
     timetable_id: UUID,
     current_user: User = Depends(has_any_role(["admin"]))
 ) -> Any:

@@ -23,7 +23,7 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     """Schema for creating a new user."""
     password: Optional[str] = None 
-    tenant_id: UUID
+    # tenant_id: UUID
 
 
 class UserCreateCrossTenant(UserCreate):

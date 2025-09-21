@@ -59,6 +59,7 @@ class User(Base, TimestampMixin, UUIDMixin):
     profile_picture = Column(String(255))
     phone_number = Column(String(20))
     preferences = Column(JSON, default=dict)
+    address = Column(String(255), nullable=True, comment="User's address")
     
     # Discriminator column for polymorphic inheritance
     type = Column(String(50), nullable=False)
@@ -87,19 +88,24 @@ class User(Base, TimestampMixin, UUIDMixin):
             tenant_id (UUID): ID of the tenant the user belongs to
             
         Raises:
-            ValueError: If required fields are missing or invalid
+            ValueError: If required fields are missing or invalid during creation
         """
-        if not kwargs.get("email"):
-            raise ValueError("email is required for user")
-        if not kwargs.get("password_hash"):
-            raise ValueError("password_hash is required for user")
-        if not kwargs.get("first_name"):
-            raise ValueError("first_name is required for user")
-        if not kwargs.get("last_name"):
-            raise ValueError("last_name is required for user")
-        if not kwargs.get("tenant_id"):
-            raise ValueError("tenant_id is required for user")
-            
+        # Only validate required fields if this appears to be a creation (has most required fields)
+        # This prevents validation errors during partial updates
+        is_creation = bool(kwargs.get("email") and kwargs.get("password_hash") and kwargs.get("tenant_id"))
+        
+        if is_creation:
+            if not kwargs.get("email"):
+                raise ValueError("email is required for user")
+            if not kwargs.get("password_hash"):
+                raise ValueError("password_hash is required for user")
+            if not kwargs.get("first_name"):
+                raise ValueError("first_name is required for user")
+            if not kwargs.get("last_name"):
+                raise ValueError("last_name is required for user")
+            if not kwargs.get("tenant_id"):
+                raise ValueError("tenant_id is required for user")
+                
         # Set default value for is_active if not provided
         if 'is_active' not in kwargs:
             kwargs['is_active'] = True

@@ -32,14 +32,16 @@ class Schedule(TenantModel):
     __tablename__ = "schedules"
     
     # Schedule details
+    # Timing details
     day_of_week = Column(Enum(DayOfWeek), nullable=False)
     start_time = Column(Time, nullable=False)
     end_time = Column(Time, nullable=False)
-    period = Column(Integer, nullable=True)  # Optional period number
+    period = Column(Integer, nullable=True)  # Period number (1st, 2nd, etc.)
     
     # Relationships
     class_id = Column(UUID(as_uuid=True), ForeignKey("classes.id"), nullable=False)
     class_obj = relationship("Class", backref="schedules")
+    attendances = relationship("Attendance", back_populates="schedule")
     
     def __repr__(self):
         return f"<Schedule {self.class_id} - {self.day_of_week} {self.start_time}-{self.end_time}>"

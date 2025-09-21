@@ -48,14 +48,13 @@ class Grade(TenantModel):
     student = relationship("Student", back_populates="grades", foreign_keys=[student_id])
     
     enrollment_id = Column(UUID(as_uuid=True), ForeignKey("enrollments.id"), nullable=False)
-    enrollment = relationship("Enrollment", back_populates="grades")
+    enrollment = relationship("Enrollment", back_populates="assessment_grades")
     
     subject_id = Column(UUID(as_uuid=True), ForeignKey("subjects.id"), nullable=False)
     subject = relationship("Subject", back_populates="grades")
     
     # Assessment details
     assessment_type = Column(Enum(GradeType), nullable=False)
-    # We need to remove the ForeignKey constraint since this can reference multiple tables
     assessment_id = Column(UUID(as_uuid=True), nullable=True)  # No explicit ForeignKey
     assessment_name = Column(String(255), nullable=False)
     assessment_date = Column(Date, nullable=False)

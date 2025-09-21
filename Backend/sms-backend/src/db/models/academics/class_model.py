@@ -30,26 +30,56 @@ class Class(TenantModel):
     __tablename__ = "classes"
     
     # Class details
-    name = Column(String(255), nullable=True)  # Can be auto-generated
+    name = Column(String(255), nullable=True)  # Auto-generated if not provided
     academic_year = Column(String(20), nullable=False, index=True)
-    description = Column(Text, nullable=True)
     room = Column(String(50), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     start_date = Column(Date, nullable=False, default=date.today)
     end_date = Column(Date, nullable=True)
+    description = Column(Text, nullable=True)
+    
+    # Key relationships
+    grade_id = Column(UUID(as_uuid=True), ForeignKey("academic_grades.id"), nullable=False)
+    section_id = Column(UUID(as_uuid=True), ForeignKey("sections.id"), nullable=False)
+    subject_id = Column(UUID(as_uuid=True), ForeignKey("subjects.id"), nullable=False)
+    teacher_id = Column(UUID(as_uuid=True), ForeignKey("teachers.id"), nullable=False)
     
     # Relationships
-    grade_id = Column(UUID(as_uuid=True), ForeignKey("academic_grades.id"), nullable=False)
     grade = relationship("AcademicGrade", backref="classes")
-    
-    section_id = Column(UUID(as_uuid=True), ForeignKey("sections.id"), nullable=False)
     section = relationship("Section", backref="classes")
-    
-    subject_id = Column(UUID(as_uuid=True), ForeignKey("subjects.id"), nullable=False)
     subject = relationship("Subject", backref="classes")
-    
-    teacher_id = Column(UUID(as_uuid=True), ForeignKey("teachers.id"), nullable=False)
     teacher = relationship("Teacher", backref="classes")
+    
+    # Updated relationships for proper student enrollment and attendance tracking
+    student_enrollments = relationship("ClassEnrollment", back_populates="class_obj", lazy="dynamic")
+    attendances = relationship("Attendance", back_populates="class_obj")
+    
+    # Helper methods for working with enrolled students
+    def get_enrolled_students(self, academic_year_id=None):
+        """Get all students enrolled in this class for a specific academic year."""
+        query = self.student_enrollments.filter_by(is_active=True)
+        if academic_year_id:
+            query = query.filter_by(academic_year_id=academic_year_id)
+        return [enrollment.student for enrollment in query.all()]
+    
+    def enroll_student(self, student, academic_year_id, enrollment_date=None):
+        """Enroll a student in this class."""
+        from src.db.models.academics.class_enrollment import ClassEnrollment
+        
+        enrollment = ClassEnrollment(
+            student_id=student.id,
+            class_id=self.id,
+            academic_year_id=academic_year_id,
+            enrollment_date=enrollment_date or date.today()
+        )
+        return enrollment
+    
+    def get_student_count(self, academic_year_id=None):
+        """Get the number of students enrolled in this class."""
+        query = self.student_enrollments.filter_by(is_active=True)
+        if academic_year_id:
+            query = query.filter_by(academic_year_id=academic_year_id)
+        return query.count()
     
     def __repr__(self):
         return f"<Class {self.name or f'{self.subject.name} - {self.grade.name}{self.section.name}'} - {self.academic_year}>"
