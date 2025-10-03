@@ -26,9 +26,9 @@ class SectionService(TenantBaseService[Section, SectionCreate, SectionUpdate]):
         """Get a section by name and grade."""
         return section_crud.get_by_name(self.db, tenant_id=self.tenant_id, name=name, grade_id=grade_id)
     
-    def get_active_sections(self, skip: int = 0, limit: int = 100) -> List[Section]:
+    def get_active_sections(self, grade_id: Optional[UUID] = None, skip: int = 0, limit: int = 100) -> List[Section]:
         """Get all active sections."""
-        return section_crud.get_active_sections(self.db, tenant_id=self.tenant_id, skip=skip, limit=limit)
+        return section_crud.get_active_sections(self.db, tenant_id=self.tenant_id, grade_id=grade_id, skip=skip, limit=limit)
     
     def get_by_grade(self, grade_id: UUID) -> List[Section]:
         """Get sections by grade."""

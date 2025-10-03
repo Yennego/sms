@@ -78,6 +78,48 @@ class CRUDEnrollment(TenantCRUDBase[Enrollment, EnrollmentCreate, EnrollmentUpda
         db.commit()
         db.refresh(enrollment)
         return enrollment
+    
+    def remove(self, db: Session, tenant_id: Any, *, id: Any) -> Optional[Enrollment]:
+        """Remove an enrollment with tenant validation."""
+        enrollment = self.get_by_id(db, tenant_id, id)
+        if not enrollment:
+            return None
+        
+        db.delete(enrollment)
+        db.commit()
+        return enrollment
+    
+    def count(self, db: Session, tenant_id: Any, **filters) -> int:
+        """Count enrollments with optional filters."""
+        tenant_id = self._ensure_uuid(tenant_id)
+        query = db.query(self.model).filter(self.model.tenant_id == tenant_id)
+        
+        # Apply filters
+        for field, value in filters.items():
+            if hasattr(self.model, field) and value is not None:
+                query = query.filter(getattr(self.model, field) == value)
+        
+        return query.count()
+    
+    def get_multi(
+        self, 
+        db: Session, 
+        tenant_id: Any, 
+        *, 
+        skip: int = 0, 
+        limit: int = 100, 
+        **filters
+    ) -> List[Enrollment]:
+        """Get multiple enrollments with pagination and filters."""
+        tenant_id = self._ensure_uuid(tenant_id)
+        query = db.query(self.model).filter(self.model.tenant_id == tenant_id)
+        
+        # Apply filters
+        for field, value in filters.items():
+            if hasattr(self.model, field) and value is not None:
+                query = query.filter(getattr(self.model, field) == value)
+        
+        return query.offset(skip).limit(limit).all()
 
 
 enrollment = CRUDEnrollment(Enrollment)

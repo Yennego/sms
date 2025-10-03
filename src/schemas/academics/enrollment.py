@@ -58,3 +58,15 @@ class EnrollmentWithStudent(Enrollment):
     student_name: str
     student_email: str
     student_admission_number: str
+
+
+class BulkEnrollmentCreate(BaseModel):
+    """Schema for bulk enrollment creation."""
+    student_ids: List[UUID]
+    academic_year: str
+    grade: str
+    section: str
+    enrollment_date: Optional[date] = None
+    semester: Optional[str] = None
+    status: str = "active"
+    is_active: bool = True

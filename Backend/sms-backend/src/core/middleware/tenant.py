@@ -176,21 +176,28 @@ async def tenant_middleware(request: Request, call_next):
                 print(f"Middleware found tenant by header: {tenant_header}")
 
         # Strategy 2: Get from domain if no header match
+        domain = request.headers.get("host", "").split(":")[0]  
         if not tenant:
-            domain = request.headers.get("host", "").split(":")[0]
             tenant = db.query(Tenant).filter(
                 Tenant.domain == domain,
                 Tenant.is_active == True
             ).first()
             if tenant:
                 print(f"Middleware found tenant by domain: {domain}")
+            
+            # Development fallback: if localhost and no tenant found, try to get the first active tenant
+            if not tenant and domain == "localhost":
+                tenant = db.query(Tenant).filter(
+                    Tenant.is_active == True
+                ).first()
+                if tenant:
+                    print(f"Middleware fallback: Using first active tenant for localhost: {tenant.domain}")
         
-        # Strategy 3: Extract tenant from URL path for path-based routing
+        #  path-based routing
         if not tenant:
-            # Extract tenant domain from URL path (e.g., /top-foundation.com/api/...)
+            # Extract tenant domain from URL path 
             referer = request.headers.get("referer", "")
             if referer:
-                # Parse referer URL to extract tenant domain from path
                 from urllib.parse import urlparse
                 parsed_referer = urlparse(referer)
                 path_segments = parsed_referer.path.strip('/').split('/')
@@ -207,11 +214,15 @@ async def tenant_middleware(request: Request, call_next):
                             print(f"Middleware found tenant by path domain: {potential_tenant_domain}")
 
         if tenant and tenant.is_active:
+            print(f"Middleware setting tenant ID: {tenant.id} for domain: {tenant.domain}")
             set_tenant_id(tenant.id)
             response = await call_next(request)
             return response
         else:
             print(f"Middleware tenant not found for X-Tenant-ID: {tenant_header} or domain: {domain}")
+            print(f"Tenant object: {tenant}")
+            if tenant:
+                print(f"Tenant is_active: {tenant.is_active}")
             return JSONResponse(
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={"detail": "Tenant not found or inactive"}

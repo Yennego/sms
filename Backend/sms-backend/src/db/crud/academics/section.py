@@ -23,6 +23,13 @@ class CRUDSection(TenantCRUDBase[Section, SectionCreate, SectionUpdate]):
             query = query.filter(Section.grade_id == grade_id)
             
         return query.offset(skip).limit(limit).all()
+    
+    def get_by_grade(self, db: Session, *, tenant_id: UUID, grade_id: UUID) -> List[Section]:
+        """Get all sections for a specific grade within a tenant."""
+        return db.query(Section).filter(
+            Section.tenant_id == tenant_id,
+            Section.grade_id == grade_id
+        ).all()
 
 
 section = CRUDSection(Section)

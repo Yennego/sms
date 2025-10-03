@@ -97,6 +97,20 @@ class EnrollmentService(TenantBaseService[Enrollment, EnrollmentCreate, Enrollme
             status=status, withdrawal_date=withdrawal_date, withdrawal_reason=withdrawal_reason
         )
     
+    def count(self, **filters) -> int:
+        """Count enrollments with optional filters."""
+        return enrollment_crud.count(self.db, tenant_id=self.tenant_id, **filters)
+    
+    def get_multi(self, *, skip: int = 0, limit: int = 100, **filters) -> List[Enrollment]:
+        """Get multiple enrollments with pagination and filters."""
+        return enrollment_crud.get_multi(
+            self.db, tenant_id=self.tenant_id, skip=skip, limit=limit, **filters
+        )
+    
+    def remove(self, *, id: UUID) -> Enrollment:
+        """Remove an enrollment."""
+        return enrollment_crud.remove(self.db, tenant_id=self.tenant_id, id=id)
+
     def promote_student(self, student_id: UUID, new_academic_year: str, new_grade: str, new_section: str) -> Enrollment:
         """Promote a student to a new grade and section for a new academic year."""
         # Get current active enrollment
@@ -119,6 +133,18 @@ class EnrollmentService(TenantBaseService[Enrollment, EnrollmentCreate, Enrollme
         ))
         
         return new_enrollment
+    
+    def count(self, **filters) -> int:
+        """Count enrollments with optional filters."""
+        return self.crud.count(self.db, self.tenant_id, **filters)
+    
+    def get_multi(self, *, skip: int = 0, limit: int = 100, **filters) -> List[Enrollment]:
+        """Get multiple enrollments with pagination and filters."""
+        return self.crud.get_multi(self.db, self.tenant_id, skip=skip, limit=limit, **filters)
+    
+    def remove(self, *, id: Any) -> Optional[Enrollment]:
+        """Remove an enrollment."""
+        return self.crud.remove(self.db, self.tenant_id, id=id)
 
 
 class SuperAdminEnrollmentService(SuperAdminBaseService[Enrollment, EnrollmentCreate, EnrollmentUpdate]):
