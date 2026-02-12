@@ -23,7 +23,7 @@ router = APIRouter()
 
 # Exam endpoints
 @router.post("/exams", response_model=Exam, status_code=status.HTTP_201_CREATED)
-def create_exam(
+async def create_exam(
     *,
     exam_service: ExamService = Depends(),
     exam_in: ExamCreate,
@@ -31,7 +31,7 @@ def create_exam(
 ) -> Any:
     """Create a new exam (requires admin or teacher role)."""
     try:
-        return exam_service.create(obj_in=exam_in)
+        return await exam_service.create(obj_in=exam_in)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -39,7 +39,7 @@ def create_exam(
         )
 
 @router.get("/exams", response_model=List[Exam])
-def get_exams(
+async def get_exams(
     *,
     exam_service: ExamService = Depends(),
     skip: int = 0,
@@ -48,6 +48,7 @@ def get_exams(
     teacher_id: Optional[UUID] = None,
     grade_id: Optional[UUID] = None,
     section_id: Optional[UUID] = None,
+    academic_year_id: Optional[UUID] = None,
     is_published: Optional[bool] = None
 ) -> Any:
     """Get all exams for a tenant with optional filtering."""
@@ -60,19 +61,21 @@ def get_exams(
         filters["grade_id"] = grade_id
     if section_id:
         filters["section_id"] = section_id
+    if academic_year_id:
+        filters["academic_year_id"] = academic_year_id
     if is_published is not None:
         filters["is_published"] = is_published
-    
-    return exam_service.get_multi(skip=skip, limit=limit, **filters)
+
+    return await exam_service.list(skip=skip, limit=limit, filters=filters)
 
 @router.get("/exams/{exam_id}", response_model=Exam)
-def get_exam(
+async def get_exam(
     *,
     exam_service: ExamService = Depends(),
     exam_id: UUID
 ) -> Any:
     """Get a specific exam by ID."""
-    exam = exam_service.get(id=exam_id)
+    exam = await exam_service.get(id=exam_id)
     if not exam:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -81,7 +84,7 @@ def get_exam(
     return exam
 
 @router.put("/exams/{exam_id}", response_model=Exam)
-def update_exam(
+async def update_exam(
     *,
     exam_service: ExamService = Depends(),
     exam_id: UUID,
@@ -90,13 +93,13 @@ def update_exam(
 ) -> Any:
     """Update an exam."""
     try:
-        exam = exam_service.get(id=exam_id)
+        exam = await exam_service.get(id=exam_id)
         if not exam:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Exam with ID {exam_id} not found"
             )
-        return exam_service.update(db_obj=exam, obj_in=exam_in)
+        return await exam_service.update(db_obj=exam, obj_in=exam_in)
     except BusinessRuleViolationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -104,23 +107,23 @@ def update_exam(
         )
 
 @router.delete("/exams/{exam_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_exam(
+async def delete_exam(
     *,
     exam_service: ExamService = Depends(),
     exam_id: UUID,
     current_user: User = Depends(has_any_role(["admin"]))
 ) -> None:
     """Delete an exam (admin only)."""
-    exam = exam_service.get(id=exam_id)
+    exam = await exam_service.get(id=exam_id)
     if not exam:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Exam with ID {exam_id} not found"
         )
-    exam_service.remove(id=exam_id)
+    await exam_service.delete(id=exam_id)
 
 @router.put("/exams/{exam_id}/publish", response_model=Exam)
-def publish_exam(
+async def publish_exam(
     *,
     exam_service: ExamService = Depends(),
     exam_id: UUID,
@@ -128,7 +131,7 @@ def publish_exam(
 ) -> Any:
     """Publish an exam to make it visible to students."""
     try:
-        return exam_service.update_publication_status(id=exam_id, is_published=True)
+        return await exam_service.update_publication_status(id=exam_id, is_published=True)
     except EntityNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -141,7 +144,7 @@ def publish_exam(
         )
 
 @router.put("/exams/{exam_id}/unpublish", response_model=Exam)
-def unpublish_exam(
+async def unpublish_exam(
     *,
     exam_service: ExamService = Depends(),
     exam_id: UUID,
@@ -149,7 +152,7 @@ def unpublish_exam(
 ) -> Any:
     """Unpublish an exam to hide it from students."""
     try:
-        return exam_service.update_publication_status(id=exam_id, is_published=False)
+        return await exam_service.update_publication_status(id=exam_id, is_published=False)
     except EntityNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -163,11 +166,11 @@ def unpublish_exam(
 
 # Super Admin endpoints
 @router.get("/super-admin/exams", response_model=List[Exam])
-def get_all_exams(
+async def get_all_exams(
     *,
     exam_service: SuperAdminExamService = Depends(),
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1),
     subject_id: Optional[UUID] = None,
     teacher_id: Optional[UUID] = None,
     grade_id: Optional[UUID] = None,
@@ -176,7 +179,7 @@ def get_all_exams(
     current_user: User = Depends(has_permission("view_all_exams"))
 ) -> Any:
     """Get all exams across all tenants with filtering (super-admin only)."""
-    return exam_service.get_all_exams(
+    return await exam_service.get_all_exams(
         skip=skip,
         limit=limit,
         subject_id=subject_id,

@@ -1,7 +1,7 @@
 from datetime import date
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from src.schemas.base.base import TimestampSchema, TenantSchema
 
@@ -13,14 +13,15 @@ class AcademicYearBase(BaseModel):
     end_date: date = Field(..., description="Academic year end date")
     is_current: bool = Field(default=False, description="Whether this is the current academic year")
     is_active: bool = Field(default=True, description="Whether this academic year is active")
+    is_archived: bool = Field(default=False, description="Whether this academic year is archived")
     description: Optional[str] = Field(None, description="Optional description")
     
     # Semester information
     current_semester: int = Field(default=1, description="Current semester (1 or 2)")
-    semester_1_start: date = Field(..., description="Semester 1 start date")
-    semester_1_end: date = Field(..., description="Semester 1 end date")
-    semester_2_start: date = Field(..., description="Semester 2 start date")
-    semester_2_end: date = Field(..., description="Semester 2 end date")
+    semester_1_start: Optional[date] = Field(default=None, description="Semester 1 start date")
+    semester_1_end: Optional[date] = Field(default=None, description="Semester 1 end date")
+    semester_2_start: Optional[date] = Field(default=None, description="Semester 2 start date")
+    semester_2_end: Optional[date] = Field(default=None, description="Semester 2 end date")
 
 
 class AcademicYearCreate(AcademicYearBase):
@@ -35,6 +36,7 @@ class AcademicYearUpdate(BaseModel):
     end_date: Optional[date] = None
     is_current: Optional[bool] = None
     is_active: Optional[bool] = None
+    is_archived: Optional[bool] = None
     description: Optional[str] = None
     current_semester: Optional[int] = None
     semester_1_start: Optional[date] = None
@@ -45,8 +47,8 @@ class AcademicYearUpdate(BaseModel):
 
 class AcademicYearInDB(AcademicYearBase, TenantSchema):
     """Schema for AcademicYear model in database."""
-    class Config:
-        from_attributes = True
+    # Pydantic v2: enable ORM serialization
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AcademicYear(AcademicYearInDB):
@@ -78,5 +80,5 @@ class AcademicYear(AcademicYearInDB):
 
 class AcademicYearWithDetails(AcademicYear):
     """Schema for AcademicYear with additional details."""
-    total_enrollments: Optional[int] = None
-    active_classes: Optional[int] = None
+    total_students: int = 0
+    total_classes: int = 0

@@ -19,53 +19,101 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Step 1: Add the new academic_year_id column as nullable first
-    op.add_column('timetables', sa.Column('academic_year_id', sa.UUID(), nullable=True))
-    
-    # Step 2: Data migration - populate academic_year_id based on academic_year string
-    # This assumes you have academic years in the database that match the string values
-    connection = op.get_bind()
-    
-    # Update academic_year_id by matching academic_year string to academic_years.name
-    connection.execute(text("""
-        UPDATE timetables 
-        SET academic_year_id = academic_years.id 
-        FROM academic_years 
-        WHERE timetables.academic_year = academic_years.name
-    """))
-    
-    # Step 3: Make academic_year_id non-nullable after population
-    op.alter_column('timetables', 'academic_year_id', nullable=False)
-    
-    # Step 4: Create index and foreign key
-    op.create_index(op.f('ix_timetables_academic_year_id'), 'timetables', ['academic_year_id'], unique=False)
-    op.create_foreign_key('fk_timetables_academic_year_id', 'timetables', 'academic_years', ['academic_year_id'], ['id'])
-    
-    # Step 5: Drop the old academic_year column and its index
-    op.drop_index(op.f('ix_timetables_academic_year'), table_name='timetables')
-    op.drop_column('timetables', 'academic_year')
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+
+    if 'timetables' in insp.get_table_names():
+        cols = [c['name'] for c in insp.get_columns('timetables')]
+
+        # Step 1: Add academic_year_id if missing
+        if 'academic_year_id' not in cols:
+            op.add_column('timetables', sa.Column('academic_year_id', sa.UUID(), nullable=True))
+            cols.append('academic_year_id')
+
+        # Step 2: Populate academic_year_id using academic_year string if both exist
+        if 'academic_year_id' in cols and 'academic_year' in cols:
+            bind.execute(text("""
+                UPDATE timetables 
+                SET academic_year_id = ay.id
+                FROM academic_years ay
+                WHERE timetables.academic_year = ay.name
+                  AND timetables.academic_year_id IS NULL
+            """))
+
+        # Step 3: Make academic_year_id non-nullable only if no NULLs
+        null_count = bind.execute(text("SELECT COUNT(*) FROM timetables WHERE academic_year_id IS NULL")).scalar()
+        if null_count == 0:
+            op.alter_column('timetables', 'academic_year_id', nullable=False)
+
+        # Step 4: Index and foreign key guards
+        existing_indexes = {idx['name'] for idx in insp.get_indexes('timetables')}
+        if 'ix_timetables_academic_year_id' not in existing_indexes:
+            bind.execute(text('CREATE INDEX IF NOT EXISTS ix_timetables_academic_year_id ON timetables (academic_year_id)'))
+
+        existing_fks = insp.get_foreign_keys('timetables')
+        fk_exists = any(
+            'academic_year_id' in fk.get('constrained_columns', [])
+            and fk.get('referred_table') == 'academic_years'
+            for fk in existing_fks
+        )
+        if not fk_exists:
+            op.create_foreign_key(
+                'fk_timetables_academic_year_id',
+                'timetables', 'academic_years',
+                ['academic_year_id'], ['id']
+            )
+
+        # Step 5: Drop legacy academic_year column/index if present
+        if 'ix_timetables_academic_year' in existing_indexes:
+            bind.execute(text('DROP INDEX IF EXISTS ix_timetables_academic_year'))
+        if 'academic_year' in cols:
+            op.drop_column('timetables', 'academic_year')
 
 
 def downgrade() -> None:
-    # Step 1: Add back the academic_year string column
-    op.add_column('timetables', sa.Column('academic_year', sa.VARCHAR(length=20), autoincrement=False, nullable=True))
-    
-    # Step 2: Populate academic_year from academic_year_id relationship
-    connection = op.get_bind()
-    connection.execute(text("""
-        UPDATE timetables 
-        SET academic_year = academic_years.name 
-        FROM academic_years 
-        WHERE timetables.academic_year_id = academic_years.id
-    """))
-    
-    # Step 3: Make academic_year non-nullable
-    op.alter_column('timetables', 'academic_year', nullable=False)
-    
-    # Step 4: Create index for academic_year
-    op.create_index(op.f('ix_timetables_academic_year'), 'timetables', ['academic_year'], unique=False)
-    
-    # Step 5: Drop foreign key, index, and academic_year_id column
-    op.drop_constraint('fk_timetables_academic_year_id', 'timetables', type_='foreignkey')
-    op.drop_index(op.f('ix_timetables_academic_year_id'), table_name='timetables')
-    op.drop_column('timetables', 'academic_year_id')
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+
+    if 'timetables' in insp.get_table_names():
+        cols = [c['name'] for c in insp.get_columns('timetables')]
+
+        # Step 1: Add back academic_year if missing
+        if 'academic_year' not in cols:
+            op.add_column('timetables', sa.Column('academic_year', sa.VARCHAR(length=20), nullable=True))
+            cols.append('academic_year')
+
+        # Step 2: Populate academic_year from academic_year_id if both exist
+        if 'academic_year_id' in cols and 'academic_year' in cols:
+            bind.execute(text("""
+                UPDATE timetables 
+                SET academic_year = ay.name
+                FROM academic_years ay
+                WHERE timetables.academic_year_id = ay.id
+                  AND timetables.academic_year IS NULL
+            """))
+
+        # Step 3: Make academic_year non-nullable only if no NULLs
+        null_count = bind.execute(text("SELECT COUNT(*) FROM timetables WHERE academic_year IS NULL")).scalar()
+        if null_count == 0:
+            op.alter_column('timetables', 'academic_year', nullable=False)
+
+        # Step 4: Ensure index for academic_year
+        existing_indexes = {idx['name'] for idx in insp.get_indexes('timetables')}
+        if 'ix_timetables_academic_year' not in existing_indexes:
+            bind.execute(text('CREATE INDEX IF NOT EXISTS ix_timetables_academic_year ON timetables (academic_year)'))
+
+        # Step 5: Drop FK/index/column for academic_year_id only if present
+        existing_fks = insp.get_foreign_keys('timetables')
+        fk_exists = any(
+            'academic_year_id' in fk.get('constrained_columns', [])
+            and fk.get('referred_table') == 'academic_years'
+            for fk in existing_fks
+        )
+        if fk_exists:
+            op.drop_constraint('fk_timetables_academic_year_id', 'timetables', type_='foreignkey')
+
+        if 'ix_timetables_academic_year_id' in existing_indexes:
+            bind.execute(text('DROP INDEX IF EXISTS ix_timetables_academic_year_id'))
+
+        if 'academic_year_id' in cols:
+            op.drop_column('timetables', 'academic_year_id')

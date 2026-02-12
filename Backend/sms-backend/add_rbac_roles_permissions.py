@@ -29,7 +29,8 @@ academic_permissions = [
 admin_permissions = [
     {"name": "manage_users", "description": "Permission to manage users"},
     {"name": "view_tenant_data", "description": "Permission to view tenant data"},
-    {"name": "manage_tenant_settings", "description": "Permission to manage tenant settings"}
+    {"name": "manage_tenant_settings", "description": "Permission to manage tenant settings"},
+    {"name": "manage_permissions", "description": "Permission to manage tenant permissions"}
 ]
 
 # Define role templates
@@ -45,6 +46,10 @@ role_templates = {
     "tenant-admin": {
         "description": "Administrator with full tenant access except financial controls",
         "permissions": admin_permissions + academic_permissions  # Excludes financial permissions
+    },
+    "admin": {
+        "description": "Tenant administrator with full access except financial controls",
+        "permissions": admin_permissions + academic_permissions
     }
 }
 

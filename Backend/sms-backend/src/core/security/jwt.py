@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from src.core.config import settings
 from src.schemas.auth.token import TokenPayload
+from uuid import uuid4
 
 
 SECRET_KEY = settings.SECRET_KEY
@@ -27,7 +28,9 @@ def create_access_token(subject: Union[str, UUID], tenant_id: Union[str, UUID], 
         "sub": str(subject),
         "tenant_id": str(tenant_id),
         "type": "access",
-        "is_super_admin": is_super_admin  # Add this field
+        "is_super_admin": is_super_admin
+        ,
+        "jti": str(uuid4())
     }
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -43,12 +46,14 @@ def create_refresh_token(subject: Union[str, UUID], tenant_id: Union[str, UUID],
         "tenant_id": str(tenant_id),
         "type": "refresh",
         "is_super_admin": is_super_admin  # Add this field
+        ,
+        "jti": str(uuid4())
     }
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
 
-def verify_token(token: str) -> Optional[TokenPayload]:
+async def verify_token(token: str) -> Optional[TokenPayload]:
     """Verify a JWT token and return its payload."""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -61,8 +66,17 @@ def verify_token(token: str) -> Optional[TokenPayload]:
         # Check if token is blacklisted
         from src.services.auth.token_blacklist import TokenBlacklistService
         blacklist_service = TokenBlacklistService()
-        if blacklist_service.is_token_blacklisted(token):
+        if await blacklist_service.is_token_blacklisted(token):
             return None
+
+        # Enforce idle timeout for access tokens
+        if settings.IDLE_ENFORCEMENT_ENABLED and token_data.type == "access" and token_data.jti:
+            # Ensure last-activity exists at first usage
+            await blacklist_service.ensure_last_activity(token_data.jti, token_data.exp)
+            if await blacklist_service.is_idle_timed_out(token_data.jti):
+                # Optional: mark token blacklisted for faster future failures
+                await blacklist_service.blacklist_token(token, token_data.exp)
+                return None
             
         return token_data
     except (jwt.JWTError, ValidationError) as e:

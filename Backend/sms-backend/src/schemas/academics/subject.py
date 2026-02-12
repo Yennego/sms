@@ -1,7 +1,7 @@
 from asyncio import LimitOverrunError
 from typing import Optional
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from src.schemas.base.base import TimestampSchema, TenantSchema
 
@@ -31,8 +31,7 @@ class SubjectUpdate(BaseModel):
 
 class SubjectInDB(SubjectBase, TenantSchema):
     """Schema for Subject model in database."""
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Subject(SubjectInDB):

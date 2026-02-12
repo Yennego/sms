@@ -39,9 +39,9 @@ class ResourceService(TenantBaseService[Resource, ResourceCreate, ResourceUpdate
             self.db, tenant_id=self.tenant_id
         )
     
-    def access_resource(self, id: UUID) -> Optional[Resource]:
+    async def access_resource(self, id: UUID) -> Optional[Resource]:
         """Access a resource and update its access statistics."""
-        resource = self.get(id=id)
+        resource = await self.get(id=id)
         if not resource:
             raise EntityNotFoundError(f"Resource with ID {id} not found")
         
@@ -51,7 +51,7 @@ class ResourceService(TenantBaseService[Resource, ResourceCreate, ResourceUpdate
             access_count=resource.access_count + 1
         )
         
-        return self.update(id=id, obj_in=update_data)
+        return await self.update(id=id, obj_in=update_data)
 
 
 class SuperAdminResourceService(SuperAdminBaseService[Resource, ResourceCreate, ResourceUpdate]):

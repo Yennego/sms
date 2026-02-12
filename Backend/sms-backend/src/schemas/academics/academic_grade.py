@@ -1,6 +1,6 @@
 from typing import Optional
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from src.schemas.base.base import TimestampSchema, TenantSchema
 
@@ -11,6 +11,7 @@ class AcademicGradeBase(BaseModel):
     description: Optional[str] = None
     is_active: bool = True
     sequence: int
+    age_range: Optional[str] = None
 
 
 class AcademicGradeCreate(AcademicGradeBase):
@@ -24,12 +25,12 @@ class AcademicGradeUpdate(BaseModel):
     description: Optional[str] = None
     is_active: Optional[bool] = None
     sequence: Optional[int] = None
+    age_range: Optional[str] = None
 
 
 class AcademicGradeInDB(AcademicGradeBase, TenantSchema):
     """Schema for AcademicGrade model in database."""
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AcademicGrade(AcademicGradeInDB):

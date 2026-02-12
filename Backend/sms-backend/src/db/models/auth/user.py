@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, JSON, ForeignKey, Table, Integer
+from sqlalchemy import Column, String, Boolean, DateTime, JSON, ForeignKey, Table, Integer, Index
 from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
@@ -68,6 +68,11 @@ class User(Base, TimestampMixin, UUIDMixin):
         'polymorphic_identity': 'user',
         'polymorphic_on': type
     }
+
+    __table_args__ = (
+        Index('ix_users_tenant_id', 'tenant_id'),
+        Index('ix_users_email', 'email', unique=True),
+    )
     
     # Relationships
     # Update this to use user_role_association
@@ -111,7 +116,21 @@ class User(Base, TimestampMixin, UUIDMixin):
             kwargs['is_active'] = True
             
         super().__init__(**kwargs)
-    
+    @property
+    def is_super_admin(self) -> bool:
+        """Check if user has super-admin role."""
+        return any(role.name in ["super-admin", "superadmin"] for role in self.roles)
+
+    @property
+    def full_name(self) -> str:
+        """Get the user's full name."""
+        return f"{self.first_name} {self.last_name}"
+
+    @property
+    def role(self) -> str:
+        """Get the user's primary role (polymorphic type)."""
+        return self.type
+
     def __repr__(self):
         return f"<User {self.email}>"
 

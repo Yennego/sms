@@ -33,6 +33,7 @@ class Student(User):
     country = Column(String(100), nullable=True)
     whatsapp_number = Column(String(20), nullable=True)
     emergency_contact = Column(String(255), nullable=True)
+    photo = Column(String(500), nullable=True, comment="URL to student profile photo")
 
     status = Column(
         String(20),

@@ -83,7 +83,7 @@ class Teacher(User):
 
     
     # Relationships
-    # This will be defined when we implement class, subject and other academic models
+    grades = relationship("Grade", back_populates="teacher", foreign_keys="[Grade.graded_by]")
     
     def __repr__(self):
         return f"<Teacher {self.email} - {self.employee_id}>"

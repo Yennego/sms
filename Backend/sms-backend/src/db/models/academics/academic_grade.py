@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, Boolean, Integer
+from sqlalchemy import Column, String, Text, Boolean, Integer, Index
 from sqlalchemy.orm import relationship
 
 from src.db.models.base import TenantModel
@@ -22,12 +22,18 @@ class AcademicGrade(TenantModel):
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     sequence = Column(Integer, nullable=False)  # For ordering grade levels
+    age_range = Column(String(50), nullable=True)  # e.g., 6-7 years
     
     # Relationships to other models
     sections = relationship("Section", back_populates="grade")
     assignments = relationship("Assignment", back_populates="grade")
     exams = relationship("Exam", back_populates="grade")
     enrollments = relationship("Enrollment", back_populates="grade_obj")
+    promotion_criteria = relationship("PromotionCriteria", back_populates="grade")
     
     def __repr__(self):
         return f"<AcademicGrade {self.name} - Sequence: {self.sequence}>"
+
+    __table_args__ = (
+        Index('ix_academic_grades_tenant_sequence', 'tenant_id', 'sequence'),
+    )

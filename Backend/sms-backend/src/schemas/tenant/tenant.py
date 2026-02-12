@@ -37,6 +37,19 @@ class TenantCreate(TenantBase):
     pass
 
 
+class AdminUserData(BaseModel):
+    """Schema for admin user data when creating a tenant"""
+    first_name: str = Field(..., min_length=1, max_length=100)
+    last_name: str = Field(..., min_length=1, max_length=100)
+    email: str = Field(..., max_length=255)
+    password: Optional[str] = Field(None, min_length=8)  # If None, password will be generated
+
+
+class TenantCreateWithAdmin(TenantBase):
+    """Schema for creating a tenant with admin user in a single atomic operation"""
+    admin_user: AdminUserData
+
+
 class TenantUpdate(BaseModel):
     """Schema for updating a tenant."""
     name: Optional[str] = None
@@ -58,6 +71,15 @@ class TenantUpdate(BaseModel):
         if v and len(v) < 3:
             raise ValueError("tenant name must be at least 3 characters long")
         return v
+
+
+class TenantCreateResponse(BaseModel):
+    """Response schema for tenant creation with admin user"""
+    tenant: 'Tenant'
+    admin_user: dict  # Contains user info and generated password if applicable
+    
+    class Config:
+        from_attributes = True
 
 
 class Tenant(TenantBase, TimestampSchema):

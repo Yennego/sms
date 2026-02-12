@@ -1,7 +1,6 @@
-from hashlib import algorithms_available
 from typing import Optional
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from src.schemas.base.base import TimestampSchema, TenantSchema
 
@@ -13,6 +12,7 @@ class SectionBase(BaseModel):
     is_active: bool = True
     capacity: int
     grade_id: UUID
+    class_teacher_id: Optional[UUID] = None
 
 
 class SectionCreate(SectionBase):
@@ -27,12 +27,12 @@ class SectionUpdate(BaseModel):
     is_active: Optional[bool] = None
     capacity: Optional[int] = None
     grade_id: Optional[UUID] = None
+    class_teacher_id: Optional[UUID] = None
 
 
 class SectionInDB(SectionBase, TenantSchema):
     """Schema for Section model in database."""
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Section(SectionInDB):
@@ -43,3 +43,4 @@ class Section(SectionInDB):
 class SectionWithDetails(Section):
     """Schema for Section with additional details."""
     grade_name: str
+    class_teacher_name: Optional[str] = None

@@ -11,26 +11,53 @@ from src.core.exceptions.business import EntityNotFoundError
 class ScheduleService(TenantBaseService[Schedule, ScheduleCreate, ScheduleUpdate]):
     """Service for managing schedules within a tenant."""
     
-    def __init__(self, *args, **kwargs):
+    def __init__(self, tenant=None, *args, **kwargs):
+        if tenant and hasattr(tenant, 'id'):
+            kwargs['tenant_id'] = tenant.id
         super().__init__(crud=schedule_crud, model=Schedule, *args, **kwargs)
     
-    def get_by_class(self, class_id: UUID) -> List[Schedule]:
+    async def get_by_class(self, class_id: UUID) -> List[Schedule]:
         """Get schedules by class."""
         return schedule_crud.get_by_class(self.db, tenant_id=self.tenant_id, class_id=class_id)
     
-    def get_by_day(self, day_of_week: DayOfWeek) -> List[Schedule]:
+    async def get_by_day(self, day_of_week: DayOfWeek) -> List[Schedule]:
         """Get schedules by day of week."""
         return schedule_crud.get_by_day(self.db, tenant_id=self.tenant_id, day_of_week=day_of_week)
     
-    def get_by_period(self, period: int) -> List[Schedule]:
+    async def get_by_period(self, period: int) -> List[Schedule]:
         """Get schedules by period."""
         return schedule_crud.get_by_period(self.db, tenant_id=self.tenant_id, period=period)
     
-    def get_by_time_range(self, start_time, end_time) -> List[Schedule]:
+    async def get_by_time_range(self, start_time, end_time) -> List[Schedule]:
         """Get schedules by time range."""
         return schedule_crud.get_by_time_range(
             self.db, tenant_id=self.tenant_id, start_time=start_time, end_time=end_time
         )
+
+    async def list(self, *, skip: int = 0, limit: int = 100, filters: Dict[str, Any] = {}) -> List[Schedule]:
+        """List schedules with advanced filtering (handling container class_id)."""
+        from sqlalchemy import or_
+        from src.db.models.academics.class_subject import ClassSubject
+        
+        query = self.db.query(Schedule).filter(Schedule.tenant_id == self.tenant_id)
+        
+        # Handle class_id specially
+        if "class_id" in filters:
+            cid = filters["class_id"]
+            # Join ClassSubject to allow filtering by either the container Class ID or the ClassSubject ID
+            query = query.join(Schedule.class_obj).filter(
+                or_(
+                    ClassSubject.class_id == cid,
+                    ClassSubject.id == cid
+                )
+            )
+        
+        # Apply other filters
+        for field, value in filters.items():
+            if field != "class_id" and hasattr(Schedule, field) and value is not None:
+                query = query.filter(getattr(Schedule, field) == value)
+                
+        return query.offset(skip).limit(limit).all()
 
 
 class SuperAdminScheduleService(SuperAdminBaseService[Schedule, ScheduleCreate, ScheduleUpdate]):

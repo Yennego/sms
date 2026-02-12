@@ -21,7 +21,7 @@ router = APIRouter()
 
 # Subject endpoints
 @router.post("/subjects", response_model=Subject, status_code=status.HTTP_201_CREATED)
-def create_subject(
+async def create_subject(
     *,
     subject_service: SubjectService = Depends(),
     subject_in: SubjectCreate,
@@ -29,7 +29,7 @@ def create_subject(
 ) -> Any:
     """Create a new subject (requires admin role)."""
     try:
-        return subject_service.create(obj_in=subject_in)
+        return await subject_service.create(obj_in=subject_in)
     except DuplicateEntityError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -42,7 +42,7 @@ def create_subject(
         )
 
 @router.get("/subjects", response_model=List[Subject])
-def get_subjects(
+async def get_subjects(
     *,
     subject_service: SubjectService = Depends(),
     skip: int = 0,
@@ -53,22 +53,22 @@ def get_subjects(
     """Get all subjects for a tenant with optional filtering (requires authentication)."""
     if is_active is not None:
         if is_active:
-            return subject_service.get_active_subjects(skip=skip, limit=limit)
+            return await subject_service.get_active_subjects(skip=skip, limit=limit)
         else:
             filters = {"is_active": False}
-            return subject_service.list(skip=skip, limit=limit, filters=filters)
+            return await subject_service.list(skip=skip, limit=limit, filters=filters)
     else:
-        return subject_service.list(skip=skip, limit=limit)
+        return await subject_service.list(skip=skip, limit=limit)
 
 @router.get("/subjects/{subject_id}", response_model=Subject)
-def get_subject(
+async def get_subject(
     *,
     subject_service: SubjectService = Depends(),
     subject_id: UUID,
     current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
 ) -> Any:
     """Get a specific subject by ID."""
-    subject_obj = subject_service.get(id=subject_id)
+    subject_obj = await subject_service.get(id=subject_id)
     if not subject_obj:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -77,14 +77,14 @@ def get_subject(
     return subject_obj
 
 @router.get("/subjects/code/{code}", response_model=Subject)
-def get_subject_by_code(
+async def get_subject_by_code(
     *,
     subject_service: SubjectService = Depends(),
     code: str,
     current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
 ) -> Any:
     """Get a specific subject by code."""
-    subject_obj = subject_service.get_by_code(code=code)
+    subject_obj = await subject_service.get_by_code(code=code)
     if not subject_obj:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -93,7 +93,7 @@ def get_subject_by_code(
     return subject_obj
 
 @router.put("/subjects/{subject_id}", response_model=Subject)
-def update_subject(
+async def update_subject(
     *,
     subject_service: SubjectService = Depends(),
     subject_id: UUID,
@@ -102,13 +102,13 @@ def update_subject(
 ) -> Any:
     """Update a subject (admin only)."""
     try:
-        subject_obj = subject_service.get(id=subject_id)
+        subject_obj = await subject_service.get(id=subject_id)
         if not subject_obj:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Subject with ID {subject_id} not found"
             )
-        return subject_service.update(id=subject_id, obj_in=subject_in)
+        return await subject_service.update(id=subject_id, obj_in=subject_in)
     except DuplicateEntityError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -121,17 +121,17 @@ def update_subject(
         )
 
 @router.delete("/subjects/{subject_id}", response_model=Subject)
-def delete_subject(
+async def delete_subject(
     *,
     subject_service: SubjectService = Depends(),
     subject_id: UUID,
     current_user: User = Depends(has_any_role(["admin"]))
 ) -> Any:
     """Delete a subject (admin only)."""
-    subject_obj = subject_service.get(id=subject_id)
+    subject_obj = await subject_service.get(id=subject_id)
     if not subject_obj:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Subject with ID {subject_id} not found"
         )
-    return subject_service.delete(id=subject_id)
+    return await subject_service.delete(id=subject_id)

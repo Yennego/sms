@@ -110,5 +110,22 @@ class CRUDAssignment(TenantCRUDBase[Assignment, AssignmentCreate, AssignmentUpda
         return assignment
 
 
+    def list_with_details(self, db: Session, tenant_id: Any, skip: int = 0, limit: int = 100, **filters) -> List[Assignment]:
+        """List assignments with basic relationship eager loading."""
+        from sqlalchemy.orm import joinedload
+        query = db.query(Assignment).options(
+            joinedload(Assignment.subject),
+            joinedload(Assignment.grade),
+            joinedload(Assignment.academic_year),
+            joinedload(Assignment.teacher),
+            joinedload(Assignment.section)
+        ).filter(Assignment.tenant_id == tenant_id)
+        
+        for field, value in filters.items():
+            if hasattr(Assignment, field) and value is not None:
+                query = query.filter(getattr(Assignment, field) == value)
+                
+        return query.offset(skip).limit(limit).all()
+
 assignment = CRUDAssignment(Assignment)
 

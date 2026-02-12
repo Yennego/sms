@@ -32,7 +32,12 @@ class CRUDGrade(TenantCRUDBase[Grade, GradeCreate, GradeUpdate]):
     
     def get_by_assessment(self, db: Session, tenant_id: Any, assessment_type: GradeType, assessment_id: Any) -> List[Grade]:
         """Get all grades for a specific assessment within a tenant."""
-        return db.query(Grade).filter(
+        from sqlalchemy.orm import joinedload
+        return db.query(Grade).options(
+            joinedload(Grade.student),
+            joinedload(Grade.subject),
+            joinedload(Grade.enrollment)
+        ).filter(
             Grade.tenant_id == tenant_id,
             Grade.assessment_type == assessment_type,
             Grade.assessment_id == assessment_id
@@ -90,7 +95,55 @@ class CRUDGrade(TenantCRUDBase[Grade, GradeCreate, GradeUpdate]):
             weighted_sum += grade.percentage * weight
             total_weight += weight
         
-        return weighted_sum / total_weight if total_weight > 0 else None
+    
+    def bulk_create_grades(self, db: Session, tenant_id: Any, obj_in_list: List[GradeCreate]) -> List[Grade]:
+        """Bulk create or update multiple grade records (Upsert) efficiently."""
+        if not obj_in_list:
+            return []
+
+        # Extract common identifiers for bulk fetch
+        student_ids = [obj.student_id for obj in obj_in_list]
+        assessment_ids = list(set(obj.assessment_id for obj in obj_in_list))
+        assessment_types = list(set(obj.assessment_type for obj in obj_in_list))
+        subject_ids = list(set(obj.subject_id for obj in obj_in_list))
+
+        # Bulk fetch existing grades to avoid N+1
+        existing_grades = db.query(Grade).filter(
+            Grade.tenant_id == tenant_id,
+            Grade.student_id.in_(student_ids),
+            Grade.assessment_id.in_(assessment_ids),
+            Grade.assessment_type.in_(assessment_types),
+            Grade.subject_id.in_(subject_ids)
+        ).all()
+
+        # Create a lookup map: (student_id, assessment_id, assessment_type, subject_id) -> Grade
+        existing_map = {
+            (g.student_id, g.assessment_id, g.assessment_type, g.subject_id): g
+            for g in existing_grades
+        }
+
+        db_objs = []
+        for obj_in in obj_in_list:
+            obj_in_data = obj_in.model_dump()
+            key = (obj_in.student_id, obj_in.assessment_id, obj_in.assessment_type, obj_in.subject_id)
+            
+            existing_grade = existing_map.get(key)
+            
+            if existing_grade:
+                # Update existing record
+                for k, v in obj_in_data.items():
+                    setattr(existing_grade, k, v)
+                db_objs.append(existing_grade)
+            else:
+                # Create new record
+                db_obj = Grade(**obj_in_data, tenant_id=tenant_id)
+                db.add(db_obj)
+                db_objs.append(db_obj)
+        
+        db.commit()
+        # No need to refresh all if we just want to return the objects
+        # SQLAlchemy handles the object state since they are still in session
+        return db_objs
 
 
 grade = CRUDGrade(Grade)

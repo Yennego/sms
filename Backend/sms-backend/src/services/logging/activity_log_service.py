@@ -2,82 +2,129 @@ from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime, timedelta
 from fastapi import Request, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from src.db.crud.logging.activity_log import activity_log_crud
 from src.db.models.logging.activity_log import ActivityLog
 from src.schemas.logging.activity_log import ActivityLogCreate, ActivityLogUpdate
 from src.services.base.base import TenantBaseService, SuperAdminBaseService
-from src.db.session import get_super_admin_db
+from src.db.session import get_db, get_super_admin_db
+from src.core.middleware.tenant import get_tenant_from_request
 
 
 class AuditLoggingService(TenantBaseService[ActivityLog, ActivityLogCreate, ActivityLogUpdate]):
     """Service for managing audit and activity logs within a tenant."""
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(crud=activity_log_crud, model=ActivityLog, *args, **kwargs)
+    def __init__(
+        self, 
+        tenant: Any = Depends(get_tenant_from_request),
+        db: Session = Depends(get_db),
+        tenant_id: Optional[Any] = None
+    ):
+        # Extract tenant_id from the Tenant object or use the provided tenant_id
+        final_tenant_id = tenant_id if tenant_id is not None else (tenant.id if hasattr(tenant, 'id') else tenant)
+        super().__init__(crud=activity_log_crud, model=ActivityLog, tenant_id=final_tenant_id, db=db)
     
-    def log_activity(self, user_id: Optional[UUID], action: str, entity_type: str,
-                   entity_id: Optional[UUID] = None, old_values: Optional[Dict[str, Any]] = None,
-                   new_values: Optional[Dict[str, Any]] = None, request: Optional[Request] = None) -> ActivityLog:
-        """Log a user activity or system event."""
-        # Extract IP address and user agent from request if provided
+    async def log_activity(
+        self,
+        user_id: Optional[UUID],
+        action: str,
+        entity_type: str,
+        entity_id: Optional[UUID] = None,
+        old_values: Optional[Dict] = None,
+        new_values: Optional[Dict] = None,
+        details: Optional[str] = None,
+        request: Optional[Request] = None
+    ) -> ActivityLog:
+        """Create a new activity log entry."""
+        # Get IP and User Agent from request if available
         ip_address = None
         user_agent = None
         if request:
-            ip_address = request.client.host if hasattr(request.client, 'host') else None
+            ip_address = request.client.host if request.client else None
             user_agent = request.headers.get("user-agent")
-        
-        # Create activity log
-        activity_log_in = ActivityLogCreate(
+
+        log_data = ActivityLogCreate(
             user_id=user_id,
             action=action,
             entity_type=entity_type,
             entity_id=entity_id,
             old_values=old_values,
             new_values=new_values,
+            details=details,
             ip_address=ip_address,
-            user_agent=user_agent
+            user_agent=user_agent,
+            tenant_id=self.tenant_id
+        )
+        return self.crud.create(self.db, tenant_id=self.tenant_id, obj_in=log_data)
+
+    async def list_with_count(self, skip: int = 0, limit: int = 100, filters: Optional[Dict] = None, **kwargs) -> tuple[List[ActivityLog], int]:
+        """List records with total count, eager loading of user, and super-admin filtering."""
+        from src.db.models.auth.user import User
+        
+        # Start with base query
+        query = self.db.query(ActivityLog).filter(ActivityLog.tenant_id == self.tenant_id)
+        
+        # Apply filters
+        if filters:
+            for field, value in filters.items():
+                if hasattr(ActivityLog, field):
+                    column = getattr(ActivityLog, field)
+                    if value is not None:
+                        query = query.filter(column == value)
+        
+        # EXCLUDE logs where the user is NOT a tenant user (i.e. super-admins)
+        # We join with User and ensure User.tenant_id == self.tenant_id
+        # We use an outer join to keep system logs (user_id is null)
+        query = query.outerjoin(User, ActivityLog.user_id == User.id)
+        query = query.filter((User.id == None) | (User.tenant_id == self.tenant_id))
+        
+        # Get total count
+        total = query.count()
+        
+        # Add eager loading and sorting
+        query = query.options(joinedload(ActivityLog.user))
+        query = query.order_by(ActivityLog.created_at.desc())
+        
+        items = query.offset(skip).limit(limit).all()
+        return items, total
+
+    async def get_by_date_range(self, start_date: datetime, end_date: datetime, skip: int = 0, limit: int = 100) -> tuple[List[ActivityLog], int]:
+        """Get activity logs within a date range with pagination support."""
+        from src.db.models.auth.user import User
+        
+        query = self.db.query(ActivityLog).filter(
+            ActivityLog.tenant_id == self.tenant_id,
+            ActivityLog.created_at.between(start_date, end_date)
         )
         
-        return self.create(obj_in=activity_log_in)
-    
-    def get_by_user(self, user_id: UUID) -> List[ActivityLog]:
-        """Get all activity logs for a specific user."""
-        return activity_log_crud.get_by_user(
-            self.db, tenant_id=self.tenant_id, user_id=user_id
-        )
-    
-    def get_by_entity(self, entity_type: str, entity_id: UUID) -> List[ActivityLog]:
-        """Get all activity logs for a specific entity."""
-        return activity_log_crud.get_by_entity(
-            self.db, tenant_id=self.tenant_id, entity_type=entity_type, entity_id=entity_id
-        )
-    
-    def get_by_action(self, action: str) -> List[ActivityLog]:
-        """Get all activity logs for a specific action."""
-        return activity_log_crud.get_by_action(
-            self.db, tenant_id=self.tenant_id, action=action
-        )
-    
-    def get_by_date_range(self, start_date: datetime, end_date: datetime) -> List[ActivityLog]:
-        """Get all activity logs within a date range."""
-        return activity_log_crud.get_by_date_range(
-            self.db, tenant_id=self.tenant_id, start_date=start_date, end_date=end_date
-        )
-    
-    def get_recent_activities(self, days: int = 7) -> List[ActivityLog]:
+        # Apply super-admin filter
+        query = query.outerjoin(User, ActivityLog.user_id == User.id)
+        query = query.filter((User.id == None) | (User.tenant_id == self.tenant_id))
+        
+        total = query.count()
+        
+        query = query.options(joinedload(ActivityLog.user))
+        query = query.order_by(ActivityLog.created_at.desc())
+        
+        items = query.offset(skip).limit(limit).all()
+        return items, total
+
+    async def get_recent_activities(self, days: int = 7, skip: int = 0, limit: int = 100) -> tuple[List[ActivityLog], int]:
         """Get all activity logs from the last X days."""
         end_date = datetime.utcnow()
         start_date = end_date - timedelta(days=days)
-        return self.get_by_date_range(start_date, end_date)
+        return await self.get_by_date_range(start_date, end_date, skip=skip, limit=limit)
 
 
 class SuperAdminAuditLoggingService(SuperAdminBaseService[ActivityLog, ActivityLogCreate, ActivityLogUpdate]):
     """Super-admin service for managing audit and activity logs across all tenants."""
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(crud=activity_log_crud, model=ActivityLog, *args, **kwargs)
+    def __init__(
+        self,
+        db: Session = Depends(get_super_admin_db)
+    ):
+        super().__init__(crud=activity_log_crud, model=ActivityLog, db=db)
     
     def get_all_activity_logs(self, skip: int = 0, limit: int = 100,
                             user_id: Optional[UUID] = None,
@@ -86,8 +133,8 @@ class SuperAdminAuditLoggingService(SuperAdminBaseService[ActivityLog, ActivityL
                             entity_id: Optional[UUID] = None,
                             start_date: Optional[datetime] = None,
                             end_date: Optional[datetime] = None,
-                            tenant_id: Optional[UUID] = None) -> List[ActivityLog]:
-        """Get all activity logs across all tenants with filtering."""
+                            tenant_id: Optional[UUID] = None) -> tuple[List[ActivityLog], int]:
+        """Get all activity logs across all tenants with filtering and return total count."""
         query = self.db.query(ActivityLog)
         
         # Apply filters
@@ -108,8 +155,15 @@ class SuperAdminAuditLoggingService(SuperAdminBaseService[ActivityLog, ActivityL
         if tenant_id:
             query = query.filter(ActivityLog.tenant_id == tenant_id)
         
+        # Get total count before pagination
+        total = query.count()
+        
+        # Add ordering
+        query = query.order_by(ActivityLog.created_at.desc())
+        
         # Apply pagination
-        return query.offset(skip).limit(limit).all()
+        items = query.offset(skip).limit(limit).all()
+        return items, total
     
     def get_by_date_range(self, start_date: datetime, end_date: datetime, **filters) -> List[ActivityLog]:
         """Get audit logs within a date range with additional filters."""

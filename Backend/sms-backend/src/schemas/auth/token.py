@@ -18,3 +18,4 @@ class TokenPayload(BaseModel):
     exp: int
     type: Optional[str] = None
     is_super_admin: bool = False  # Add this field
+    jti: Optional[str] = None

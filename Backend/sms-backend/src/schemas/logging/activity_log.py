@@ -1,7 +1,19 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from uuid import UUID
 from datetime import datetime
 from pydantic import BaseModel
+from src.schemas.base.base import PaginatedResponse
+
+
+class UserInfo(BaseModel):
+    """Basic user information for activity logs."""
+    id: UUID
+    first_name: str
+    last_name: str
+    email: str
+
+    class Config:
+        from_attributes = True
 
 
 class ActivityLogBase(BaseModel):
@@ -46,5 +58,10 @@ class ActivityLogInDB(ActivityLogBase):
 
 class ActivityLog(ActivityLogInDB):
     """Schema for ActivityLog model response."""
+    user: Optional[UserInfo] = None
+
+
+class ActivityLogPaginated(PaginatedResponse[ActivityLog]):
+    """Schema for paginated activity log response."""
     pass
 

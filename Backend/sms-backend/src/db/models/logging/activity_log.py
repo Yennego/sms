@@ -1,5 +1,6 @@
 from sqlalchemy import Column, String, ForeignKey, JSON, Text
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 
 from src.db.models.base import TenantModel
 # Remove this import since TenantModel already includes TenantMixin
@@ -33,6 +34,9 @@ class ActivityLog(TenantModel):  # Only inherit from TenantModel
     new_values = Column(JSON, nullable=True)
     ip_address = Column(String(50), nullable=True)
     user_agent = Column(Text, nullable=True)
+    
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id])
     
     def __repr__(self):
         return f"<ActivityLog {self.id} - {self.action} - {self.entity_type}>"

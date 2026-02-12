@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Optional, List
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from src.schemas.base import TenantSchema
 from src.db.models.academics.attendance import AttendanceStatus
@@ -38,8 +38,7 @@ class AttendanceInDB(AttendanceBase, TenantSchema):
     marked_by: UUID
     marked_at: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class Attendance(AttendanceInDB):
     """Schema for Attendance model response."""
@@ -72,18 +71,16 @@ class BulkAttendanceCreate(BaseModel):
     academic_year_id: UUID
     date: date
     period: Optional[str] = None
-    marked_by: UUID
+    marked_by: Optional[UUID] = None
     attendances: List[dict] = Field(..., description="List of {student_id: UUID, status: AttendanceStatus}")
 
 class AttendanceReport(BaseModel):
     """Schema for attendance reports."""
-    student_id: UUID
-    student_name: str
-    student_admission_number: str
-    total_days: int
-    present_days: int
-    absent_days: int
-    late_days: int
-    excused_days: int
-    attendance_percentage: float
-    class_name: Optional[str] = None
+    report_type: str
+    period_start: date
+    period_end: date
+    class_id: Optional[UUID] = None
+    student_id: Optional[UUID] = None
+    summary: AttendanceSummary
+    records: List[Attendance]
+    generated_at: datetime

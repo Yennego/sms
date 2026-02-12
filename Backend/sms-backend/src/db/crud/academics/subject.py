@@ -11,7 +11,8 @@ from src.schemas.academics.subject import SubjectCreate, SubjectUpdate
 class CRUDSubject(TenantCRUDBase[Subject, SubjectCreate, SubjectUpdate]):
     def get_by_code(self, db: Session, *, tenant_id: UUID, code: str) -> Optional[Subject]:
         return db.query(Subject).filter(Subject.tenant_id == tenant_id, Subject.code == code).first()
-    
+    def get_by_name(self, db: Session, *, tenant_id: UUID, name: str) -> Optional[Subject]:
+        return db.query(Subject).filter(Subject.tenant_id == tenant_id, Subject.name == name).first()
     def get_active_subjects(self, db: Session, *, tenant_id: UUID, skip: int = 0, limit: int = 100) -> List[Subject]:
         return db.query(Subject).filter(Subject.tenant_id == tenant_id, Subject.is_active == True).offset(skip).limit(limit).all()
 

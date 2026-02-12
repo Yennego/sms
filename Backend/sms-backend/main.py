@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI # trigger reload 4
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from fastapi.staticfiles import StaticFiles
@@ -9,11 +9,16 @@ from src.core.config import settings
 from src.core.logging import setup_logging
 from src.core.middleware.audit_middleware import AuditLoggingMiddleware
 from src.core.middleware.tenant import tenant_middleware  # Add this import
+from src.core.middleware.idle_activity import IdleActivityMiddleware
 
 setup_logging()
 
+from src.core.redis import cache
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Connect to Redis on startup
+    await cache.connect()
     yield
 
 app = FastAPI(
@@ -27,6 +32,44 @@ app = FastAPI(
     debug=True,
     redirect_slashes=False,      
 )
+
+@app.exception_handler(Exception)
+async def debug_exception_handler(request, exc):
+    from fastapi.responses import JSONResponse
+    import traceback
+    
+    # Extract root cause from ExceptionGroup (Python 3.11+)
+    # This is common in async applications using anyio/starlette
+    actual_exc = exc
+    type_name = type(exc).__name__
+    
+    if type_name == "ExceptionGroup" or type_name == "BaseExceptionGroup":
+        if hasattr(exc, "exceptions") and exc.exceptions:
+            actual_exc = exc.exceptions[0]
+            type_name = type(actual_exc).__name__
+
+    print(f"ERROR: {type_name}: {repr(actual_exc)}")
+    # Log the full traceback for debugging
+    traceback.print_exc()
+    
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": str(actual_exc), 
+            "type": type_name,
+            "message": "An unexpected server error occurred."
+        }
+    )
+
+from src.core.exceptions.business import BusinessLogicError
+
+@app.exception_handler(BusinessLogicError)
+async def business_logic_exception_handler(request, exc):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=400,
+        content={"detail": str(exc)}
+    )
 
 # Add tenant middleware BEFORE other middlewares
 app.middleware("http")(tenant_middleware)
@@ -92,22 +135,25 @@ def custom_openapi():
             "name": "X-Tenant-ID",
             "in": "header",
             "required": True,
-            "schema": {
-                "title": "X-Tenant-ID",
-                "type": "string",
-                "format": "uuid"
-            },
-            "description": "Tenant ID (required for all endpoints)"
+            "schema": {"title": "X-Tenant-ID", "type": "string", "format": "uuid"},
+            "description": "Tenant ID (required for all endpoints)",
         }
     }
     
-    # Add the parameter to all paths
-    for path in openapi_schema["paths"].values():
-        for operation in path.values():
-            if "parameters" not in operation:
-                operation["parameters"] = []
-            operation["parameters"].append({"$ref": "#/components/parameters/X-Tenant-ID"})
-    
+    # Robustly add the parameter only to operation objects
+    for path_item in openapi_schema["paths"].values():
+        for method in ("get", "put", "post", "delete", "options", "head", "patch"):
+            op = path_item.get(method)
+            if not isinstance(op, dict):
+                continue
+            op.setdefault("parameters", [])
+            # Avoid duplicates
+            if not any(
+                isinstance(p, dict) and p.get("$ref") == "#/components/parameters/X-Tenant-ID"
+                for p in op["parameters"]
+            ):
+                op["parameters"].append({"$ref": "#/components/parameters/X-Tenant-ID"})
+
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 
@@ -119,8 +165,5 @@ async def test_cors():
     return {"message": "CORS is working!"}
 
 # Add this after creating the FastAPI app
+app.add_middleware(IdleActivityMiddleware)
 app.add_middleware(AuditLoggingMiddleware)
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

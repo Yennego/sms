@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, Integer, Time, Enum
+from sqlalchemy import Column, String, ForeignKey, Integer, Time, Enum, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
@@ -39,9 +39,13 @@ class Schedule(TenantModel):
     period = Column(Integer, nullable=True)  # Period number (1st, 2nd, etc.)
     
     # Relationships
-    class_id = Column(UUID(as_uuid=True), ForeignKey("classes.id"), nullable=False)
-    class_obj = relationship("Class", backref="schedules")
+    class_id = Column(UUID(as_uuid=True), ForeignKey("class_subjects.id", ondelete="CASCADE"), nullable=False)
+    class_obj = relationship("ClassSubject", backref="schedules")
     attendances = relationship("Attendance", back_populates="schedule")
     
     def __repr__(self):
         return f"<Schedule {self.class_id} - {self.day_of_week} {self.start_time}-{self.end_time}>"
+
+    __table_args__ = (
+        Index('idx_schedules_lookup', 'tenant_id', 'day_of_week', 'start_time', 'end_time'),
+    )

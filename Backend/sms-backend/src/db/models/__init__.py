@@ -9,4 +9,5 @@ from src.db.models.tenant.tenant_settings import TenantSettings
 from src.db.models.tenant.notification_config import TenantNotificationConfig
 from src.db.models.logging.activity_log import ActivityLog
 from src.db.models.logging.super_admin_activity_log import SuperAdminActivityLog
+from src.db.models.academics import *
 # Import other models as needed

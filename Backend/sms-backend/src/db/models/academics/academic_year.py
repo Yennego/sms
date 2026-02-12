@@ -11,6 +11,7 @@ class AcademicYear(TenantModel):
     end_date = Column(Date, nullable=False)
     is_current = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
+    is_archived = Column(Boolean, default=False)
     description = Column(Text)
     
     # Semester information
@@ -24,6 +25,8 @@ class AcademicYear(TenantModel):
     enrollments = relationship("Enrollment", back_populates="academic_year_obj")
     attendances = relationship("Attendance", back_populates="academic_year")
     class_enrollments = relationship("ClassEnrollment", back_populates="academic_year")
+    promotion_criteria = relationship("PromotionCriteria", back_populates="academic_year")
+    semesters = relationship("Semester", back_populates="academic_year", cascade="all, delete-orphan")
     
     def get_current_semester(self) -> int:
         """Determine current semester based on current date."""

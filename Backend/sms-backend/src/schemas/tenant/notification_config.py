@@ -3,6 +3,17 @@ from typing import Optional
 from datetime import datetime
 from uuid import UUID
 
+class TenantNotificationConfigCreate(BaseModel):
+    tenant_id: str
+    whatsapp_enabled: bool = True
+    admin_whatsapp_number: Optional[str] = None
+    school_name: str
+    teacher_welcome_template: Optional[str] = None
+    student_welcome_template: Optional[str] = None
+    parent_welcome_template: Optional[str] = None
+    notify_admin_on_user_creation: bool = True
+    notify_parents_on_student_creation: bool = True
+
 class NotificationConfigRequest(BaseModel):
     whatsapp_enabled: bool
     admin_whatsapp_number: Optional[str] = None

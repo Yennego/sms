@@ -1,40 +1,42 @@
 from typing import Any, List, Optional, Dict
-from uuid import UUID
+from uuid import UUID, uuid4
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import func
-from sqlalchemy import text
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func, text
+from sqlalchemy.exc import IntegrityError
+from psycopg2.errors import UniqueViolation
 
 from src.db.crud import tenant as tenant_crud
 from src.db.crud import tenant_settings as tenant_settings_crud
 from src.db.crud import user as user_crud
 from src.db.crud import user_role as user_role_crud
 from src.db.crud import permission as permission_crud
+from src.db.crud.tenant import notification_config as notification_config_crud
 from src.db.session import get_super_admin_db, get_db
 from src.schemas.base.base import PaginatedResponse
-from src.schemas.tenant import Tenant, TenantCreate, TenantUpdate
+from src.schemas.tenant import Tenant, TenantCreate, TenantUpdate, TenantCreateWithAdmin, TenantCreateResponse
 from src.schemas.tenant import TenantSettings, TenantSettingsCreate, TenantSettingsUpdate
+from src.schemas.tenant.notification_config import TenantNotificationConfigCreate
 from src.schemas.auth import User as UserSchema
 from src.schemas.auth.user import UserWithRoles, UserCreateCrossTenant, UserCreateResponse, UserUpdate
+from src.schemas.auth.user_role import UserRole, UserRoleCreate
+from src.schemas.auth.permission import Permission, PermissionCreate
+
 # Import SQLAlchemy models for database queries
 from src.db.models.auth.user import User
 from src.db.models.auth.user_role import UserRole as UserRoleModel
 from src.db.models.auth.permission import Permission as PermissionModel
+from src.db.models.tenant.tenant import Tenant as TenantModel
+from src.db.models.tenant.notification_config import TenantNotificationConfig
+
+# Import security and utility functions
+from src.core.security.password import get_password_hash
+from src.services.auth.password import generate_default_password
 from src.core.security.permissions import require_super_admin
-from src.schemas.auth.user_role import UserRole, UserRoleCreate
-from src.schemas.auth.permission import Permission, PermissionCreate
 from src.services.tenant.dashboard import DashboardMetricsService
 from src.services.email import send_new_user_email
-from sqlalchemy.orm import joinedload
-
-
-# Add these imports at the top with other imports
-from src.db.crud import user as user_crud
-from src.schemas.auth import UserCreate
-from src.api.v1.endpoints.auth.auth import UserCreateResponse
-from src.services.auth.password import generate_default_password
 
 router = APIRouter()
 
@@ -58,14 +60,18 @@ def get_all_tenants(
         has_prev=skip > 0
     )
 
-@router.post("/tenants", response_model=Tenant, status_code=status.HTTP_201_CREATED)
+@router.post("/tenants", response_model=Tenant, status_code=status.HTTP_201_CREATED, deprecated=True)
 def create_tenant(
     *,
     db: Session = Depends(get_super_admin_db),
     _: User = Depends(require_super_admin()),
     tenant_in: TenantCreate
 ) -> Any:
-    """Create a new tenant (super-admin only)."""
+    """Create a new tenant (super-admin only).
+    
+    DEPRECATED: Use /tenants/with-admin endpoint instead to ensure atomic tenant and admin user creation.
+    This endpoint creates only the tenant without an admin user, which may leave the tenant in an incomplete state.
+    """
     # Add detailed logging for debugging
     print(f"[DEBUG] Attempting to create tenant with data: {tenant_in.model_dump()}")
     print(f"[DEBUG] Raw tenant data type: {type(tenant_in)}")
@@ -154,6 +160,214 @@ def create_tenant(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error creating tenant: {str(e)}"
+        )
+
+@router.post("/tenants/with-admin", response_model=TenantCreateResponse, status_code=status.HTTP_201_CREATED)
+def create_tenant_with_admin(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+    tenant_data: TenantCreateWithAdmin
+) -> Any:
+    """Create a new tenant with admin user atomically (super-admin only)."""
+    print(f"[DEBUG] Creating tenant with admin: {tenant_data.model_dump()}")
+    
+    # Validate tenant code format
+    if not tenant_data.code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Tenant code is required"
+        )
+    
+    if len(tenant_data.code) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Tenant code must be at least 2 characters long"
+        )
+    
+    if not tenant_data.code.isalnum():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Tenant code must contain only alphanumeric characters"
+        )
+    
+    # Check for existing tenant
+    tenant_obj = tenant_crud.get_by_code(db, code=tenant_data.code)
+    if tenant_obj:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tenant with this code already exists"
+        )
+    
+    # Validate tenant name
+    if not tenant_data.name or len(tenant_data.name) < 3:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Tenant name must be at least 3 characters long"
+        )
+    
+    # Validate admin user email format
+    import re
+    email_pattern = r'^[^\s@]+@[^\s@]+\.[^\s@]+$'
+    if not re.match(email_pattern, tenant_data.admin_user.email):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid email format for admin user"
+        )
+    
+
+
+    # Check if admin user email already exists globally (across all tenants) BEFORE starting transaction
+    existing_user = user_crud.get_by_email_any_tenant(db, email=tenant_data.admin_user.email)
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A user with this email address already exists in the system. Please use a different email address."
+        )
+
+    try:
+        # Start transaction - all operations will be in one transaction
+        print(f"[DEBUG] Starting transaction for tenant and admin creation")
+        
+        # Create tenant manually (without auto-commit)
+        new_tenant = TenantModel(
+            id=uuid4(),
+            name=tenant_data.name,
+            code=tenant_data.code,
+            is_active=tenant_data.is_active,
+            domain=tenant_data.domain,
+            subdomain=tenant_data.subdomain,
+            logo=tenant_data.logo,
+            primary_color=tenant_data.primary_color,
+            secondary_color=tenant_data.secondary_color
+        )
+        db.add(new_tenant)
+        db.flush()  # Get the ID without committing
+        print(f"[DEBUG] Created tenant: {new_tenant.id} - {new_tenant.code}")
+        
+        # Create default notification configuration for the tenant
+        notification_config = TenantNotificationConfig(
+            id=uuid4(),
+            tenant_id=new_tenant.id,
+            whatsapp_enabled=True,
+            school_name=new_tenant.name,
+            notify_admin_on_user_creation=True,
+            notify_parents_on_student_creation=True,
+            teacher_welcome_template="Welcome to {school_name}! Your login credentials are: Email: {email}, Password: {password}",
+            student_welcome_template="Welcome {student_name} to {school_name}! Your login credentials are: Email: {email}, Password: {password}",
+            parent_welcome_template="Welcome! Your child {student_name} has been enrolled at {school_name}. Your login credentials are: Email: {email}, Password: {password}"
+        )
+        db.add(notification_config)
+        db.flush()
+        print(f"[DEBUG] Created notification config for tenant: {new_tenant.id}")
+        
+        # Generate password if not provided
+        admin_password = tenant_data.admin_user.password
+        password_was_generated = False
+        generated_password = None
+        
+        if not admin_password:
+            password_was_generated = True
+            generated_password = generate_default_password()
+            admin_password = generated_password
+            print(f"[DEBUG] Generated password for admin user")
+        
+        # Create admin user manually (without auto-commit)
+        admin_user = User(
+            id=uuid4(),
+            first_name=tenant_data.admin_user.first_name,
+            last_name=tenant_data.admin_user.last_name,
+            email=tenant_data.admin_user.email,
+            password_hash=get_password_hash(admin_password),
+            is_active=True,
+            tenant_id=new_tenant.id,
+            type="admin"
+        )
+        db.add(admin_user)
+        db.flush()  # Get the ID without committing
+        print(f"[DEBUG] Created admin user: {admin_user.id} - {admin_user.email}")
+        
+        # Assign admin role to the user
+        admin_role = user_role_crud.get_by_name(db, name="admin")
+        if admin_role:
+            db.execute(
+                text("INSERT INTO user_role_association (user_id, role_id) VALUES (:user_id, :role_id)"),
+                {"user_id": str(admin_user.id), "role_id": str(admin_role.id)}
+            )
+            print(f"[DEBUG] Assigned admin role to user: {admin_user.email}")
+        else:
+            print(f"[DEBUG] Admin role not found in database")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Admin role not found in system"
+            )
+        
+        # Commit all changes at once
+        db.commit()
+        print(f"[DEBUG] Transaction committed successfully")
+        
+        # Send email with login details if password was generated
+        if password_was_generated and generated_password:
+            try:
+                send_new_user_email(admin_user.email, admin_user.first_name, generated_password)
+                print(f"[DEBUG] Sent welcome email to admin user: {admin_user.email}")
+            except Exception as e:
+                print(f"[DEBUG] Error sending email: {e}")
+                # Don't fail the entire operation for email issues
+        
+        # Prepare response
+        admin_user_response = {
+            "id": str(admin_user.id),
+            "email": admin_user.email,
+            "first_name": admin_user.first_name,
+            "last_name": admin_user.last_name,
+            "is_active": admin_user.is_active,
+            "created_at": admin_user.created_at.isoformat(),
+        }
+        
+        if password_was_generated and generated_password:
+            admin_user_response["generated_password"] = generated_password
+        
+        response = TenantCreateResponse(
+            tenant=new_tenant,
+            admin_user=admin_user_response
+        )
+        
+        print(f"[DEBUG] Successfully created tenant with admin user")
+        return response
+        
+    except HTTPException:
+        # Rollback transaction for HTTP exceptions
+        db.rollback()
+        print(f"[DEBUG] Transaction rolled back due to HTTP exception")
+        raise
+    except IntegrityError as e:
+        # Rollback transaction for integrity errors
+        db.rollback()
+        print(f"[DEBUG] Transaction rolled back due to integrity error: {str(e)}")
+        
+        # Check if it's a unique constraint violation on email
+        if "users_email_key" in str(e.orig):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A user with this email address already exists in the system. Please use a different email address."
+            )
+        else:
+            # Other integrity errors
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unable to create tenant due to data validation error. Please check your input and try again."
+            )
+    except Exception as e:
+        # Rollback transaction for any other errors
+        db.rollback()
+        print(f"[DEBUG] Transaction rolled back due to unexpected error: {str(e)}")
+        import traceback
+        print(f"[DEBUG] Traceback: {traceback.format_exc()}")
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while creating the tenant. Please try again or contact support if the problem persists."
         )
 
 @router.put("/tenants/{tenant_id}", response_model=Tenant)
@@ -416,12 +630,12 @@ def create_user_cross_tenant(
     # Override the tenant_id in user_in with the one from query parameter
     user_create_data = user_in.model_copy(update={"tenant_id": tenant_id})
     
-    # Check if user with this email already exists
-    existing_user = user_crud.get_by_email(db, tenant_id=tenant_id, email=user_in.email)
+    # Check if user with this email already exists globally
+    existing_user = user_crud.get_by_email_any_tenant(db, email=user_in.email)
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User with this email already exists"
+            detail="A user with this email address already exists in the system. Please use a different email address."
         )
     
     # Generate password if not provided
@@ -433,11 +647,35 @@ def create_user_cross_tenant(
         print(f"DEBUG: Password will be generated at CRUD level")
     
     # Create user
-    user = user_crud.create(db, tenant_id=tenant_id, obj_in=user_create_data)
-    print(f"DEBUG: User created with ID: {user.id}")
-    
-    # Get the generated password from the user object if it was generated
-    generated_password = getattr(user, 'generated_password', None)
+    try:
+        user = user_crud.create(db, tenant_id=tenant_id, obj_in=user_create_data)
+        print(f"DEBUG: User created with ID: {user.id}")
+        
+        # Get the generated password from the user object if it was generated
+        generated_password = getattr(user, 'generated_password', None)
+    except IntegrityError as e:
+        db.rollback()
+        print(f"[DEBUG] Database integrity error during user creation: {str(e)}")
+        
+        # Check if it's a unique constraint violation on email
+        if "users_email_key" in str(e.orig):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A user with this email address already exists in the system. Please use a different email address."
+            )
+        else:
+            # Other integrity errors
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unable to create user due to data validation error. Please check your input and try again."
+            )
+    except Exception as e:
+        db.rollback()
+        print(f"Error creating user: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while creating the user. Please try again."
+        )
     
     # **ENHANCED: Automatic role assignment logic**
     if role_id or user_in.role_id:

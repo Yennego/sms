@@ -15,17 +15,3 @@ class UUIDMixin:
         default=uuid.uuid4,
         nullable=False
     )
-
-    def __init__(self, **kwargs):
-        if 'id' not in kwargs:
-            kwargs['id'] = uuid.uuid4()
-        elif not isinstance(kwargs['id'], uuid.UUID):
-            try:
-                kwargs['id'] = uuid.UUID(str(kwargs['id']))
-            except (ValueError, AttributeError, TypeError):
-                raise ValueError(f"Invalid UUID format for id: {kwargs['id']}")
-            
-        for key, value in kwargs.items():
-            setattr(self, key, value) 
-
-            

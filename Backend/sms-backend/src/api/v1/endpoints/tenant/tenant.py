@@ -3,6 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from src.db.crud import tenant as tenant_crud
 from src.db.crud import tenant_settings as tenant_settings_crud
@@ -34,10 +35,33 @@ def get_active_tenants(*, db: Session = Depends(get_db), skip: int = 0, limit: i
 @router.get("/by-domain/", response_model=Optional[Tenant])
 def get_tenant_by_domain(*, db: Session = Depends(get_db), domain: str) -> Any:
     """Get a tenant by domain."""
-    tenant_obj = tenant_crud.get_by_domain(db, domain=domain)
+    domain_normalized = (domain or "").strip().lower()
+
+    # Prefer domain match (case-insensitive)
+    tenant_obj = db.query(tenant_crud.model).filter(
+        func.lower(tenant_crud.model.domain) == domain_normalized,
+        tenant_crud.model.is_active == True
+    ).first()
+
+    # Fallback: code, subdomain, or name
     if not tenant_obj:
-        # Return None instead of raising an exception to match frontend expectations
-        return None
+        tenant_obj = db.query(tenant_crud.model).filter(
+            tenant_crud.model.code == domain.upper(),
+            tenant_crud.model.is_active == True
+        ).first()
+
+    if not tenant_obj:
+        tenant_obj = db.query(tenant_crud.model).filter(
+            func.lower(tenant_crud.model.subdomain) == domain_normalized,
+            tenant_crud.model.is_active == True
+        ).first()
+
+    if not tenant_obj:
+        tenant_obj = db.query(tenant_crud.model).filter(
+            func.lower(tenant_crud.model.name) == domain_normalized,
+            tenant_crud.model.is_active == True
+        ).first()
+
     return tenant_obj
 
 @router.get("/", response_model=List[Tenant])
@@ -51,20 +75,33 @@ def get_tenants(
     """Get all tenants or filter by domain."""
     print(f"GET /tenants hit with domain={domain}")
     if domain:
-        # First try to get by domain
-        tenant_obj = db.query(tenant_crud.model).filter(tenant_crud.model.domain == domain).first()
-        if tenant_obj:
-            return [tenant_obj]
-        
-        # If not found by domain, try by code (as the frontend also checks code)
-        tenant_obj = tenant_crud.get_by_code(db, code=domain)
-        if tenant_obj:
-            return [tenant_obj]
-            
-        # If still not found, return empty list
-        return []
-    
-    # If no domain filter, return all tenants
+        domain_normalized = domain.strip().lower()
+
+        tenant_obj = db.query(tenant_crud.model).filter(
+            func.lower(tenant_crud.model.domain) == domain_normalized,
+            tenant_crud.model.is_active == True
+        ).first()
+
+        if not tenant_obj:
+            tenant_obj = db.query(tenant_crud.model).filter(
+                tenant_crud.model.code == domain.upper(),
+                tenant_crud.model.is_active == True
+            ).first()
+
+        if not tenant_obj:
+            tenant_obj = db.query(tenant_crud.model).filter(
+                func.lower(tenant_crud.model.subdomain) == domain_normalized,
+                tenant_crud.model.is_active == True
+            ).first()
+
+        if not tenant_obj:
+            tenant_obj = db.query(tenant_crud.model).filter(
+                func.lower(tenant_crud.model.name) == domain_normalized,
+                tenant_crud.model.is_active == True
+            ).first()
+
+        return [tenant_obj] if tenant_obj else []
+
     return tenant_crud.get_multi(db, skip=skip, limit=limit)
 
 @router.get("/{tenant_id}", response_model=Tenant)
@@ -77,6 +114,23 @@ def get_tenant(*, db: Session = Depends(get_db), tenant_id: UUID) -> Any:
             detail="Tenant not found"
         )
     return tenant_obj
+
+@router.put("/self", response_model=Tenant)
+def update_own_tenant(
+    *, 
+    db: Session = Depends(get_db), 
+    tenant_id: UUID = Depends(get_tenant_id_from_request), 
+    tenant_in: TenantUpdate,
+    current_user: User = Depends(has_role("admin"))
+) -> Any:
+    """Update the current tenant (for tenant admins to update their own school settings)."""
+    tenant_obj = tenant_crud.get(db, id=tenant_id)
+    if not tenant_obj:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenant not found"
+        )
+    return tenant_crud.update(db, db_obj=tenant_obj, obj_in=tenant_in)
 
 @router.put("/{tenant_id}", response_model=Tenant)
 def update_tenant(

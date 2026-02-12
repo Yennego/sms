@@ -28,9 +28,9 @@ class NotificationDispatchService(TenantBaseService[Notification, NotificationCr
             self.db, tenant_id=self.tenant_id, user_id=user_id
         )
     
-    def mark_as_read(self, id: UUID) -> Optional[Notification]:
+    async def mark_as_read(self, id: UUID) -> Optional[Notification]:
         """Mark a notification as read."""
-        notification = self.get(id=id)
+        notification = await self.get(id=id)
         if not notification:
             raise EntityNotFoundError("Notification", id)
         
@@ -44,8 +44,8 @@ class NotificationDispatchService(TenantBaseService[Notification, NotificationCr
             self.db, tenant_id=self.tenant_id, user_id=user_id
         )
     
-    def send_email_notification(self, user_id: UUID, title: str, message: str, 
-                              metadata: Optional[Dict[str, Any]] = None) -> Notification:
+    async def send_email_notification(self, user_id: UUID, title: str, message: str, 
+                               metadata: Optional[Dict[str, Any]] = None) -> Notification:
         """Send an email notification to a user."""
         # Create notification record
         notification_in = NotificationCreate(
@@ -56,10 +56,12 @@ class NotificationDispatchService(TenantBaseService[Notification, NotificationCr
             metadata=metadata
         )
         
-        notification = self.create(obj_in=notification_in)
+        notification = await self.create(obj_in=notification_in)
         
         # Get user email
-        user = self.db.query("User").filter("User.id" == user_id).first()
+        # Use text() or proper model query
+        from src.db.models.auth.user import User
+        user = self.db.query(User).filter(User.id == user_id).first()
         if not user:
             notification_crud.update_status(
                 self.db, tenant_id=self.tenant_id, id=notification.id, status="failed"
@@ -79,7 +81,7 @@ class NotificationDispatchService(TenantBaseService[Notification, NotificationCr
             self.db, tenant_id=self.tenant_id, id=notification.id, status=status
         )
     
-    def send_in_app_notification(self, user_id: UUID, title: str, message: str,
+    async def send_in_app_notification(self, user_id: UUID, title: str, message: str,
                                metadata: Optional[Dict[str, Any]] = None) -> Notification:
         """Send an in-app notification to a user."""
         # Create notification record
@@ -92,21 +94,21 @@ class NotificationDispatchService(TenantBaseService[Notification, NotificationCr
             status="delivered"  # In-app notifications are delivered immediately
         )
         
-        return self.create(obj_in=notification_in)
+        return await self.create(obj_in=notification_in)
     
-    def send_bulk_notification(self, user_ids: List[UUID], title: str, message: str,
+    async def send_bulk_notification(self, user_ids: List[UUID], title: str, message: str,
                              notification_type: str, metadata: Optional[Dict[str, Any]] = None) -> List[Notification]:
         """Send a notification to multiple users."""
         notifications = []
         
         for user_id in user_ids:
             if notification_type == "email":
-                notification = self.send_email_notification(user_id, title, message, metadata)
+                notification = await self.send_email_notification(user_id, title, message, metadata)
             elif notification_type == "in-app":
-                notification = self.send_in_app_notification(user_id, title, message, metadata)
+                notification = await self.send_in_app_notification(user_id, title, message, metadata)
             else:
                 # Default to in-app
-                notification = self.send_in_app_notification(user_id, title, message, metadata)
+                notification = await self.send_in_app_notification(user_id, title, message, metadata)
             
             notifications.append(notification)
         

@@ -8,7 +8,7 @@ from src.core.security.auth import get_current_user, get_current_active_user
 def has_permission(required_permission: str):
     """Dependency to check if user has a specific permission."""
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
-        if "super-admin" in {role.name for role in current_user.roles}:  # Fixed: changed 'super_admin' to 'super-admin'
+        if any(role.name in ["super-admin", "superadmin"] for role in current_user.roles):
             return current_user
 
         # Check if user has the required permission through any of their roles
@@ -33,7 +33,7 @@ def has_permission(required_permission: str):
 def has_role(required_role: str):
     """Dependency to check if user has a specific role."""
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
-        if "super-admin" in {role.name for role in current_user.roles}:  # Fixed: changed 'super_admin' to 'super-admin'
+        if any(role.name in ["super-admin", "superadmin"] for role in current_user.roles):
             return current_user
 
         # Check if user has the required role
@@ -51,7 +51,7 @@ def has_role(required_role: str):
 def has_any_role(required_roles: List[str]):
     """Dependency to check if user has any of the specified roles."""
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
-        if "super-admin" in {role.name for role in current_user.roles}:  # Fixed: changed 'super_admin' to 'super-admin'
+        if any(role.name in ["super-admin", "superadmin"] for role in current_user.roles):
             return current_user
             
         # Check if user has any of the required roles
@@ -71,7 +71,7 @@ def admin_with_tenant_check():
     """Dependency that allows super-admins to access any tenant, but restricts admins to their specific tenant."""
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
         # Check if user has super-admin role
-        is_super_admin = any(role.name == "super-admin" for role in current_user.roles)
+        is_super_admin = any(role.name in ["super-admin", "superadmin"] for role in current_user.roles)
         
         # Super-admins can access any tenant
         if is_super_admin:
@@ -95,8 +95,7 @@ def admin_with_tenant_check():
 def require_super_admin():
     """Dependency to check if user is a super-admin."""
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
-        # Check if user has the super-admin role
-        is_super_admin = any(role.name == "super-admin" for role in current_user.roles)
+        is_super_admin = any(role.name in ["super-admin", "superadmin"] for role in current_user.roles)
                 
         if not is_super_admin:
             raise HTTPException(

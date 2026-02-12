@@ -1,7 +1,7 @@
 from datetime import time
 from typing import Optional, Literal
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from src.schemas.base.base import TimestampSchema, TenantSchema
 
@@ -30,8 +30,7 @@ class ScheduleCreate(ScheduleBase):
 
 class ScheduleInDB(ScheduleBase, TenantSchema):
     """Schema for Schedule model in database."""
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Schedule(ScheduleInDB):

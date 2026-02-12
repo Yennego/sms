@@ -24,7 +24,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         """Check if this is a super-admin operation based on the URL path."""
         return "/super-admin/" in str(request.url.path)
     
-    def extract_user_info(self, request: Request) -> tuple[Optional[UUID], Optional[UUID], bool]:
+    async def extract_user_info(self, request: Request) -> tuple[Optional[UUID], Optional[UUID], bool]:
         """Extract user_id, tenant_id, and super_admin status from JWT token."""
         try:
             # Get token from Authorization header
@@ -33,7 +33,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                 return None, None, False
             
             token = auth_header.split(" ")[1]
-            payload = verify_token(token)
+            payload = await verify_token(token)
             
             if not payload:
                 return None, None, False
@@ -70,6 +70,42 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
             entity_type = "tenant"
         elif "/audit-logs" in path:
             entity_type = "audit_log"
+        elif "/roles" in path:
+            entity_type = "role"
+        elif "/permissions" in path:
+            entity_type = "permission"
+        elif "/students" in path:
+            entity_type = "student"
+        elif "/teachers" in path:
+            entity_type = "teacher"
+        elif "/staff" in path:
+            entity_type = "staff"
+        elif "/parents" in path:
+            entity_type = "parent"
+        elif "/academic-grades" in path:
+            entity_type = "academic_grade"
+        elif "/academic-years" in path:
+            entity_type = "academic_year"
+        elif "/sections" in path:
+            entity_type = "section"
+        elif "/subjects" in path:
+            entity_type = "subject"
+        elif "/grading-schemas" in path:
+            entity_type = "grading_schema"
+        elif "/exams" in path:
+            entity_type = "exam"
+        elif "/enrollments" in path:
+            entity_type = "enrollment"
+        elif "/timetables" in path:
+            entity_type = "timetable"
+        elif "/attendance" in path:
+            entity_type = "attendance"
+        elif "/assignments" in path:
+            entity_type = "assignment"
+        elif "/grades" in path:
+            entity_type = "grade"
+        elif "/announcements" in path:
+            entity_type = "announcement"
         elif "/dashboard" in path:
             entity_type = "dashboard"
         elif "/auth" in path:
@@ -124,7 +160,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         
         # Extract user information
-        user_id, tenant_id, is_super_admin = self.extract_user_info(request)
+        user_id, tenant_id, is_super_admin = await self.extract_user_info(request)
         
         # Determine action and entity type
         action, entity_type = self.determine_action_and_entity(request)
@@ -133,11 +169,21 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         request_body = None
         if request.method.lower() in ["post", "put", "patch", "delete"]:
             try:
+                # IMPORTANT: Consuming request.body() exhausts the stream.
+                # We must replace it so downstream handlers (like FastAPI route handlers) can read it.
                 body = await request.body()
                 if body:
-                    import json
                     request_body = json.loads(body.decode('utf-8'))
-            except Exception:
+                    
+                    # Restore the request body stream
+                    async def receive():
+                        return {"type": "http.request", "body": body}
+                    request._receive = receive
+                    print(f"[AuditMiddleware] Corrected body for {request.method} {request.url.path}")
+            except Exception as e:
+                import traceback
+                print(f"[AuditMiddleware] ERROR reading/parsing body for {request.method} {request.url.path}: {repr(e)}")
+                print(traceback.format_exc())
                 request_body = None
         
         # Extract entity ID from URL path
@@ -210,16 +256,26 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         import re
         path = str(request.url.path)
         
-        # Look for UUID patterns in the path
+        # 1. Check for UUID patterns in the path (standard IDs)
         uuid_pattern = r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
         matches = re.findall(uuid_pattern, path, re.IGNORECASE)
         
         if matches:
             try:
-                return UUID(matches[-1])  # Return the last UUID found
+                # Often the last UUID is the resource ID (the first might be tenant_id in some routers)
+                # But if we have /entity/{id}/sub-entity/{sub_id}, we probably want sub_id
+                return UUID(matches[-1])
             except ValueError:
                 pass
         
+        # 2. Check for numeric IDs (common in some legacy or specific endpoints)
+        numeric_id_pattern = r'/(\d+)(/|$)'
+        num_matches = re.search(numeric_id_pattern, path)
+        if num_matches:
+            # We don't log numeric IDs as UUIDs, so we return None or handled differently
+            # For this system, we mainly use UUIDs
+            pass
+            
         return None
     
     def generate_enhanced_details(self, request: Request, action: str, entity_type: str, 

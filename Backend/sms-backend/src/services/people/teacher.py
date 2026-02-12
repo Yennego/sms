@@ -1,56 +1,79 @@
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import date
+from fastapi import Depends
+from sqlalchemy.orm import Session
 
 from src.db.crud import teacher as teacher_crud
 from src.db.models.people import Teacher
 from src.schemas.people import TeacherCreate, TeacherUpdate
 from src.services.base.base import TenantBaseService, SuperAdminBaseService
+from src.core.middleware.tenant import get_tenant_from_request
+from src.db.session import get_db
+
+from src.db.models.logging.activity_log import ActivityLog
 
 class TeacherService(TenantBaseService[Teacher, TeacherCreate, TeacherUpdate]):
     """
     Service for managing teachers within a tenant.
     """
-    def __init__(self, *args, **kwargs):
-        super().__init__(crud=teacher_crud, model=Teacher, *args, **kwargs)
+    def __init__(
+        self,
+        tenant: Any = Depends(get_tenant_from_request),
+        db: Session = Depends(get_db)
+    ):
+        # Extract tenant_id from the Tenant object
+        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
+        super().__init__(crud=teacher_crud, model=Teacher, tenant_id=tenant_id, db=db)
     
-    def get_by_employee_id(self, employee_id: str) -> Optional[Teacher]:
+    async def delete(self, *, id: UUID) -> Optional[Teacher]:
+        """Delete a teacher, handling dependencies manually."""
+        # 1. Handle Activity Logs (set user_id to NULL)
+        # We process this locally to avoid infinite recursion if we were to use User service
+        self.db.query(ActivityLog).filter(
+            ActivityLog.user_id == id
+        ).update({ActivityLog.user_id: None}, synchronize_session=False)
+        self.db.commit()
+        
+        return await super().delete(id=id)
+    
+    async def get_by_employee_id(self, employee_id: str) -> Optional[Teacher]:
         """Get a teacher by employee ID within the current tenant."""
         return teacher_crud.get_by_employee_id(self.db, tenant_id=self.tenant_id, employee_id=employee_id)
     
-    def get_class_teachers(self) -> List[Teacher]:
+    async def get_class_teachers(self) -> List[Teacher]:
         """Get all class teachers for the current tenant."""
         return teacher_crud.get_class_teachers(self.db, tenant_id=self.tenant_id)
     
-    def get_by_department(self, department: str, skip: int = 0, limit: int = 100) -> List[Teacher]:
+    async def get_by_department(self, department: str, skip: int = 0, limit: int = 100) -> List[Teacher]:
         """Get teachers by department within the current tenant."""
         filters = {"department": department}
-        return teacher_crud.list(self.db, tenant_id=self.tenant_id, skip=skip, limit=limit, filters=filters)
+        return await teacher_crud.list(self.db, tenant_id=self.tenant_id, skip=skip, limit=limit, filters=filters)
 
-    def deactivate_teacher(self, teacher_id: UUID, date_left: date = None, reason: Optional[str] = None) -> Optional[Teacher]:
+    async def deactivate_teacher(self, teacher_id: UUID, date_left: date = None, reason: Optional[str] = None) -> Optional[Teacher]:
         """Deactivate a teacher."""
-        teacher = self.get(id=teacher_id)
+        teacher = await self.get(id=teacher_id)
         if not teacher:
             return None
         
         teacher.deactivate(date_left, reason)
-        return self.update(id=teacher_id, obj_in={"status": "inactive", "exit_date": date_left, "resignation_reason": reason})
+        return await self.update(id=teacher_id, obj_in={"status": "inactive", "exit_date": date_left, "resignation_reason": reason})
 
-    def activate_teacher(self, teacher_id: UUID) -> Optional[Teacher]:
+    async def activate_teacher(self, teacher_id: UUID) -> Optional[Teacher]:
         """Activate a teacher."""
-        teacher = self.get(id=teacher_id)
+        teacher = await self.get(id=teacher_id)
         if not teacher:
             return None
         
         teacher.activate()
-        return self.update(id=teacher_id, obj_in={"status": "active", "exit_date": None, "resignation_reason": None})
+        return await self.update(id=teacher_id, obj_in={"status": "active", "exit_date": None, "resignation_reason": None})
     
-    def create_bulk(self, teachers_data: List[TeacherCreate]) -> List[Teacher]:
+    async def create_bulk(self, teachers_data: List[TeacherCreate]) -> List[Teacher]:
         """Create multiple teachers with auto-generated employee IDs."""
         created_teachers = []
         for teacher_data in teachers_data:
             # Employee ID will be auto-generated in CRUD if not provided
-            teacher = self.create(obj_in=teacher_data)
+            teacher = await self.create(obj_in=teacher_data)
             created_teachers.append(teacher)
         return created_teachers
 
@@ -80,67 +103,65 @@ class SuperAdminTeacherService(SuperAdminBaseService[Teacher, TeacherCreate, Tea
         # Apply pagination
         return query.offset(skip).limit(limit).all()
 
+    async def assign_to_class(self, teacher_id: UUID, grade: str, section: str, subject: str) -> Teacher:
+        """Assign a teacher to a class for a specific subject.
+        
+        Business Rules:
+        1. A teacher can be assigned to multiple classes
+        2. Only one teacher can be the primary teacher for a class
+        3. A teacher can teach multiple subjects
+        """
+        teacher = await self.get(id=teacher_id)
+        if not teacher:
+            raise EntityNotFoundError("Teacher", teacher_id)
+        
+        # Check if teacher has required qualifications for subject
+        if subject not in teacher.qualified_subjects:
+            raise BusinessRuleViolationError(f"Teacher is not qualified to teach {subject}")
+        
+        # Check teacher's current workload
+        if len(teacher.class_assignments) >= teacher.max_classes:
+            raise BusinessRuleViolationError(f"Teacher has reached maximum class assignment limit")
+        
+        # Create class assignment
+        class_assignment = {
+            "grade": grade,
+            "section": section,
+            "subject": subject,
+            "assigned_date": date.today().isoformat()
+        }
+        
+        # Update teacher's class assignments
+        if not teacher.class_assignments:
+            teacher.class_assignments = []
+        
+        teacher.class_assignments.append(class_assignment)
+        
+        return await self.update(id=teacher_id, obj_in={"class_assignments": teacher.class_assignments})
 
-# Add to TeacherService class
-def assign_to_class(self, teacher_id: UUID, grade: str, section: str, subject: str) -> Teacher:
-    """Assign a teacher to a class for a specific subject.
-    
-    Business Rules:
-    1. A teacher can be assigned to multiple classes
-    2. Only one teacher can be the primary teacher for a class
-    3. A teacher can teach multiple subjects
-    """
-    teacher = self.get(id=teacher_id)
-    if not teacher:
-        raise EntityNotFoundError("Teacher", teacher_id)
-    
-    # Check if teacher has required qualifications for subject
-    if subject not in teacher.qualified_subjects:
-        raise BusinessRuleViolationError(f"Teacher is not qualified to teach {subject}")
-    
-    # Check teacher's current workload
-    if len(teacher.class_assignments) >= teacher.max_classes:
-        raise BusinessRuleViolationError(f"Teacher has reached maximum class assignment limit")
-    
-    # Create class assignment
-    class_assignment = {
-        "grade": grade,
-        "section": section,
-        "subject": subject,
-        "assigned_date": date.today().isoformat()
-    }
-    
-    # Update teacher's class assignments
-    if not teacher.class_assignments:
-        teacher.class_assignments = []
-    
-    teacher.class_assignments.append(class_assignment)
-    
-    return self.update(id=teacher_id, obj_in={"class_assignments": teacher.class_assignments})
-
-def set_as_class_teacher(self, teacher_id: UUID, grade: str, section: str) -> Teacher:
-    """Set a teacher as the primary class teacher for a grade and section."""
-    teacher = self.get(id=teacher_id)
-    if not teacher:
-        raise EntityNotFoundError("Teacher", teacher_id)
-    
-    # Check if another teacher is already assigned as class teacher
-    existing_class_teacher = self.db.query(Teacher).filter(
-        Teacher.tenant_id == self.tenant_id,
-        Teacher.is_class_teacher == True,
-        Teacher.primary_grade == grade,
-        Teacher.primary_section == section
-    ).first()
-    
-    if existing_class_teacher and existing_class_teacher.id != teacher_id:
-        raise BusinessRuleViolationError(
-            f"Another teacher is already assigned as class teacher for {grade} {section}"
-        )
-    
-    # Update teacher as class teacher
-    return self.update(id=teacher_id, obj_in={
-        "is_class_teacher": True,
-        "primary_grade": grade,
-        "primary_section": section
-    })
+    async def set_as_class_teacher(self, teacher_id: UUID, grade: str, section: str) -> Teacher:
+        """Set a teacher as the primary class teacher for a grade and section."""
+        teacher = await self.get(id=teacher_id)
+        if not teacher:
+            raise EntityNotFoundError("Teacher", teacher_id)
+        
+        # Check if another teacher is already assigned as class teacher
+        existing_class_teacher = self.db.query(Teacher).filter(
+            Teacher.tenant_id == self.tenant_id,
+            Teacher.is_class_teacher == True,
+            Teacher.primary_grade == grade,
+            Teacher.primary_section == section
+        ).first()
+        
+        if existing_class_teacher and existing_class_teacher.id != teacher_id:
+            raise BusinessRuleViolationError(
+                f"Another teacher is already assigned as class teacher for {grade} {section}"
+            )
+        
+        # Update teacher as class teacher
+        return await self.update(id=teacher_id, obj_in={
+            "is_class_teacher": True,
+            "primary_grade": grade,
+            "primary_section": section
+        })
 

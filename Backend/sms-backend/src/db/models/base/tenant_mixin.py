@@ -39,18 +39,5 @@ class TenantMixin:
             lazy="select"  # Load tenant when accessed
         )
     
-    def __init__(self, **kwargs):
-        if 'tenant_id' not in kwargs:
-            raise ValueError("tenant_id is required")
-            
-        tenant_id = kwargs['tenant_id']
-        if not isinstance(tenant_id, uuid.UUID):
-            try:
-                kwargs['tenant_id'] = uuid.UUID(str(tenant_id))
-            except (ValueError, AttributeError, TypeError):
-                raise ValueError("tenant_id must be a valid UUID")
-                
-        for key, value in kwargs.items():
-            setattr(self, key, value)
 
 

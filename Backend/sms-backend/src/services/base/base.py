@@ -49,32 +49,47 @@ class TenantBaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         else:
             raise ValueError(f"Value must be a UUID or valid UUID string: {value}")
     
-    def get(self, id: Any) -> Optional[ModelType]:
+    async def get(self, id: Any) -> Optional[ModelType]:
         """Get a record by ID with tenant filtering."""
         return self.crud.get_by_id(db=self.db, tenant_id=self.tenant_id, id=id)
     
-    def list(self, *, skip: int = 0, limit: int = 100, filters: Dict = {}) -> List[ModelType]:
+    async def list(self, *, skip: int = 0, limit: int = 100, filters: Optional[Dict] = None, options: Optional[List[Any]] = None, **kwargs) -> List[ModelType]:
         """List records with tenant filtering, pagination, and optional filters."""
         return self.crud.list(
             db=self.db, 
             tenant_id=self.tenant_id, 
             skip=skip, 
             limit=limit, 
-            filters=filters
+            filters=filters or {},
+            options=options,
+            **kwargs
+        )
+
+    async def list_with_count(self, *, skip: int = 0, limit: int = 100, filters: Optional[Dict] = None, options: Optional[List[Any]] = None, **kwargs) -> tuple[List[ModelType], int]:
+        """List records with total count and tenant filtering."""
+        return self.crud.list_with_count(
+            db=self.db,
+            tenant_id=self.tenant_id,
+            skip=skip,
+            limit=limit,
+            filters=filters or {},
+            options=options,
+            **kwargs
         )
     
-    def create(self, *, obj_in: CreateSchemaType) -> ModelType:
+    async def create(self, *, obj_in: CreateSchemaType) -> ModelType:
         """Create a new record with tenant ID."""
         return self.crud.create(db=self.db, tenant_id=self.tenant_id, obj_in=obj_in)
     
-    def update(self, *, id: Any, obj_in: Union[UpdateSchemaType, Dict[str, Any]]) -> Optional[ModelType]:
+    async def update(self, *, id: Any, obj_in: Union[UpdateSchemaType, Dict[str, Any]]) -> Optional[ModelType]:
         """Update a record with tenant validation."""
-        db_obj = self.get(id=id)
+        # Use CRUD directly to bypass any service-level caching on self.get()
+        db_obj = self.crud.get_by_id(db=self.db, tenant_id=self.tenant_id, id=id)
         if not db_obj:
             return None
         return self.crud.update(db=self.db, tenant_id=self.tenant_id, db_obj=db_obj, obj_in=obj_in)
     
-    def delete(self, *, id: Any) -> Optional[ModelType]:
+    async def delete(self, *, id: Any) -> Optional[ModelType]:
         """Delete a record with tenant validation."""
         return self.crud.delete(db=self.db, tenant_id=self.tenant_id, id=id)
 
@@ -105,5 +120,33 @@ class SuperAdminBaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaTyp
             return value
         else:
             raise ValueError(f"Value must be a UUID or valid UUID string: {value}")
+
+    async def get(self, id: Any) -> Optional[ModelType]:
+        """Get a record by ID."""
+        return self.db.query(self.model).filter(self.model.id == id).first()
+
+    async def list(self, *, skip: int = 0, limit: int = 100, filters: Dict = {}) -> List[ModelType]:
+        """List all records across tenants."""
+        query = self.db.query(self.model)
+        for field, value in filters.items():
+            if hasattr(self.model, field):
+                query = query.filter(getattr(self.model, field) == value)
+        return query.offset(skip).limit(limit).all()
+
+    async def create(self, *, obj_in: CreateSchemaType) -> ModelType:
+        """Create a new record."""
+        return self.crud.create(self.db, tenant_id=getattr(obj_in, 'tenant_id', None), obj_in=obj_in)
+
+    async def update(self, *, id: Any, obj_in: Union[UpdateSchemaType, Dict[str, Any]]) -> Optional[ModelType]:
+        """Update a record."""
+        # Fetch directly from DB to bypass any caching on self.get()
+        db_obj = self.db.query(self.model).filter(self.model.id == id).first()
+        if not db_obj:
+            return None
+        return self.crud.update(self.db, tenant_id=getattr(db_obj, 'tenant_id', None), db_obj=db_obj, obj_in=obj_in)
+
+    async def delete(self, *, id: Any) -> Optional[ModelType]:
+        """Delete a record."""
+        return self.crud.delete(self.db, tenant_id=None, id=id)
 
     

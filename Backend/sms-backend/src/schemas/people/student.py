@@ -24,6 +24,7 @@ class StudentBase(UserBase):
     country: Optional[str] = None
     whatsapp_number: Optional[str] = None
     emergency_contact: Optional[str] = None
+    photo: Optional[str] = None
     status: str = "active"
 
 
@@ -45,6 +46,7 @@ class StudentCreate(UserCreate):
     country: Optional[str] = None
     whatsapp_number: Optional[str] = None
     emergency_contact: Optional[str] = None
+    photo: Optional[str] = None
     status: str = "active"
 
 
@@ -66,6 +68,7 @@ class StudentUpdate(UserUpdate):
     country: Optional[str] = None
     whatsapp_number: Optional[str] = None
     emergency_contact: Optional[str] = None
+    photo: Optional[str] = None
     status: Optional[str] = None
     exit_date: Optional[date] = None
     graduation_date: Optional[date] = None
@@ -90,6 +93,7 @@ class Student(User):
     country: Optional[str] = None
     whatsapp_number: Optional[str] = None
     emergency_contact: Optional[str] = None
+    photo: Optional[str] = None
     status: str
     exit_date: Optional[date] = None
     graduation_date: Optional[date] = None
@@ -103,4 +107,8 @@ class StudentCreateResponse(Student):
     
     class Config:
         from_attributes = True
+
+class StudentBulkDelete(BaseModel):
+    """Schema for bulk student deletion."""
+    student_ids: List[UUID]
 

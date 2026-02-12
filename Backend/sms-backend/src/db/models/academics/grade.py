@@ -1,4 +1,5 @@
-from sqlalchemy import Column, String, ForeignKey, Float, Integer, Date, Text, Enum
+from typing import Optional, Any, List
+from sqlalchemy import Column, String, ForeignKey, Float, Integer, Date, Text, Enum, Index, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import date
@@ -11,13 +12,14 @@ from src.db.models.base import TenantModel
 # Enum for grade types
 class GradeType(str, enum.Enum):
     """Enum for grade types."""
-    ASSIGNMENT = "assignment"
-    QUIZ = "quiz"
-    TEST = "test"
-    EXAM = "exam"
-    PROJECT = "project"
-    PARTICIPATION = "participation"
-    OTHER = "other"
+    ASSIGNMENT = "ASSIGNMENT"
+    QUIZ = "QUIZ"
+    TEST = "TEST"
+    EXAM = "EXAM"
+    PROJECT = "PROJECT"
+    PARTICIPATION = "PARTICIPATION"
+    ATTENDANCE = "ATTENDANCE"
+    OTHER = "OTHER"
 
 
 class Grade(TenantModel):
@@ -48,10 +50,24 @@ class Grade(TenantModel):
     student = relationship("Student", back_populates="grades", foreign_keys=[student_id])
     
     enrollment_id = Column(UUID(as_uuid=True), ForeignKey("enrollments.id"), nullable=False)
-    enrollment = relationship("Enrollment", back_populates="assessment_grades")
+    subject_id = Column(UUID(as_uuid=True), ForeignKey("subjects.id"), nullable=True)
     
-    subject_id = Column(UUID(as_uuid=True), ForeignKey("subjects.id"), nullable=False)
+    # Period and Semester tracking
+    period_id = Column(ForeignKey("periods.id", ondelete="SET NULL"), nullable=True)
+    semester_id = Column(ForeignKey("semesters.id", ondelete="SET NULL"), nullable=True)
+    period_number = Column(Integer, nullable=True)  # Legacy/Display index (1-6)
+    semester = Column(Integer, nullable=True)       # Legacy/Display index (1-2)
+    is_published = Column(Boolean, nullable=False, default=False) # Legacy flag
+    
+    # Relationships
+    enrollment = relationship("Enrollment", back_populates="assessment_grades")
     subject = relationship("Subject", back_populates="grades")
+    teacher = relationship("Teacher", back_populates="grades", foreign_keys="[Grade.graded_by]")
+    period_obj = relationship("Period", back_populates="grades")
+    semester_obj = relationship("Semester")
+    
+    grading_category_id = Column(UUID(as_uuid=True), ForeignKey("grading_categories.id"), nullable=True)
+    grading_category = relationship("GradingCategory", backref="student_grades")
     
     # Assessment details
     assessment_type = Column(Enum(GradeType), nullable=False)
@@ -67,7 +83,7 @@ class Grade(TenantModel):
     comments = Column(Text, nullable=True)
     
     # Grading metadata
-    graded_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    graded_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     graded_date = Column(Date, nullable=False, default=date.today)
     
     # Fix the relationship to Assignment - use foreign_keys parameter
@@ -86,5 +102,15 @@ class Grade(TenantModel):
         viewonly=True  # Make this a read-only relationship
     )
     
+    @property
+    def student_name(self) -> str:
+        if self.student:
+            return self.student.full_name or f"{self.student.first_name} {self.student.last_name}".strip() or "Unknown"
+        return "Unknown"
+
+    @property
+    def subject_name(self) -> str:
+        return self.subject.name if self.subject else "Unknown"
+
     def __repr__(self):
         return f"<Grade {self.student_id} - {self.subject_id} - {self.assessment_type} - {self.score}/{self.max_score}>"

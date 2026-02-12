@@ -73,14 +73,16 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         self, db: Session, *, db_obj: ModelType, obj_in: Union[UpdateSchemaType, Dict[str, Any]]
     ) -> ModelType:
         """Update a record."""
-        obj_data = jsonable_encoder(db_obj)
         if isinstance(obj_in, dict):
             update_data = obj_in
         else:
             update_data = obj_in.model_dump(exclude_unset=True)
-        for field in obj_data:
-            if field in update_data:
-                setattr(db_obj, field, update_data[field])
+        
+        # Update attributes directly on the object to support joined inheritance
+        for field, value in update_data.items():
+            if hasattr(db_obj, field) and field != "id":
+                setattr(db_obj, field, value)
+        
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)
@@ -122,27 +124,63 @@ class TenantCRUDBase(Generic[TenantModelType, CreateSchemaType, UpdateSchemaType
         ).first()
     
     
-    # Then modify the list method or any method that uses tenant_id in filters
-    def list(self, db: Session, *, tenant_id: Any = None, skip: int = 0, limit: int = 100, **kwargs):
+    def list(self, db: Session, *, tenant_id: Any = None, skip: int = 0, limit: int = 100, options: Optional[List[Any]] = None, **kwargs):
         # Convert tenant_id to UUID if it's not already
         tenant_id_uuid = ensure_uuid(tenant_id)
         
         # Use the converted UUID in your query
         query = db.query(self.model).filter(self.model.tenant_id == tenant_id_uuid)
         
+        # Apply options (like joinedload)
+        if options:
+            for option in options:
+                query = query.options(option)
+        
         # Apply additional filters
         filters = kwargs.get('filters', {})
         for field, value in filters.items():
             if hasattr(self.model, field):
-                query = query.filter(getattr(self.model, field) == value)
+                column = getattr(self.model, field)
+                if isinstance(value, list) and value:
+                    query = query.filter(column.in_(value))
+                elif value is not None:
+                    query = query.filter(column == value)
         
         # Add default ordering by created_at to maintain consistent order
         if hasattr(self.model, 'created_at'):
-            query = query.order_by(self.model.created_at.asc())
+            query = query.order_by(self.model.created_at.desc()) # Changed to desc for logs usually
         elif hasattr(self.model, 'id'):
             query = query.order_by(self.model.id.asc())
         
         return query.offset(skip).limit(limit).all()
+
+    def list_with_count(self, db: Session, *, tenant_id: Any = None, skip: int = 0, limit: int = 100, options: Optional[List[Any]] = None, **kwargs) -> tuple[List[TenantModelType], int]:
+        """List records with total count, tenant filtering, and pagination."""
+        tenant_id_uuid = ensure_uuid(tenant_id)
+        query = db.query(self.model).filter(self.model.tenant_id == tenant_id_uuid)
+        
+        if options:
+            for option in options:
+                query = query.options(option)
+        
+        filters = kwargs.get('filters', {})
+        for field, value in filters.items():
+            if hasattr(self.model, field):
+                column = getattr(self.model, field)
+                if isinstance(value, list) and value:
+                    query = query.filter(column.in_(value))
+                elif value is not None:
+                    query = query.filter(column == value)
+        
+        total = query.count()
+
+        if hasattr(self.model, 'created_at'):
+            query = query.order_by(self.model.created_at.desc())
+        elif hasattr(self.model, 'id'):
+            query = query.order_by(self.model.id.asc())
+            
+        items = query.offset(skip).limit(limit).all()
+        return items, total
     
     def create(
         self, db: Session, tenant_id: Any, *, obj_in: CreateSchemaType
@@ -186,12 +224,14 @@ class TenantCRUDBase(Generic[TenantModelType, CreateSchemaType, UpdateSchemaType
         else:
             update_data = obj_in.model_dump(exclude_unset=True)
         
-        # Use SQLAlchemy's bulk update to avoid triggering __init__ validation
-        db.query(self.model).filter(
-            self.model.id == db_obj.id,
-            self.model.tenant_id == tenant_id
-        ).update(update_data)
+        # Update attributes directly on the object to support joined inheritance
+        # This is necessary because Query.update() doesn't work well with polymorphic models
+        for field, value in update_data.items():
+            # Never overwrite tenant_id or id during a normal update
+            if field not in ["tenant_id", "id"] and hasattr(db_obj, field):
+                setattr(db_obj, field, value)
         
+        db.add(db_obj)
         db.commit()
         db.refresh(db_obj)
         return db_obj

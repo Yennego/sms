@@ -1,7 +1,8 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from uuid import UUID
 from datetime import datetime
 from pydantic import BaseModel
+from src.schemas.base.base import PaginatedResponse
 
 
 class SuperAdminActivityLogBase(BaseModel):
@@ -54,3 +55,8 @@ class AuditLogResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class AuditLogPaginated(PaginatedResponse[AuditLogResponse]):
+    """Schema for paginated audit log response (super-admin)."""
+    pass

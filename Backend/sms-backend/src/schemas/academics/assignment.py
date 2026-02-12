@@ -1,8 +1,8 @@
-from datetime import date
+# Module imports and AssignmentInDB class
+from datetime import date, datetime
 from typing import Optional, Dict, Any
 from uuid import UUID
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel, Field, ConfigDict
 
 class AssignmentBase(BaseModel):
     """Base schema for Assignment model."""
@@ -12,6 +12,7 @@ class AssignmentBase(BaseModel):
     teacher_id: UUID
     grade_id: UUID
     section_id: Optional[UUID] = None
+    academic_year_id: UUID
     assigned_date: Optional[date] = None
     due_date: date
     max_score: float
@@ -21,11 +22,9 @@ class AssignmentBase(BaseModel):
     attachment_url: Optional[str] = None
     rubric: Optional[Dict[str, Any]] = None
 
-
 class AssignmentCreate(AssignmentBase):
     """Schema for creating a new assignment."""
     assigned_date: date = date.today()
-
 
 class AssignmentUpdate(BaseModel):
     """Schema for updating an assignment."""
@@ -35,6 +34,7 @@ class AssignmentUpdate(BaseModel):
     teacher_id: Optional[UUID] = None
     grade_id: Optional[UUID] = None
     section_id: Optional[UUID] = None
+    academic_year_id: Optional[UUID] = None
     assigned_date: Optional[date] = None
     due_date: Optional[date] = None
     max_score: Optional[float] = None
@@ -44,22 +44,22 @@ class AssignmentUpdate(BaseModel):
     attachment_url: Optional[str] = None
     rubric: Optional[Dict[str, Any]] = None
 
-
 class AssignmentInDB(AssignmentBase):
     """Schema for Assignment model in database."""
     id: UUID
     tenant_id: UUID
-    created_at: date
-    updated_at: date
+    created_at: datetime
+    updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    # Pydantic v2: enable ORM serialization
+    model_config = ConfigDict(from_attributes=True)
 
 class Assignment(AssignmentInDB):
     """Schema for Assignment model response."""
-    pass
-
+    subject_name: Optional[str] = None
+    teacher_name: Optional[str] = None
+    grade_name: Optional[str] = None
+    section_name: Optional[str] = None
 
 class AssignmentWithDetails(Assignment):
     """Schema for Assignment with additional details."""

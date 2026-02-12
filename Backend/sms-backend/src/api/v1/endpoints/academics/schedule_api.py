@@ -30,15 +30,15 @@ def get_schedule_service(
 
 # Schedule endpoints
 @router.post("/schedules", response_model=Schedule, status_code=status.HTTP_201_CREATED)
-def create_schedule(
+async def create_schedule(
     *,
     schedule_service: ScheduleService = Depends(get_schedule_service),
     schedule_in: ScheduleCreate,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_any_role(["admin"]))
 ) -> Any:
     """Create a new schedule (requires admin or teacher role)."""
     try:
-        return schedule_service.create(obj_in=schedule_in)
+        return await schedule_service.create(obj_in=schedule_in)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -46,7 +46,7 @@ def create_schedule(
         )
 
 @router.get("/schedules", response_model=List[Schedule])
-def get_schedules(
+async def get_schedules(
     *,
     schedule_service: ScheduleService = Depends(get_schedule_service),
     skip: int = 0,
@@ -71,16 +71,16 @@ def get_schedules(
     if period is not None:
         filters["period"] = period
     
-    return schedule_service.list(skip=skip, limit=limit, filters=filters)
+    return await schedule_service.list(skip=skip, limit=limit, filters=filters)
 
 @router.get("/schedules/{schedule_id}", response_model=Schedule)
-def get_schedule(
+async def get_schedule(
     *,
     schedule_service: ScheduleService = Depends(get_schedule_service),
     schedule_id: UUID
 ) -> Any:
     """Get a specific schedule by ID."""
-    schedule = schedule_service.get(id=schedule_id)
+    schedule = await schedule_service.get(id=schedule_id)
     if not schedule:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -89,22 +89,22 @@ def get_schedule(
     return schedule
 
 @router.put("/schedules/{schedule_id}", response_model=Schedule)
-def update_schedule(
+async def update_schedule(
     *,
     schedule_service: ScheduleService = Depends(get_schedule_service),
     schedule_id: UUID,
     schedule_in: ScheduleUpdate,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_any_role(["admin"]))
 ) -> Any:
     """Update a schedule."""
     try:
-        schedule = schedule_service.get(id=schedule_id)
+        schedule = await schedule_service.get(id=schedule_id)
         if not schedule:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Schedule with ID {schedule_id} not found"
             )
-        return schedule_service.update(id=schedule_id, obj_in=schedule_in)
+        return await schedule_service.update(id=schedule_id, obj_in=schedule_in)
     except BusinessLogicError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -112,17 +112,37 @@ def update_schedule(
         )
 
 @router.delete("/schedules/{schedule_id}", response_model=Schedule)
-def delete_schedule(
+async def delete_schedule(
     *,
     schedule_service: ScheduleService = Depends(get_schedule_service),
     schedule_id: UUID,
     current_user: User = Depends(has_any_role(["admin"]))
 ) -> Any:
     """Delete a schedule (admin only)."""
-    schedule = schedule_service.get(id=schedule_id)
+    schedule = await schedule_service.get(id=schedule_id)
     if not schedule:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Schedule with ID {schedule_id} not found"
         )
-    return schedule_service.delete(id=schedule_id)
+    return await schedule_service.delete(id=schedule_id)
+
+@router.get("/super-admin/schedules", response_model=List[ScheduleWithDetails])
+async def get_all_schedules(
+    *,
+    schedule_service: SuperAdminScheduleService = Depends(),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1),
+    tenant_id: Optional[UUID] = None,
+    class_id: Optional[UUID] = None,
+    day_of_week: Optional[str] = None,
+    current_user: User = Depends(has_permission("view_all_schedules"))
+) -> Any:
+    """Get all schedules across all tenants with filtering (super-admin only)."""
+    return await schedule_service.get_all_schedules(
+        skip=skip,
+        limit=limit,
+        tenant_id=tenant_id,
+        class_id=class_id,
+        day_of_week=day_of_week
+    )

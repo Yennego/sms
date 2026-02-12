@@ -19,18 +19,32 @@ depends_on = None
 def upgrade() -> None:
     """Add branding fields to tenants table."""
     # Add new columns to tenants table
-    op.add_column('tenants', sa.Column('domain', sa.String(length=255), nullable=True, comment='Domain for the tenant'))
-    op.add_column('tenants', sa.Column('subdomain', sa.String(length=100), nullable=True, comment='Subdomain for the tenant'))
-    op.add_column('tenants', sa.Column('logo', sa.String(length=500), nullable=True, comment='Logo URL for the tenant'))
-    op.add_column('tenants', sa.Column('primary_color', sa.String(length=7), nullable=True, comment='Primary color for branding (hex)'))
-    op.add_column('tenants', sa.Column('secondary_color', sa.String(length=7), nullable=True, comment='Secondary color for branding (hex)'))
+    from alembic import op
+    import sqlalchemy as sa
+
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    tenant_cols = {c['name'] for c in inspector.get_columns('tenants')}
+
+    if 'domain' not in tenant_cols:
+        op.add_column('tenants', sa.Column('domain', sa.String(length=255), nullable=True))
+    if 'subdomain' not in tenant_cols:
+        op.add_column('tenants', sa.Column('subdomain', sa.String(length=255), nullable=True))
+    if 'logo' not in tenant_cols:
+        op.add_column('tenants', sa.Column('logo', sa.String(length=255), nullable=True))
+    if 'primary_color' not in tenant_cols:
+        op.add_column('tenants', sa.Column('primary_color', sa.String(length=20), nullable=True))
+    if 'secondary_color' not in tenant_cols:
+        op.add_column('tenants', sa.Column('secondary_color', sa.String(length=20), nullable=True))
 
 
 def downgrade() -> None:
     """Remove branding fields from tenants table."""
     # Remove the added columns
-    op.drop_column('tenants', 'secondary_color')
-    op.drop_column('tenants', 'primary_color')
-    op.drop_column('tenants', 'logo')
-    op.drop_column('tenants', 'subdomain')
-    op.drop_column('tenants', 'domain')
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    tenant_cols = {c['name'] for c in inspector.get_columns('tenants')}
+
+    for col in ['secondary_color', 'primary_color', 'logo', 'subdomain', 'domain']:
+        if col in tenant_cols:
+            op.drop_column('tenants', col)

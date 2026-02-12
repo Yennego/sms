@@ -5,7 +5,7 @@ from uuid import UUID
 from typing import Optional
 
 from src.db.crud.base import TenantCRUDBase
-from src.db.models.auth import User
+from src.db.models.auth import User, UserRole
 from src.schemas.auth.user import UserCreate, UserUpdate
 from src.core.security.password import get_password_hash, verify_password
 from src.utils.uuid_utils import ensure_uuid
@@ -140,6 +140,55 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
             db.refresh(db_obj)
         
         return db_obj
+    
+    def list_with_filters(
+        self,
+        db: Session,
+        tenant_id: Any,
+        *,
+        search: Optional[str] = None,
+        is_active: Optional[bool] = None,
+        role_id: Optional[UUID] = None,
+        sort_by: Optional[str] = "created_at",
+        sort_order: str = "asc",
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[User]:
+        """List users with flexible server-side filtering."""
+        tenant_id_uuid = ensure_uuid(tenant_id)
+
+        query = db.query(User).filter(User.tenant_id == tenant_id_uuid)
+
+        if search:
+            term = f"%{search}%"
+            query = query.filter(
+                or_(
+                    User.email.ilike(term),
+                    User.first_name.ilike(term),
+                    User.last_name.ilike(term),
+                    User.phone_number.ilike(term)
+                )
+            )
+
+        if is_active is not None:
+            query = query.filter(User.is_active == is_active)
+
+        if role_id:
+            query = query.join(User.roles).filter(UserRole.id == ensure_uuid(role_id))
+
+        sort_map = {
+            "created_at": User.created_at,
+            "email": User.email,
+            "first_name": User.first_name,
+            "last_name": User.last_name,
+        }
+        sort_col = sort_map.get(sort_by or "created_at", User.created_at)
+        if (sort_order or "asc").lower() == "desc":
+            query = query.order_by(sort_col.desc())
+        else:
+            query = query.order_by(sort_col.asc())
+
+        return query.offset(skip).limit(limit).all()
     
     def get_active_users(self, db: Session, tenant_id: Any, skip: int = 0, limit: int = 100) -> List[User]:
         """Get all active users within a tenant."""

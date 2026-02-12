@@ -24,10 +24,12 @@ class Section(TenantModel):
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     capacity = Column(Integer, nullable=False, default=30)
+    class_teacher_id = Column(UUID(as_uuid=True), ForeignKey("teachers.id"), nullable=True)
     
     # Relationships
     grade_id = Column(UUID(as_uuid=True), ForeignKey("academic_grades.id"), nullable=False)
     grade = relationship("AcademicGrade", back_populates="sections")
+    class_teacher = relationship("Teacher", backref="sponsored_sections")
     
     # Relationships to other models
     assignments = relationship("Assignment", back_populates="section")

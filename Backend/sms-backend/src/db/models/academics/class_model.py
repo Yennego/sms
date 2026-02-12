@@ -1,91 +1,79 @@
-from sqlalchemy import Column, String, ForeignKey, Text, Boolean, Integer, Date, Time
+from sqlalchemy import Column, String, ForeignKey, Text, Boolean, Integer, Date, Time, UniqueConstraint, Index
 from sqlalchemy.engine import mock
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import date
 
 from src.db.models.base import TenantModel
+from src.db.models.academics.class_enrollment import ClassEnrollment
+
 
 class Class(TenantModel):
     """Model representing a class in the school system.
     
-    A class is a combination of a grade level, section, subject, and teacher.
-    It represents the actual teaching unit where a specific teacher teaches
-    a specific subject to students in a specific grade and section.
+    A class is a unique container defined by Grade, Section, and Academic Year.
+    It represents the actual teaching unit where a Class Sponsor (Main Teacher)
+    manages the students, while individual subjects are handled via ClassSubject.
     
     Attributes:
-        name (String): Name of the class (optional, can be auto-generated)
-        academic_year (String): The academic year (e.g., "2023-2024")
+        name (String): Name of the class (auto-generated)
+        academic_year_id (UUID): Foreign key to the academic year
         grade_id (UUID): Foreign key to the grade level
         section_id (UUID): Foreign key to the section
-        subject_id (UUID): Foreign key to the subject
-        teacher_id (UUID): Foreign key to the teacher
+        class_teacher_id (UUID): Foreign key to the Teacher who is the Class Sponsor
         room (String): Room where the class is held
+        capacity (Integer): Maximum number of students per class
         is_active (Boolean): Whether the class is currently active
-        start_date (Date): Date when the class starts
-        end_date (Date): Date when the class ends
-        description (Text): Additional description of the class
     """
     
     __tablename__ = "classes"
     
     # Class details
-    name = Column(String(255), nullable=True)  # Auto-generated if not provided
-    academic_year = Column(String(20), nullable=False, index=True)
+    name = Column(String(255), nullable=True)
+    academic_year_id = Column(UUID(as_uuid=True), ForeignKey("academic_years.id"), nullable=False, index=True)
     room = Column(String(50), nullable=True)
+    capacity = Column(Integer, nullable=False, default=30)
     is_active = Column(Boolean, nullable=False, default=True)
     start_date = Column(Date, nullable=False, default=date.today)
     end_date = Column(Date, nullable=True)
     description = Column(Text, nullable=True)
     
-    # Key relationships
+    # Relationships
     grade_id = Column(UUID(as_uuid=True), ForeignKey("academic_grades.id"), nullable=False)
     section_id = Column(UUID(as_uuid=True), ForeignKey("sections.id"), nullable=False)
-    subject_id = Column(UUID(as_uuid=True), ForeignKey("subjects.id"), nullable=False)
-    teacher_id = Column(UUID(as_uuid=True), ForeignKey("teachers.id"), nullable=False)
+    class_teacher_id = Column(UUID(as_uuid=True), ForeignKey("teachers.id"), nullable=True)
     
-    # Relationships
+    # Navigation properties
+    academic_year = relationship("AcademicYear")
     grade = relationship("AcademicGrade", backref="classes")
     section = relationship("Section", backref="classes")
-    subject = relationship("Subject", backref="classes")
-    teacher = relationship("Teacher", backref="classes")
+    class_teacher = relationship("Teacher", backref="sponsored_classes")
     
-    # Updated relationships for proper student enrollment and attendance tracking
+    # Link to multiple subjects
+    subjects = relationship("ClassSubject", back_populates="class_obj", lazy="selectin", cascade="all, delete-orphan")
+    
+    # Student management
     student_enrollments = relationship("ClassEnrollment", back_populates="class_obj", lazy="dynamic")
     attendances = relationship("Attendance", back_populates="class_obj")
     
-    # Helper methods for working with enrolled students
-    def get_enrolled_students(self, academic_year_id=None):
-        """Get all students enrolled in this class for a specific academic year."""
-        query = self.student_enrollments.filter_by(is_active=True)
-        if academic_year_id:
-            query = query.filter_by(academic_year_id=academic_year_id)
-        return [enrollment.student for enrollment in query.all()]
-    
-    def enroll_student(self, student, academic_year_id, enrollment_date=None):
-        """Enroll a student in this class."""
-        from src.db.models.academics.class_enrollment import ClassEnrollment
-        
-        enrollment = ClassEnrollment(
-            student_id=student.id,
-            class_id=self.id,
-            academic_year_id=academic_year_id,
-            enrollment_date=enrollment_date or date.today()
-        )
-        return enrollment
-    
-    def get_student_count(self, academic_year_id=None):
-        """Get the number of students enrolled in this class."""
-        query = self.student_enrollments.filter_by(is_active=True)
-        if academic_year_id:
-            query = query.filter_by(academic_year_id=academic_year_id)
-        return query.count()
+    # Deprecated academic_year string removed
+    # academic_year_str = Column("academic_year", String(20), nullable=True)
     
     def __repr__(self):
-        return f"<Class {self.name or f'{self.subject.name} - {self.grade.name}{self.section.name}'} - {self.academic_year}>"
+        grade_name = self.grade.name if self.grade else "Unknown"
+        section_name = self.section.name if self.section else "Unknown"
+        return f"<Class {grade_name} - {section_name} ({self.academic_year.name if self.academic_year else 'N/A'})>"
     
     def generate_name(self):
         """Generate a name for the class if one is not provided."""
-        if not self.name:
-            self.name = f"{self.subject.name} - {self.grade.name}{self.section.name}"
+        if not self.name and self.grade and self.section:
+            self.name = f"{self.grade.name} - {self.section.name}"
         return self.name
+    
+    __table_args__ = (
+        UniqueConstraint(
+            'tenant_id', 'academic_year_id', 'grade_id', 'section_id',
+            name='unique_class_identity'
+        ),
+        Index('idx_classes_tenant_ay_grade', 'tenant_id', 'academic_year_id', 'grade_id'),
+    )

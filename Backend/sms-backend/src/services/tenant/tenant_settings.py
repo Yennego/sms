@@ -37,10 +37,10 @@ class SuperAdminTenantSettingsService(SuperAdminBaseService[TenantSettings, Tena
         """Create settings for a specific tenant."""
         return tenant_settings_crud.create_with_tenant(self.db, tenant_id=tenant_id, obj_in=settings_in)
     
-    def update_tenant_settings(self, tenant_id: UUID, settings_in: TenantSettingsUpdate) -> Optional[TenantSettings]:
+    async def update_tenant_settings(self, tenant_id: UUID, settings_in: TenantSettingsUpdate) -> Optional[TenantSettings]:
         """Update settings for a specific tenant."""
         settings = self.get_tenant_settings(tenant_id)
         if not settings:
             return None
-        return tenant_settings_crud.update(self.db, db_obj=settings, obj_in=settings_in)
+        return await super().update(id=settings.id, obj_in=settings_in)
 

@@ -1,8 +1,8 @@
+# Module imports and ExamInDB class
 from typing import Optional, Dict, Any, List
 from uuid import UUID
-from datetime import date, time
-from pydantic import BaseModel, Field
-
+from datetime import date, time, datetime
+from pydantic import BaseModel, Field, ConfigDict
 
 class ExamBase(BaseModel):
     """Base schema for Exam model."""
@@ -12,6 +12,7 @@ class ExamBase(BaseModel):
     teacher_id: UUID
     grade_id: UUID
     section_id: Optional[UUID] = None
+    academic_year_id: UUID
     exam_date: date
     start_time: time
     end_time: time
@@ -21,11 +22,9 @@ class ExamBase(BaseModel):
     location: Optional[str] = None
     instructions: Optional[str] = None
 
-
 class ExamCreate(ExamBase):
     """Schema for creating a new exam."""
     pass
-
 
 class ExamUpdate(BaseModel):
     """Schema for updating an exam."""
@@ -35,6 +34,7 @@ class ExamUpdate(BaseModel):
     teacher_id: Optional[UUID] = None
     grade_id: Optional[UUID] = None
     section_id: Optional[UUID] = None
+    academic_year_id: Optional[UUID] = None
     exam_date: Optional[date] = None
     start_time: Optional[time] = None
     end_time: Optional[time] = None
@@ -44,22 +44,19 @@ class ExamUpdate(BaseModel):
     location: Optional[str] = None
     instructions: Optional[str] = None
 
-
 class ExamInDB(ExamBase):
     """Schema for Exam model in database."""
     id: UUID
     tenant_id: UUID
-    created_at: date
-    updated_at: date
+    created_at: datetime
+    updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    # Pydantic v2: enable ORM serialization
+    model_config = ConfigDict(from_attributes=True)
 
 class Exam(ExamInDB):
     """Schema for Exam model response."""
     pass
-
 
 class ExamWithDetails(Exam):
     """Schema for Exam with additional details."""

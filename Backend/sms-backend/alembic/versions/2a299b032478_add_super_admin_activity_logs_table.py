@@ -18,31 +18,47 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Create super_admin_activity_logs table
-    op.create_table('super_admin_activity_logs',
-        sa.Column('id', sa.UUID(), nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
-        sa.Column('user_id', sa.UUID(), nullable=True),
-        sa.Column('action', sa.String(length=50), nullable=False),
-        sa.Column('entity_type', sa.String(length=50), nullable=False),
-        sa.Column('entity_id', sa.UUID(), nullable=True),
-        sa.Column('target_tenant_id', sa.UUID(), nullable=True),
-        sa.Column('old_values', sa.JSON(), nullable=True),
-        sa.Column('new_values', sa.JSON(), nullable=True),
-        sa.Column('ip_address', sa.String(length=50), nullable=True),
-        sa.Column('user_agent', sa.Text(), nullable=True),
-        sa.Column('details', sa.Text(), nullable=True),
-        sa.PrimaryKeyConstraint('id'),
-        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='SET NULL')
-    )
-    
-    # Create indexes for better query performance
-    op.create_index('ix_super_admin_activity_logs_user_id', 'super_admin_activity_logs', ['user_id'])
-    op.create_index('ix_super_admin_activity_logs_action', 'super_admin_activity_logs', ['action'])
-    op.create_index('ix_super_admin_activity_logs_entity_type', 'super_admin_activity_logs', ['entity_type'])
-    op.create_index('ix_super_admin_activity_logs_created_at', 'super_admin_activity_logs', ['created_at'])
-    op.create_index('ix_super_admin_activity_logs_target_tenant_id', 'super_admin_activity_logs', ['target_tenant_id'])
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    table_names = set(inspector.get_table_names())
+    if 'super_admin_activity_logs' not in table_names:
+        op.create_table(
+            'super_admin_activity_logs',
+            sa.Column('id', sa.UUID(), nullable=False),
+            sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+            sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+            sa.Column('user_id', sa.UUID(), nullable=True),
+            sa.Column('action', sa.String(length=50), nullable=False),
+            sa.Column('entity_type', sa.String(length=50), nullable=False),
+            sa.Column('entity_id', sa.UUID(), nullable=True),
+            sa.Column('target_tenant_id', sa.UUID(), nullable=True),
+            sa.Column('old_values', sa.JSON(), nullable=True),
+            sa.Column('new_values', sa.JSON(), nullable=True),
+            sa.Column('ip_address', sa.String(length=50), nullable=True),
+            sa.Column('user_agent', sa.Text(), nullable=True),
+            sa.Column('details', sa.Text(), nullable=True),
+            sa.PrimaryKeyConstraint('id'),
+            sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='SET NULL'),
+        )
+
+    # If table exists (either newly created or previously), ensure indexes exist
+    idx_names = set()
+    sal_cols = set()
+    if 'super_admin_activity_logs' in table_names:
+        idx_names = {idx['name'] for idx in inspector.get_indexes('super_admin_activity_logs')}
+        sal_cols = {c['name'] for c in inspector.get_columns('super_admin_activity_logs')}
+
+    if 'ix_super_admin_activity_logs_user_id' not in idx_names and 'user_id' in sal_cols:
+        op.create_index('ix_super_admin_activity_logs_user_id', 'super_admin_activity_logs', ['user_id'])
+    if 'ix_super_admin_activity_logs_action' not in idx_names and 'action' in sal_cols:
+        op.create_index('ix_super_admin_activity_logs_action', 'super_admin_activity_logs', ['action'])
+    if 'ix_super_admin_activity_logs_entity_type' not in idx_names and 'entity_type' in sal_cols:
+        op.create_index('ix_super_admin_activity_logs_entity_type', 'super_admin_activity_logs', ['entity_type'])
+    if 'ix_super_admin_activity_logs_created_at' not in idx_names and 'created_at' in sal_cols:
+        op.create_index('ix_super_admin_activity_logs_created_at', 'super_admin_activity_logs', ['created_at'])
+    if 'ix_super_admin_activity_logs_target_tenant_id' not in idx_names and 'target_tenant_id' in sal_cols:
+        op.create_index('ix_super_admin_activity_logs_target_tenant_id', 'super_admin_activity_logs', ['target_tenant_id'])
 
 
 def downgrade() -> None:

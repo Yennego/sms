@@ -8,8 +8,8 @@ from sqlalchemy import desc
 from src.core.security.permissions import has_permission
 from src.db.models.auth.user import User
 from src.db.session import get_db, get_super_admin_db
-from src.schemas.logging.activity_log import ActivityLog
-from src.schemas.logging.super_admin_activity_log import AuditLogResponse
+from src.schemas.logging.activity_log import ActivityLog, ActivityLogPaginated
+from src.schemas.logging.super_admin_activity_log import AuditLogResponse, AuditLogPaginated
 from src.services.logging import AuditLoggingService
 from src.services.logging.super_admin_activity_log_service import SuperAdminActivityLogService
 
@@ -20,7 +20,7 @@ def get_super_admin_audit_service(db: Session = Depends(get_super_admin_db)) -> 
     """Dependency to get SuperAdminActivityLogService instance."""
     return SuperAdminActivityLogService(db=db)
 
-@router.get("/super-admin/audit-logs", response_model=List[AuditLogResponse])
+@router.get("/super-admin/audit-logs", response_model=AuditLogPaginated)
 def get_super_admin_audit_logs(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -41,7 +41,7 @@ def get_super_admin_audit_logs(
         parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00')) if start_date else None
         parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00')) if end_date else None
         
-        logs = audit_service.get_all_logs(
+        logs, total = audit_service.get_all_logs(
             skip=skip,
             limit=limit,
             user_id=parsed_user_id,
@@ -53,7 +53,7 @@ def get_super_admin_audit_logs(
         )
         
         # Transform to match frontend expectations
-        return [
+        items = [
             AuditLogResponse(
                 id=str(log.id),
                 timestamp=log.created_at.isoformat(),
@@ -64,6 +64,15 @@ def get_super_admin_audit_logs(
             )
             for log in logs
         ]
+
+        return AuditLogPaginated(
+            items=items,
+            total=total,
+            skip=skip,
+            limit=limit,
+            has_next=total > (skip + limit),
+            has_prev=skip > 0
+        )
         
     except ValueError as e:
         raise HTTPException(
@@ -77,8 +86,8 @@ def get_super_admin_audit_logs(
         )
 
 # Admin endpoint - view audit logs for current tenant only
-@router.get("/audit-logs", response_model=List[ActivityLog])
-def get_tenant_audit_logs(
+@router.get("/audit-logs", response_model=ActivityLogPaginated)
+async def get_tenant_audit_logs(
     *,
     audit_service: AuditLoggingService = Depends(),
     skip: int = 0,
@@ -105,9 +114,30 @@ def get_tenant_audit_logs(
         
         # Apply date filtering if provided
         if start_date and end_date:
-            return audit_service.get_by_date_range(start_date=start_date, end_date=end_date, **filters)
+            items, total = await audit_service.get_by_date_range(
+                start_date=start_date, 
+                end_date=end_date,
+                skip=skip,
+                limit=limit
+            )
+            return ActivityLogPaginated(
+                items=items,
+                total=total,
+                skip=skip,
+                limit=limit,
+                has_next=total > (skip + limit),
+                has_prev=skip > 0
+            )
         
-        return audit_service.get_multi(skip=skip, limit=limit, **filters)
+        items, total = await audit_service.list_with_count(skip=skip, limit=limit, filters=filters)
+        return ActivityLogPaginated(
+            items=items,
+            total=total,
+            skip=skip,
+            limit=limit,
+            has_next=total > (skip + limit),
+            has_prev=skip > 0
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -134,8 +164,8 @@ def generate_activity_report(
             detail=f"Error generating activity report: {str(e)}"
         )
 
-@router.get("/audit-logs/user/{user_id}", response_model=List[ActivityLog])
-def get_user_audit_logs(
+@router.get("/audit-logs/user/{user_id}", response_model=ActivityLogPaginated)
+async def get_user_audit_logs(
     *,
     audit_service: AuditLoggingService = Depends(),
     user_id: UUID,
@@ -145,7 +175,15 @@ def get_user_audit_logs(
 ) -> Any:
     """Get audit logs for a specific user (admin only)."""
     try:
-        return audit_service.get_by_user(user_id=user_id)
+        items, total = await audit_service.list_with_count(skip=skip, limit=limit, filters={"user_id": user_id})
+        return ActivityLogPaginated(
+            items=items,
+            total=total,
+            skip=skip,
+            limit=limit,
+            has_next=total > (skip + limit),
+            has_prev=skip > 0
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -153,7 +191,7 @@ def get_user_audit_logs(
         )
 
 @router.get("/audit-logs/entity/{entity_type}/{entity_id}", response_model=List[ActivityLog])
-def get_entity_audit_logs(
+async def get_entity_audit_logs(
     *,
     audit_service: AuditLoggingService = Depends(),
     entity_type: str,
@@ -162,7 +200,7 @@ def get_entity_audit_logs(
 ) -> Any:
     """Get audit logs for a specific entity (admin only)."""
     try:
-        return audit_service.get_by_entity(entity_type=entity_type, entity_id=entity_id)
+        return await audit_service.get_by_entity(entity_type=entity_type, entity_id=entity_id)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

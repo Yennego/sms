@@ -56,6 +56,10 @@ class Settings(BaseSettings):
         case_sensitive = True
         extra = "ignore"
 
+    # Idle enforcement settings
+    IDLE_TIMEOUT_MINUTES: int = int(os.getenv("IDLE_TIMEOUT_MINUTES", "30"))
+    IDLE_ENFORCEMENT_ENABLED: bool = os.getenv("IDLE_ENFORCEMENT_ENABLED", "true").lower() == "true"
+
 # Create settings instance
 settings = Settings()
 

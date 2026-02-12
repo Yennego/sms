@@ -41,16 +41,6 @@ class TenantModel(UUIDMixin, TimestampMixin, TenantMixin, Base):
         # Pluralize by adding 's'
         return name + 's'
     
-    def __init__(self, **kwargs: Any) -> None:
-        """Initialize the model with validation.
-        
-        Args:
-            **kwargs: Attributes to set on the model.
-            
-        Raises:
-            ValueError: If required fields are missing or invalid.
-        """
-        super().__init__(**kwargs)
     
     def __repr__(self) -> str:
         """Get string representation of the model.

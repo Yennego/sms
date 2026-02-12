@@ -1,12 +1,13 @@
+# imports (top of file)
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import date, timedelta
 
-from src.db.crud.academics import exam as exam_crud
-from src.db.crud.academics import subject as subject_crud
-from src.db.crud.academics import academic_grade as grade_crud
-from src.db.crud.academics import section as section_crud
-from src.db.crud.auth import user as user_crud
+from src.db.crud.academics.exam import exam_crud
+from src.db.crud.academics.subject import subject as subject_crud
+from src.db.crud.academics.academic_grade import academic_grade as grade_crud
+from src.db.crud.academics.section import section as section_crud
+from src.db.crud.auth.user import user as user_crud
 from src.db.models.academics.exam import Exam
 from src.schemas.academics.exam import ExamCreate, ExamUpdate
 from src.services.base.base import TenantBaseService, SuperAdminBaseService
@@ -15,12 +16,21 @@ from src.core.exceptions.business import (
     BusinessRuleViolationError,
     PermissionDeniedError
 )
+from sqlalchemy.orm import Session
+from fastapi import Depends
+from src.core.middleware.tenant import get_tenant_from_request
+from src.db.session import get_db
 
 class ExamService(TenantBaseService[Exam, ExamCreate, ExamUpdate]):
     """Service for managing exams within a tenant."""
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(crud=exam_crud, model=Exam, *args, **kwargs)
+    def __init__(
+        self,
+        tenant: Any = Depends(get_tenant_from_request),
+        db: Session = Depends(get_db)
+    ):
+        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
+        super().__init__(crud=exam_crud, model=Exam, tenant_id=tenant_id, db=db)
     
     def get_by_subject(self, subject_id: UUID) -> List[Exam]:
         """Get all exams for a specific subject."""
@@ -58,7 +68,7 @@ class ExamService(TenantBaseService[Exam, ExamCreate, ExamUpdate]):
             self.db, tenant_id=self.tenant_id, id=id
         )
     
-    def create(self, *, obj_in: ExamCreate) -> Exam:
+    async def create(self, *, obj_in: ExamCreate) -> Exam:
         """Create a new exam with validation."""
         # Check if subject exists
         subject = subject_crud.get_by_id(self.db, tenant_id=self.tenant_id, id=obj_in.subject_id)
@@ -66,7 +76,7 @@ class ExamService(TenantBaseService[Exam, ExamCreate, ExamUpdate]):
             raise EntityNotFoundError("Subject", obj_in.subject_id)
         
         # Check if teacher exists
-        teacher = user_crud.get_by_id(self.db, id=obj_in.teacher_id)
+        teacher = user_crud.get_by_id(self.db, tenant_id=self.tenant_id, id=obj_in.teacher_id)
         if not teacher:
             raise EntityNotFoundError("Teacher", obj_in.teacher_id)
         
@@ -94,7 +104,7 @@ class ExamService(TenantBaseService[Exam, ExamCreate, ExamUpdate]):
             raise BusinessRuleViolationError("Maximum score must be positive")
         
         # Create the exam
-        return super().create(obj_in=obj_in)
+        return await super().create(obj_in=obj_in)
     
     def update_publication_status(self, id: UUID, is_published: bool) -> Exam:
         """Update an exam's publication status."""
@@ -113,7 +123,7 @@ class SuperAdminExamService(SuperAdminBaseService[Exam, ExamCreate, ExamUpdate])
     def __init__(self, *args, **kwargs):
         super().__init__(crud=exam_crud, model=Exam, *args, **kwargs)
     
-    def get_all_exams(self, skip: int = 0, limit: int = 100,
+    async def get_all_exams(self, skip: int = 0, limit: int = 100,
                      subject_id: Optional[UUID] = None,
                      teacher_id: Optional[UUID] = None,
                      grade_id: Optional[UUID] = None,

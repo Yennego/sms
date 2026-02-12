@@ -37,6 +37,12 @@ class TenantSettings(Base, TimestampMixin, UUIDMixin):
             "start_month": 9,
             "end_month": 6
         },
+        "reporting": {
+            "periods_per_semester": 3,
+            "period_names": ["P1", "P2", "P3", "P4", "P5", "P6"],
+            "semester_names": ["S1", "S2"],
+            "show_final": True
+        },
         "features": {
             "enable_parent_portal": True,
             "enable_sms_notifications": False

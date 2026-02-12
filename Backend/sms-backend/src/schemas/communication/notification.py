@@ -1,6 +1,7 @@
+# Module imports and NotificationInDB class
 from typing import Optional, Dict, Any
 from uuid import UUID
-from datetime import date
+from datetime import date, datetime
 from pydantic import BaseModel
 
 
@@ -34,8 +35,8 @@ class NotificationInDB(NotificationBase):
     tenant_id: UUID
     status: str
     is_read: bool
-    created_at: date
-    updated_at: date
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

@@ -12,21 +12,26 @@ from src.schemas.academics.enrollment import EnrollmentCreate, EnrollmentUpdate
 class CRUDEnrollment(TenantCRUDBase[Enrollment, EnrollmentCreate, EnrollmentUpdate]):
     """CRUD operations for Enrollment model."""
     
-    def get_by_student_academic_year(self, db: Session, tenant_id: Any, student_id: Any, academic_year: str) -> Optional[Enrollment]:
+    def get_by_student_academic_year(self, db: Session, tenant_id: Any, student_id: Any, academic_year_id: Any) -> Optional[Enrollment]:
         """Get a student's enrollment for a specific academic year within a tenant."""
         return db.query(Enrollment).filter(
             Enrollment.tenant_id == tenant_id,
             Enrollment.student_id == student_id,
-            Enrollment.academic_year == academic_year
+            Enrollment.academic_year_id == academic_year_id
         ).first()
     
     def get_active_enrollment(self, db: Session, tenant_id: Any, student_id: Any) -> Optional[Enrollment]:
-        """Get a student's active enrollment within a tenant."""
-        return db.query(Enrollment).filter(
-            Enrollment.tenant_id == tenant_id,
-            Enrollment.student_id == student_id,
-            Enrollment.is_active == True
-        ).first()
+        return (
+            db.query(Enrollment)
+            .filter(
+                Enrollment.tenant_id == tenant_id,
+                Enrollment.student_id == student_id,
+                Enrollment.is_active == True,
+                Enrollment.status == "active",
+            )
+            .order_by(Enrollment.updated_at.desc())
+            .first()
+        )
     
     def get_by_grade_section(self, db: Session, tenant_id: Any, academic_year: str, grade: str, section: str) -> List[Enrollment]:
         """Get all enrollments for a specific grade and section within a tenant."""
@@ -108,16 +113,37 @@ class CRUDEnrollment(TenantCRUDBase[Enrollment, EnrollmentCreate, EnrollmentUpda
         *, 
         skip: int = 0, 
         limit: int = 100, 
+        options: Optional[List[Any]] = None,
         **filters
     ) -> List[Enrollment]:
-        """Get multiple enrollments with pagination and filters."""
+        """Get multiple enrollments with pagination, filters, and student data."""
+        from sqlalchemy.orm import joinedload
+        
         tenant_id = self._ensure_uuid(tenant_id)
-        query = db.query(self.model).filter(self.model.tenant_id == tenant_id)
+        
+        # Use joinedload for efficient and reliable relationship data inclusion
+        query = db.query(Enrollment)
+        
+        # Apply passed options if any
+        if options:
+            for option in options:
+                query = query.options(option)
+        else:
+            # Default joinedloads if none provided
+            query = query.options(
+                joinedload(Enrollment.student),
+                joinedload(Enrollment.academic_year_obj),
+                joinedload(Enrollment.grade_obj),
+                joinedload(Enrollment.section_obj),
+                joinedload(Enrollment.promotion_status)
+            )
+        
+        query = query.filter(Enrollment.tenant_id == tenant_id)
         
         # Apply filters
         for field, value in filters.items():
-            if hasattr(self.model, field) and value is not None:
-                query = query.filter(getattr(self.model, field) == value)
+            if hasattr(Enrollment, field) and value is not None:
+                query = query.filter(getattr(Enrollment, field) == value)
         
         return query.offset(skip).limit(limit).all()
 

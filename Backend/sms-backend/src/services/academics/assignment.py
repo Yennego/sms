@@ -1,7 +1,10 @@
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import date, timedelta
-
+from fastapi import Depends, HTTPException, status  
+from sqlalchemy.orm import Session
+from src.core.middleware.tenant import get_tenant_from_request
+from src.db.session import get_db
 from src.db.crud.academics import assignment as assignment_crud
 from src.db.crud.academics import subject as subject_crud
 from src.db.crud.academics import academic_grade as grade_crud
@@ -19,8 +22,13 @@ from src.core.exceptions.business import (
 class AssignmentService(TenantBaseService[Assignment, AssignmentCreate, AssignmentUpdate]):
     """Service for managing assignments within a tenant."""
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(crud=assignment_crud, model=Assignment, *args, **kwargs)
+    def __init__(
+        self,
+        tenant: Any = Depends(get_tenant_from_request),
+        db: Session = Depends(get_db)
+    ):
+        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
+        super().__init__(crud=assignment_crud, model=Assignment, tenant_id=tenant_id, db=db)
     
     def get_by_subject(self, subject_id: UUID) -> List[Assignment]:
         """Get all assignments for a specific subject."""
@@ -64,15 +72,14 @@ class AssignmentService(TenantBaseService[Assignment, AssignmentCreate, Assignme
             self.db, tenant_id=self.tenant_id, id=id
         )
     
-    def create(self, *, obj_in: AssignmentCreate) -> Assignment:
+    async def create(self, *, obj_in: AssignmentCreate) -> Assignment:
         """Create a new assignment with validation."""
         # Check if subject exists
         subject = subject_crud.get_by_id(self.db, tenant_id=self.tenant_id, id=obj_in.subject_id)
         if not subject:
             raise EntityNotFoundError("Subject", obj_in.subject_id)
-        
         # Check if teacher exists
-        teacher = user_crud.get_by_id(self.db, id=obj_in.teacher_id)
+        teacher = user_crud.get_by_id(self.db, tenant_id=self.tenant_id, id=obj_in.teacher_id)
         if not teacher:
             raise EntityNotFoundError("Teacher", obj_in.teacher_id)
         
@@ -100,11 +107,11 @@ class AssignmentService(TenantBaseService[Assignment, AssignmentCreate, Assignme
             raise BusinessRuleViolationError("Maximum score must be positive")
         
         # Create the assignment
-        return super().create(obj_in=obj_in)
+        return await super().create(obj_in=obj_in)
     
-    def update_publication_status(self, id: UUID, is_published: bool) -> Assignment:
+    async def update_publication_status(self, id: UUID, is_published: bool) -> Assignment:
         """Update an assignment's publication status."""
-        assignment = self.get(id=id)
+        assignment = await self.get(id=id)
         if not assignment:
             raise EntityNotFoundError("Assignment", id)
         
@@ -113,13 +120,19 @@ class AssignmentService(TenantBaseService[Assignment, AssignmentCreate, Assignme
         )
 
 
+    def list(self, skip: int = 0, limit: int = 100, filters: Dict[str, Any] = None) -> List[Assignment]:
+        """Override list to use optimized detailed fetching."""
+        return assignment_crud.list_with_details(
+            self.db, tenant_id=self.tenant_id, skip=skip, limit=limit, **(filters or {})
+        )
+
 class SuperAdminAssignmentService(SuperAdminBaseService[Assignment, AssignmentCreate, AssignmentUpdate]):
     """Super-admin service for managing assignments across all tenants."""
     
     def __init__(self, *args, **kwargs):
         super().__init__(crud=assignment_crud, model=Assignment, *args, **kwargs)
     
-    def get_all_assignments(self, skip: int = 0, limit: int = 100,
+    async def get_all_assignments(self, skip: int = 0, limit: int = 100,
                           subject_id: Optional[UUID] = None,
                           teacher_id: Optional[UUID] = None,
                           grade_id: Optional[UUID] = None,

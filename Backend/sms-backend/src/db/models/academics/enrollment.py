@@ -1,4 +1,5 @@
-from sqlalchemy import Column, String, ForeignKey, Date, Boolean, Integer, Text
+from typing import Optional, Any, List
+from sqlalchemy import Column, String, ForeignKey, Date, Boolean, Integer, Text, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import date
@@ -49,6 +50,9 @@ class Enrollment(TenantModel):
     grade_obj = relationship("AcademicGrade", back_populates="enrollments")
     section_obj = relationship("Section", back_populates="enrollments")
     
+    # New: Relationship to promotion status
+    promotion_status = relationship("PromotionStatus", backref="enrollment", uselist=False)
+    
     # FIXED: Relationship to assessment grades (not grade levels)
     assessment_grades = relationship("Grade", back_populates="enrollment", foreign_keys="Grade.enrollment_id")
     
@@ -70,11 +74,31 @@ class Enrollment(TenantModel):
         return self.grade_obj.name if self.grade_obj else self.grade or "Unknown"
     
     @property
+    def student_name(self) -> str:
+        """Get the student full name from the related Student object."""
+        if self.student:
+            return self.student.full_name or f"{self.student.first_name} {self.student.last_name}".strip() or "Unknown"
+        return "Unknown"
+
+    @property
     def section_name(self) -> str:
         """Get the section name from the related Section object."""
         return self.section_obj.name if self.section_obj else self.section or "Unknown"
-    
+
     def __repr__(self):
         return f"<Enrollment {self.student_id} - {self.grade_name} {self.section_name} - {self.academic_year or 'Current'}>"
+    
+    __table_args__ = (
+        UniqueConstraint(
+            'tenant_id', 'student_id', 'academic_year_id',
+            name='unique_enrollment_student_year'
+        ),
+        Index(
+            'ix_enrollments_active_student',
+            'tenant_id', 'student_id', 'is_active', 'status'
+        ),
+        Index('ix_enrollments_tenant_grade_year', 'tenant_id', 'grade_id', 'academic_year_id'),
+        Index('ix_enrollments_tenant_section', 'tenant_id', 'section_id'),
+    )
 
         

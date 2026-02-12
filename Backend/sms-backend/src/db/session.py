@@ -37,10 +37,11 @@ if len(db_url_parts) > 1:
 # Optimize engine with connection pooling
 engine = create_engine(
     settings.DATABASE_URL,
-    pool_size=10,
-    max_overflow=20,
+    pool_size=50,
+    max_overflow=100,
+    pool_timeout=60,
     pool_pre_ping=True,
-    pool_recycle=3600
+    pool_recycle=1800
 )
 
 # Add connection event listeners

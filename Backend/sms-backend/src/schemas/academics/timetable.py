@@ -2,7 +2,7 @@ from datetime import date
 import fnmatch
 from typing import Optional, Dict, Any
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from src.schemas.base.base import TimestampSchema, TenantSchema
 
@@ -10,8 +10,6 @@ from src.schemas.base.base import TimestampSchema, TenantSchema
 class TimetableBase(BaseModel):
     """Base schema for Timetable model."""
     name: str
-    # Replace: academic_year: str
-    # With: academic_year_id: UUID
     academic_year_id: UUID
     grade_id: UUID
     section_id: Optional[UUID] = None
@@ -44,8 +42,7 @@ class TimetableUpdate(BaseModel):
 
 class TimetableInDB(TimetableBase, TenantSchema):
     """Schema for Timetable model in database."""
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Timetable(TimetableInDB):

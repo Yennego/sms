@@ -49,6 +49,10 @@ from .attendance import (
     Attendance, AttendanceCreate, AttendanceUpdate, AttendanceWithDetails,
     AttendanceSummary, BulkAttendanceCreate, AttendanceReport
 )
+from src.schemas.academics.grading_schema import (
+    GradingSchema, GradingSchemaCreate, GradingSchemaUpdate,
+    GradingCategory, GradingCategoryCreate, GradingCategoryUpdate
+)
 
 __all__ = [
     "EnrollmentBase",
@@ -75,6 +79,12 @@ __all__ = [
     "ExamUpdate",
     "ExamInDB",
     "Exam",
-    "ExamWithDetails"
+    "ExamWithDetails",
+    "GradingSchema",
+    "GradingSchemaCreate",
+    "GradingSchemaUpdate",
+    "GradingCategory",
+    "GradingCategoryCreate",
+    "GradingCategoryUpdate"
 ]
 # Add the attendance schemas to the __all__ list

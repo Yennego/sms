@@ -1,13 +1,12 @@
 from typing import List, Optional, Dict, Any
 from uuid import UUID
-from datetime import date, time
+from datetime import date, time, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
 from src.db.crud.base.base import TenantCRUDBase
 from src.db.models.academics.exam import Exam
 from src.schemas.academics.exam import ExamCreate, ExamUpdate
-
 
 class CRUDExam(TenantCRUDBase[Exam, ExamCreate, ExamUpdate]):
     """CRUD operations for Exam model."""

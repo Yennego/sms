@@ -26,6 +26,7 @@ from src.services.auth.password_policy import PasswordPolicy
 from src.services.auth.password_strength import calculate_password_strength
 from src.services.auth.password import generate_default_password
 from src.services.logging import AuditLoggingService
+from src.services.auth.token_blacklist import TokenBlacklistService
 
 # Define the oauth2_scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -72,9 +73,30 @@ def create_user(
 # Replace all instances of 'tenant_id: UUID,' with 'tenant_id: UUID = Depends(get_tenant_id_from_request),'
 
 @router.get("/users", response_model=List[User])
-def get_users(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), skip: int = 0, limit: int = 100) -> Any:
-    """Get all users for a tenant."""
-    return user_crud.list(db, tenant_id=tenant_id, skip=skip, limit=limit)
+def get_users(
+    *,
+    db: Session = Depends(get_db),
+    tenant_id: UUID = Depends(get_tenant_id_from_request),
+    skip: int = 0,
+    limit: int = 100,
+    search: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    role_id: Optional[UUID] = None,
+    sort_by: Optional[str] = "created_at",
+    sort_order: str = "asc",
+) -> Any:
+    """Get all users for a tenant with optional server-side filters."""
+    return user_crud.list_with_filters(
+        db,
+        tenant_id=tenant_id,
+        search=search,
+        is_active=is_active,
+        role_id=role_id,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        skip=skip,
+        limit=limit,
+    )
 
 @router.get("/users/active", response_model=List[User])
 def get_active_users(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), skip: int = 0, limit: int = 100) -> Any:
@@ -101,7 +123,7 @@ def update_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_
     """Update a user."""
     
     # Check if current user is super admin updating their own profile
-    is_super_admin = any(role.name == "superadmin" for role in current_user.roles)
+    is_super_admin = any(role.name == "super-admin" for role in current_user.roles)
     is_self_update = current_user.id == user_id
     
     if is_super_admin and is_self_update:
@@ -185,7 +207,12 @@ def delete_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_
 
 # Permission endpoints
 @router.post("/permissions", response_model=Permission, status_code=status.HTTP_201_CREATED)
-def create_permission(*, db: Session = Depends(get_db), permission_in: PermissionCreate) -> Any:
+def create_permission(
+    *,
+    db: Session = Depends(get_db),
+    permission_in: PermissionCreate,
+    current_user: User = Depends(has_permission("manage_permissions"))
+) -> Any:
     """Create a new permission."""
     permission = permission_crud.get_by_name(db, name=permission_in.name)
     if permission:
@@ -213,9 +240,19 @@ def create_role(*, db: Session = Depends(get_db), role_in: UserRoleCreate) -> An
     return user_role_crud.create(db, obj_in=role_in)
 
 @router.get("/roles", response_model=List[UserRole])
-def get_roles(*, db: Session = Depends(get_db), skip: int = 0, limit: int = 100) -> Any:
+def get_roles(
+    *,
+    db: Session = Depends(get_db),
+    skip: int = 0,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user)
+) -> Any:
     """Get all user roles."""
-    return user_role_crud.get_multi(db, skip=skip, limit=limit)
+    roles = user_role_crud.get_multi(db, skip=skip, limit=limit)
+    is_super_admin = any(role.name == "super-admin" for role in current_user.roles)
+    if not is_super_admin:
+        roles = [r for r in roles if r.name not in ("super-admin", "superadmin")]
+    return roles
 
 
 # Simple in-memory rate limiter (replace with Redis in production)
@@ -250,7 +287,7 @@ def rate_limit_login(request: Request):
 
 
 @router.post("/login", response_model=Token)
-def login_for_access_token(
+async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
     tenant_id: str = Depends(get_optional_tenant_id_from_request)
@@ -294,6 +331,11 @@ def login_for_access_token(
         tenant_id=str(final_tenant_id),
         is_super_admin=getattr(user, "is_super_admin", False)
     )
+    # Initialize last activity for the new access token
+    issued_payload = await verify_token(access_token)
+    if issued_payload and issued_payload.jti:
+        from src.services.auth.token_blacklist import TokenBlacklistService
+        await TokenBlacklistService().ensure_last_activity(issued_payload.jti, issued_payload.exp)
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -301,14 +343,14 @@ def login_for_access_token(
     }
 
 @router.post("/refresh", response_model=Token)
-def refresh_access_token(
+async def refresh_access_token(
     refresh_token: str = Body(..., embed=True),
     db: Session = Depends(get_db)
 ) -> Any:
     """Refresh access token using refresh token."""
     try:
         # Verify refresh token
-        token_data = verify_token(refresh_token)
+        token_data = await verify_token(refresh_token)
         if not token_data:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -332,7 +374,7 @@ def refresh_access_token(
             final_tenant_id = token_tenant_id
         
         # Create new tokens with proper tenant_id
-        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         new_access_token = create_access_token(
             subject=str(user.id),
             tenant_id=str(final_tenant_id),
@@ -343,7 +385,11 @@ def refresh_access_token(
             tenant_id=str(final_tenant_id),
             is_super_admin=getattr(user, "is_super_admin", False)
         )
-        
+        # Initialize last activity for the refreshed access token
+        issued_payload = await verify_token(new_access_token)
+        if issued_payload and issued_payload.jti:
+            from src.services.auth.token_blacklist import TokenBlacklistService
+            await TokenBlacklistService().ensure_last_activity(issued_payload.jti, issued_payload.exp)
         return {
             "access_token": new_access_token,
             "refresh_token": new_refresh_token,
@@ -374,7 +420,7 @@ async def read_users_me(current_user: User = Depends(get_current_active_user)):
     return user_dict
 
 @router.get("/admin-dashboard")
-async def admin_dashboard(current_user: User = Depends(has_any_role(["admin", "superadmin"]))):
+async def admin_dashboard(current_user: User = Depends(has_any_role(["admin", "super-admin"]))):
     """Admin dashboard - accessible by admin and super-admin roles."""
     return {"message": "Welcome to the admin dashboard", "user": current_user.email}
 
@@ -458,12 +504,12 @@ def admin_reset_password(
     
     return {"message": "Password reset successful", "generated_password": new_password}
 
-@router.post("/roles/{role_id}/permissions", response_model=UserRole)
-def add_permissions_to_role(
+@router.put("/roles/{role_id}/permissions", response_model=UserRole)
+def set_role_permissions(
     *,
     db: Session = Depends(get_db),
     role_id: UUID,
-    permission_names: List[str] = Body(..., description="List of permission names to add to the role"),
+    permission_names: List[str] = Body(..., description="List of permission names to set for the role"),
     current_user: User = Depends(has_permission("manage_roles"))
 ) -> Any:
     """Add permissions to a role."""
@@ -477,6 +523,15 @@ def add_permissions_to_role(
     
     # Get permissions by names
     permissions = permission_crud.get_multi_by_names(db, names=permission_names)
+    if len(permissions) != len(permission_names):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="One or more permissions not found")
+
+    # Replace the role's permissions with the provided set
+    role.permissions = permissions
+    db.add(role)
+    db.commit()
+    db.refresh(role)
+    return role
     permission_ids = [perm.id for perm in permissions]
     
     # Check if all requested permissions exist
@@ -517,68 +572,139 @@ def test_endpoint():
 
 # Add these endpoints to your existing auth.py
 
+@router.get("/users/{user_id}/roles", response_model=List[UserRole])
+def get_user_roles(
+    *,
+    db: Session = Depends(get_db),
+    tenant_id: UUID = Depends(get_tenant_id_from_request),
+    user_id: UUID,
+    current_user: User = Depends(has_permission("view_users"))
+) -> Any:
+    """Get roles assigned to a user (tenant-scoped)."""
+    user = user_crud.get_by_id(db, tenant_id=tenant_id, id=user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return user.roles
+
+# In auth.py — keep a single set of these endpoints
+
 @router.post("/users/{user_id}/roles")
 def assign_roles_to_user(
     user_id: UUID,
-    role_ids: List[UUID],
+    role_ids: List[UUID] = Body(..., description="List of role IDs to assign"),
     db: Session = Depends(get_db),
+    tenant_id: UUID = Depends(get_tenant_id_from_request),
     current_user: User = Depends(has_permission("manage_users"))
 ):
     """Assign multiple roles to a user."""
-    # Implementation here
+    user = user_crud.get_by_id(db, tenant_id=tenant_id, id=user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-@router.delete("/users/{user_id}/roles/{role_id}")
+    roles = db.query(user_role_crud.model).filter(user_role_crud.model.id.in_(role_ids)).all()
+    if not roles:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid roles provided")
+
+    # Block super-admin assignment by non–super-admin actors
+    is_super_admin_actor = any(role.name == "super-admin" for role in current_user.roles)
+    if not is_super_admin_actor and any(role.name in ("super-admin", "superadmin") for role in roles):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot assign super-admin role")
+
+    for role in roles:
+        if role not in user.roles:
+            user.roles.append(role)
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+@router.delete("/users/{user_id}/roles/{role_id}", operation_id="remove_role_from_user")
 def remove_role_from_user(
     user_id: UUID,
     role_id: UUID,
     db: Session = Depends(get_db),
+    tenant_id: UUID = Depends(get_tenant_id_from_request),
     current_user: User = Depends(has_permission("manage_users"))
 ):
     """Remove a role from a user."""
-    # Implementation here
+    user = user_crud.get_by_id(db, tenant_id=tenant_id, id=user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-@router.get("/roles/{role_id}/users")
+    role = user_role_crud.get(db, role_id)
+    if not role:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
+
+    if role in user.roles:
+        user.roles.remove(role)
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+@router.get("/roles/{role_id}/users", response_model=List[User], operation_id="get_users_with_role")
 def get_users_with_role(
     role_id: UUID,
     db: Session = Depends(get_db),
+    tenant_id: UUID = Depends(get_tenant_id_from_request),
     current_user: User = Depends(has_permission("view_users"))
 ):
-    """Get all users with a specific role."""
-    # Implementation here
+    """Get all users with a specific role (tenant-scoped)."""
+    return user_crud.list_with_filters(
+        db,
+        tenant_id=tenant_id,
+        role_id=role_id,
+        skip=0,
+        limit=100
+    )
 
-@router.post("/logout")
+@router.post("/logout", operation_id="logout")
 async def logout(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ) -> Any:
     """Logout the current user by blacklisting their token."""
     try:
-        # Verify the token to get its payload
-        token_data = verify_token(token)
-        
+        token_data = await verify_token(token)
         if token_data and hasattr(token_data, 'exp'):
-            # Token is valid - proceed with proper blacklisting
             blacklist_service = TokenBlacklistService()
-            
-            # Blacklist the token so it can't be used again
-            blacklist_service.blacklist_token(token, token_data.exp)
-            
-            return {
-                "message": "Successfully logged out",
-                "status": "success"
-            }
+            await blacklist_service.blacklist_token(token, token_data.exp)
+            return {"message": "Successfully logged out", "status": "success"}
         else:
-            # Token is invalid/expired but still return success
-            # This handles edge cases gracefully
-            return {
-                "message": "Successfully logged out", 
-                "status": "success"
-            }
-            
+            return {"message": "Successfully logged out", "status": "success"}
     except Exception as e:
-        # Log error for debugging but don't fail the logout
         print(f"Logout warning: {e}")
-        return {
-            "message": "Successfully logged out",
-            "status": "success"
-        }
+        return {"message": "Successfully logged out", "status": "success"}
+
+@router.put("/permissions/{permission_id}", response_model=Permission)
+def update_permission(
+    *,
+    db: Session = Depends(get_db),
+    permission_id: UUID,
+    permission_in: PermissionUpdate,
+    current_user: User = Depends(has_permission("manage_permissions"))
+) -> Any:
+    """Update a permission (requires manage_permissions)."""
+    permission = permission_crud.get(db, id=permission_id)
+    if not permission:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Permission not found")
+    return permission_crud.update(db, db_obj=permission, obj_in=permission_in)
+
+@router.delete("/permissions/{permission_id}", response_model=Permission)
+def delete_permission(
+    *,
+    db: Session = Depends(get_db),
+    permission_id: UUID,
+    current_user: User = Depends(has_permission("manage_permissions"))
+) -> Any:
+    """Delete a permission (requires manage_permissions)."""
+    permission = permission_crud.get(db, id=permission_id)
+    if not permission:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Permission not found")
+    deleted = permission_crud.remove(db, id=permission_id)
+    return deleted

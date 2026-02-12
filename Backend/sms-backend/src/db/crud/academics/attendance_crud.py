@@ -8,7 +8,6 @@ from src.db.crud.base.base import TenantCRUDBase
 from src.db.models.academics.attendance import Attendance, AttendanceStatus
 from src.schemas.academics.attendance import AttendanceCreate, AttendanceUpdate
 
-
 class CRUDAttendance(TenantCRUDBase[Attendance, AttendanceCreate, AttendanceUpdate]):
     """CRUD operations for Attendance model."""
     
@@ -17,14 +16,18 @@ class CRUDAttendance(TenantCRUDBase[Attendance, AttendanceCreate, AttendanceUpda
         db: Session, 
         tenant_id: Any, 
         student_id: UUID, 
-        attendance_date: date
+        attendance_date: date,
+        class_id: Optional[UUID] = None
     ) -> Optional[Attendance]:
-        """Get attendance record for a student on a specific date."""
-        return db.query(Attendance).filter(
+        """Get attendance record for a student on a specific date and class."""
+        query = db.query(Attendance).filter(
             Attendance.tenant_id == tenant_id,
             Attendance.student_id == student_id,
             Attendance.date == attendance_date
-        ).first()
+        )
+        if class_id:
+            query = query.filter(Attendance.class_id == class_id)
+        return query.first()
     
     def get_by_class_and_date(
         self, 
@@ -219,5 +222,42 @@ class CRUDAttendance(TenantCRUDBase[Attendance, AttendanceCreate, AttendanceUpda
         
         return self.update(db, tenant_id, db_obj=attendance, obj_in=update_data)
 
+    def get_multi(
+        self,
+        db: Session,
+        tenant_id: Any,
+        *,
+        skip: int = 0,
+        limit: int = 100,
+        student_id: Optional[UUID] = None,
+        class_id: Optional[UUID] = None,
+        schedule_id: Optional[UUID] = None,
+        academic_year_id: Optional[UUID] = None,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        status_filter: Optional[AttendanceStatus] = None
+    ) -> List[Attendance]:
+        """Get multiple attendance records with pagination and optional filters."""
+        tenant_id = self._ensure_uuid(tenant_id)
+        query = db.query(Attendance).filter(Attendance.tenant_id == tenant_id)
+
+        if student_id:
+            query = query.filter(Attendance.student_id == student_id)
+        if class_id:
+            query = query.filter(Attendance.class_id == class_id)
+        if schedule_id:
+            query = query.filter(Attendance.schedule_id == schedule_id)
+        if academic_year_id:
+            query = query.filter(Attendance.academic_year_id == academic_year_id)
+        if start_date:
+            query = query.filter(Attendance.date >= start_date)
+        if end_date:
+            query = query.filter(Attendance.date <= end_date)
+        if status_filter:
+            query = query.filter(Attendance.status == status_filter)
+
+        # Stable ordering
+        query = query.order_by(Attendance.date.asc(), Attendance.student_id.asc())
+        return query.offset(skip).limit(limit).all()
 
 attendance_crud = CRUDAttendance(Attendance)

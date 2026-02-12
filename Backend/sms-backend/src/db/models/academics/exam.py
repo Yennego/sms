@@ -4,6 +4,7 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from datetime import date, time
 
 from src.db.models.base import TenantModel
+from src.db.models.academics.academic_year import AcademicYear
 
 class Exam(TenantModel):
     """Model representing an exam given to students.
@@ -43,6 +44,9 @@ class Exam(TenantModel):
     
     grade_id = Column(UUID(as_uuid=True), ForeignKey("academic_grades.id"), nullable=False)
     grade = relationship("AcademicGrade", back_populates="exams")
+    
+    academic_year_id = Column(UUID(as_uuid=True), ForeignKey("academic_years.id"), nullable=False)
+    academic_year = relationship("AcademicYear")
     
     section_id = Column(UUID(as_uuid=True), ForeignKey("sections.id"), nullable=True)
     section = relationship("Section", back_populates="exams")
