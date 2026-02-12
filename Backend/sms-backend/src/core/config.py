@@ -27,9 +27,16 @@ class Settings(BaseSettings):
     PASSWORD_REQUIRE_SPECIAL: bool = os.getenv("PASSWORD_REQUIRE_SPECIAL", "true").lower() == "true"
     PASSWORD_MAX_AGE_DAYS: int = int(os.getenv("PASSWORD_MAX_AGE_DAYS", "90"))
     
-    # CORS settings
-    # BACKEND_CORS_ORIGINS: List[str] = ["*"]
-    BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000", "https://yourdomain.com"]
+    # CORS settings - reads from CORS_ORIGINS env var (comma-separated)
+    # Default: localhost:3000 for local dev
+    BACKEND_CORS_ORIGINS: List[str] = [
+        origin.strip()
+        for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+        if origin.strip()
+    ]
+    
+    # Debug mode (set to false in production)
+    DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
     
     # Database settings
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:199922@localhost:5432/sms_db")

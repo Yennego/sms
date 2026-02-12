@@ -29,7 +29,7 @@ app = FastAPI(
     docs_url="/docs",      
     redoc_url="/redocs",   
     lifespan=lifespan,
-    debug=True,
+    debug=settings.DEBUG,
     redirect_slashes=False,      
 )
 
@@ -81,10 +81,10 @@ if settings.BACKEND_CORS_ORIGINS:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000"],  # Your frontend URL
+        allow_origins=settings.BACKEND_CORS_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
-        allow_headers=["*", "X-Tenant-ID"],  # Explicitly allow X-Tenant-ID header
+        allow_headers=["*", "X-Tenant-ID"],
     )
 
 print("📢 API prefix:", settings.API_V1_STR)
