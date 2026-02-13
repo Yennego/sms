@@ -4,39 +4,40 @@ import { cookies } from 'next/headers';
 export async function GET() {
   try {
     const cookieStore = await cookies();
-    // Check both namespaced and plain cookie names
-    const accessToken = cookieStore.get('tn_accessToken')?.value || cookieStore.get('sa_accessToken')?.value || cookieStore.get('accessToken')?.value;
+    // Namespaced token check
+    const accessToken =
+      cookieStore.get('tn_accessToken')?.value ||
+      cookieStore.get('sa_accessToken')?.value ||
+      cookieStore.get('accessToken')?.value;
 
     if (!accessToken) {
+      console.warn('[Tenant Stats API] No access token found in cookies');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Use BACKEND_API_URL for server-side calls
-    let backendUrl = process.env.BACKEND_API_URL || 'http://localhost:8000';
-    if (!backendUrl.endsWith('/api/v1')) {
-      backendUrl = backendUrl.replace(/\/+$/, '') + '/api/v1';
-    }
+    const backendUrl = (process.env.BACKEND_API_URL || 'http://localhost:8000').replace(/\/+$/, '') + '/api/v1';
+
+    // Optional tenant ID for super-admin (system tenant)
+    const superAdminTenantId = cookieStore.get('tn_tenantId')?.value || '6d78d2cc-27ba-4da7-a06f-6186aadb4766';
 
     const response = await fetch(`${backendUrl}/super-admin/dashboard/tenant-stats`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
+        'X-Tenant-ID': superAdminTenantId,
         'Content-Type': 'application/json',
       },
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Backend error:', response.status, errorText);
-      throw new Error(`Backend API error: ${response.status}`);
+      console.error('[Tenant Stats API] Backend error:', response.status, errorText);
+      return NextResponse.json({ error: `Backend API error: ${response.status}` }, { status: response.status });
     }
 
     const tenantStats = await response.json();
     return NextResponse.json(tenantStats);
   } catch (error) {
-    console.error('Error fetching tenant stats:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch tenant stats' },
-      { status: 500 }
-    );
+    console.error('[Tenant Stats API] Internal error:', error);
+    return NextResponse.json({ error: 'Failed to fetch tenant stats' }, { status: 500 });
   }
 }
