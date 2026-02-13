@@ -4,6 +4,9 @@ import "./globals.css";
 import { Providers } from "@/components/providers";
 import { Toaster } from "sonner";
 
+// Disable static prerendering for all pages (many use dynamic hooks like useSearchParams)
+export const dynamic = 'force-dynamic';
+
 // Load fonts
 const geistSans = Geist({
   variable: "--font-geist-sans",
