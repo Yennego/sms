@@ -3,9 +3,15 @@
 
 export function normalizeBaseUrl(url?: string): string {
   let baseUrl = (url?.trim() || 'http://127.0.0.1:8000/api/v1');
+
+  // First, strip all trailing slashes to start clean
+  baseUrl = baseUrl.replace(/\/+$/, '');
+
+  // Now check if it ends with /api/v1. If not, append it.
   if (!baseUrl.endsWith('/api/v1')) {
-    baseUrl = baseUrl.replace(/\/+$/, '') + '/api/v1';
+    baseUrl += '/api/v1';
   }
+
   baseUrl = baseUrl.replace('http://localhost:', 'http://127.0.0.1:');
   return baseUrl;
 }

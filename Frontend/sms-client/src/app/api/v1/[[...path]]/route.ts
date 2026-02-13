@@ -34,10 +34,7 @@ async function proxyRequest(request: NextRequest, paramsArg: any) {
         const apiPath = pathSegments.join('/');
 
         // Normalize backend URL
-        let backendUrl = process.env.BACKEND_API_URL || 'http://localhost:8000';
-        if (!backendUrl.endsWith('/api/v1')) {
-            backendUrl = backendUrl.replace(/\/+$/, '') + '/api/v1';
-        }
+        const backendUrl = normalizeBaseUrl(process.env.BACKEND_API_URL);
 
         const fullUrl = `${backendUrl}/${apiPath}${request.nextUrl.search}`;
 

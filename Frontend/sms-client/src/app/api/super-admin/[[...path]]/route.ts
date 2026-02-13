@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import axios from 'axios';
+import { normalizeBaseUrl } from '@/app/api/_lib/http';
 
 /**
  * Global Catch-all Proxy for /api/super-admin/*
@@ -29,11 +30,8 @@ async function proxyRequest(request: NextRequest, paramsArg: any) {
         const pathSegments = resolvedParams.path || [];
         const apiPath = pathSegments.join('/');
 
-        // Normalize backend URL
-        let backendUrl = process.env.BACKEND_API_URL || 'http://localhost:8000';
-        if (!backendUrl.endsWith('/api/v1')) {
-            backendUrl = backendUrl.replace(/\/+$/, '') + '/api/v1';
-        }
+        // Normalize backend URL using shared utility
+        const backendUrl = normalizeBaseUrl(process.env.BACKEND_API_URL);
 
         const fullUrl = `${backendUrl}/super-admin/${apiPath}${request.nextUrl.search}`;
 

@@ -1,6 +1,7 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import axios from 'axios';
+import { normalizeBaseUrl } from '@/app/api/_lib/http';
 
 export async function GET(request: NextRequest) {
   try {
@@ -17,10 +18,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    let backendUrl = process.env.BACKEND_API_URL || 'http://localhost:8000';
-    if (!backendUrl.endsWith('/api/v1')) {
-      backendUrl = backendUrl.replace(/\/+$/, '') + '/api/v1';
-    }
+    const backendUrl = normalizeBaseUrl(process.env.BACKEND_API_URL);
 
     const response = await axios.get(`${backendUrl}/super-admin/tenants?limit=${limit}`, {
       headers: {

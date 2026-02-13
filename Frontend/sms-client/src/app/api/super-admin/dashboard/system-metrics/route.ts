@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { normalizeBaseUrl } from '@/app/api/_lib/http';
 
 export async function GET() {
   try {
@@ -13,7 +14,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const backendUrl = (process.env.BACKEND_API_URL || 'http://localhost:8000').replace(/\/+$/, '') + '/api/v1';
+    const backendUrl = normalizeBaseUrl(process.env.BACKEND_API_URL);
     const superAdminTenantId = cookieStore.get('tn_tenantId')?.value || '6d78d2cc-27ba-4da7-a06f-6186aadb4766';
 
     const response = await fetch(`${backendUrl}/super-admin/dashboard/system-metrics`, {
