@@ -5,15 +5,32 @@ import { isValidUUID, getTenantUUIDByDomain } from '@/lib/cookies';
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
-    const username = formData.get('username') as string;
-    const password = formData.get('password') as string;
+    // Robustly extract credentials from various formats
+    let username = '';
+    let password = '';
+
+    const contentType = request.headers.get('content-type') || '';
+
+    if (contentType.includes('application/json')) {
+      const body = await request.json();
+      username = body.username;
+      password = body.password;
+    } else if (contentType.includes('application/x-www-form-urlencoded') || contentType.includes('multipart/form-data')) {
+      const formData = await request.formData();
+      username = formData.get('username') as string;
+      password = formData.get('password') as string;
+    } else {
+      // Fallback: try to parse as text if unknown
+      const text = await request.text();
+      const params = new URLSearchParams(text);
+      username = params.get('username') || '';
+      password = params.get('password') || '';
+    }
+
     const headerTenantId = request.headers.get('X-Tenant-ID');
 
-    // Log the request for debugging
-    console.log('Login request:', { username, headerTenantId });
+    console.log('[Login API] Attempting login for:', username, 'Tenant Header:', headerTenantId);
 
-    // Normalize backend URL to include /api/v1
     let backendUrl = process.env.BACKEND_API_URL || '';
     if (!backendUrl) {
       console.error('BACKEND_API_URL is not set');
@@ -26,6 +43,7 @@ export async function POST(request: NextRequest) {
     // Resolve tenant for header if not provided
     let tenantHeaderToSend: string | null = headerTenantId || null;
     if (!tenantHeaderToSend) {
+      // Try to get tenantId from cookies or resolve from subdomain
       const cookieTenant =
         request.cookies.get(getNamespacedKey('tenantId', 'TENANT'))?.value ||
         request.cookies.get(getNamespacedKey('tenantId', 'DEFAULT'))?.value ||
@@ -39,6 +57,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Call backend
     const response = await axios.post(
       `${backendUrl}/auth/login`,
       new URLSearchParams({ username, password }),
@@ -47,76 +66,61 @@ export async function POST(request: NextRequest) {
           'Content-Type': 'application/x-www-form-urlencoded',
           ...(tenantHeaderToSend && { 'X-Tenant-ID': tenantHeaderToSend }),
         },
-        timeout: 95000, // 95 seconds
+        timeout: 95000,
       }
     );
 
-    const { data } = response;
-
-    // Log the backend response for debugging
-    console.log('Backend response:', data);
-
-    // Handle various backend response structures
+    const data = response.data;
     const accessToken = data.access_token || data.accessToken || data.token;
     const refreshToken = data.refresh_token || data.refreshToken;
 
-    // Prefer tenant from token; fallback to header or cookies
-    const extractTenantFromToken = (accessToken: string): string | null => {
-      try {
-        const [, payloadB64] = accessToken.split('.');
-        if (!payloadB64) return null;
-        const payloadJson = Buffer.from(payloadB64, 'base64').toString('utf-8');
-        const payload = JSON.parse(payloadJson);
-        const tenantId = payload.tenant_id;
-        if (!tenantId || tenantId === 'None' || tenantId === 'null' || tenantId === 'undefined') {
-          return null;
-        }
-        return tenantId;
-      } catch {
-        return null;
-      }
-    };
-
-    let responseTenantId =
-      (accessToken && extractTenantFromToken(accessToken)) ||
-      tenantHeaderToSend ||
-      request.cookies.get(getNamespacedKey('tenantId', 'TENANT'))?.value ||
-      request.cookies.get(getNamespacedKey('tenantId', 'DEFAULT'))?.value ||
-      null;
-
-    // Only require tokens; tenantId may be absent for super-admin/global login
     if (!accessToken || !refreshToken) {
-      console.error('Missing tokens in backend response', {
-        hasAccessToken: !!accessToken,
-        hasRefreshToken: !!refreshToken,
-      });
+      console.error('Missing tokens in backend response');
       return NextResponse.json({ message: 'Missing required tokens' }, { status: 500 });
     }
 
-    // Use TENANT context for login cookies
+    // Extract tenantId from token if available
+    const extractTenantFromToken = (token: string): string | null => {
+      try {
+        const [, payloadB64] = token.split('.');
+        const payload = JSON.parse(Buffer.from(payloadB64, 'base64').toString());
+        const tid = payload.tenant_id;
+        return (tid && tid !== 'None' && tid !== 'null') ? tid : null;
+      } catch { return null; }
+    };
+
+    const tokenTenantId = extractTenantFromToken(accessToken);
+    const finalTenantId = tokenTenantId || tenantHeaderToSend;
+
+    // Determine context: if super-admin or global login (no tenant), use DEFAULT or SUPER_ADMIN
+    // For now, standardize on 'TENANT' for cookies to match expectations elsewhere
     const context = 'TENANT';
 
-    // Set cookies with namespace; set tenantId only if available
     const responseObj = NextResponse.json(data);
+
+    // Set accessToken cookie (tn_accessToken)
     responseObj.cookies.set(getNamespacedKey('accessToken', context), accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      secure: true, // Always secure for modern browsers/Next.js 15
+      sameSite: 'lax',
       path: '/',
       maxAge: 7 * 24 * 60 * 60,
     });
+
+    // Set refreshToken cookie (tn_refreshToken)
     responseObj.cookies.set(getNamespacedKey('refreshToken', context), refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      secure: true,
+      sameSite: 'lax',
       path: '/',
       maxAge: 14 * 24 * 60 * 60,
     });
-    if (responseTenantId) {
-      responseObj.cookies.set(getNamespacedKey('tenantId', context), responseTenantId, {
+
+    if (finalTenantId) {
+      responseObj.cookies.set(getNamespacedKey('tenantId', context), finalTenantId, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
+        secure: true,
+        sameSite: 'lax',
         path: '/',
         maxAge: 30 * 24 * 60 * 60,
       });
@@ -125,18 +129,11 @@ export async function POST(request: NextRequest) {
     return responseObj;
   } catch (error) {
     console.error('Login API error:', error);
-
     if (axios.isAxiosError(error)) {
       const status = error.response?.status || 500;
-      const message =
-        error.response?.data?.detail ||
-        error.response?.data?.message ||
-        error.message ||
-        'Login failed';
-      console.log('Axios error details:', { status, message });
+      const message = error.response?.data?.detail || error.response?.data?.message || error.message;
       return NextResponse.json({ message }, { status });
     }
-
     return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
   }
 }
