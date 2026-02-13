@@ -29,7 +29,7 @@ app = FastAPI(
     docs_url="/docs",      
     redoc_url="/redocs",   
     lifespan=lifespan,
-    debug=True,
+    debug=settings.DEBUG,
     redirect_slashes=False,      
 )
 
@@ -81,10 +81,10 @@ if settings.BACKEND_CORS_ORIGINS:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000"],  # Your frontend URL
+        allow_origins=settings.BACKEND_CORS_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
-        allow_headers=["*", "X-Tenant-ID"],  # Explicitly allow X-Tenant-ID header
+        allow_headers=["*", "X-Tenant-ID"],
     )
 
 print("📢 API prefix:", settings.API_V1_STR)
@@ -114,7 +114,9 @@ def root():
 #     return {"cpuUsage": 0.5, "memoryUsage": 0.6, "diskUsage": 0.7, "activeConnections": 10, "alerts": [], "tenantGrowth": []}
 
 
-# Mount static files directory
+# Mount static files directory (create if doesn't exist for cloud deployment)
+import os
+os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Add this function to customize the OpenAPI schema
