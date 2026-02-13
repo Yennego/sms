@@ -1,16 +1,17 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import axios from 'axios';
 
 export async function GET() {
   try {
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get('tn_accessToken')?.value || cookieStore.get('sa_accessToken')?.value || cookieStore.get('accessToken')?.value;
+    const accessToken =
+      cookieStore.get('sa_accessToken')?.value ||
+      cookieStore.get('tn_accessToken')?.value ||
+      cookieStore.get('accessToken')?.value;
 
     if (!accessToken) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     let backendUrl = process.env.BACKEND_API_URL || 'http://localhost:8000';
@@ -19,55 +20,48 @@ export async function GET() {
     }
 
     // Call the actual backend API
-    const response = await fetch(`${backendUrl}/super-admin/users`, {
+    const response = await axios.get(`${backendUrl}/super-admin/users`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       }
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Backend error:', response.status, errorText);
-      throw new Error(`Backend API error: ${response.status}`);
-    }
-
-    const users = await response.json();
+    const users = response.data;
 
     // Get tenants to calculate average users per tenant
-    const tenantsResponse = await fetch(`${backendUrl}/super-admin/tenants`, {
+    const tenantsResponse = await axios.get(`${backendUrl}/super-admin/tenants`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       }
     });
 
-    let tenants: any[] = [];
-    if (tenantsResponse.ok) {
-      tenants = await tenantsResponse.json();
-    }
+    const tenants = tenantsResponse.data || [];
 
-    // Calculate user statistics
+    // Calculate user statistics robustly
     const userStats = {
-      total: users.length,
-      active: users.filter((u: any) => u.isActive || u.is_active).length,
-      inactive: users.filter((u: any) => !(u.isActive || u.is_active)).length,
-      avgPerTenant: Math.round(users.length / (tenants.length || 1)),
-      recentLogins: users.filter((u: any) => {
+      total: Array.isArray(users) ? users.length : 0,
+      active: Array.isArray(users) ? users.filter((u: any) => u.isActive || u.is_active).length : 0,
+      inactive: Array.isArray(users) ? users.filter((u: any) => !(u.isActive || u.is_active)).length : 0,
+      avgPerTenant: Math.round((Array.isArray(users) ? users.length : 0) / (Array.isArray(tenants) && tenants.length > 0 ? tenants.length : 1)),
+      recentLogins: Array.isArray(users) ? users.filter((u: any) => {
         if (!u.lastLogin && !u.last_login) return false;
-        const lastLogin = new Date(u.lastLogin || u.last_login);
-        const now = new Date();
-        const diffTime = Math.abs(now.getTime() - lastLogin.getTime());
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        return diffDays <= 7;
-      }).length
+        try {
+          const lastLogin = new Date(u.lastLogin || u.last_login);
+          const now = new Date();
+          const diffTime = Math.abs(now.getTime() - lastLogin.getTime());
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          return diffDays <= 7;
+        } catch { return false; }
+      }).length : 0
     };
 
     return NextResponse.json(userStats);
-  } catch (error) {
-    console.error('Error in user stats API:', error);
+  } catch (error: any) {
+    console.error('Error in user stats API:', error.message);
     return NextResponse.json(
-      { error: 'Failed to fetch user statistics' },
+      { error: 'Failed to fetch user statistics', message: error.message },
       { status: 500 }
     );
   }
