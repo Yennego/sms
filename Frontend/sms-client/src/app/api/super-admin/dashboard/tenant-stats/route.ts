@@ -1,28 +1,32 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 
 export async function GET() {
   try {
-    // Await the cookies() call for Next.js 15 compatibility
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get('accessToken')?.value;
-    const superAdminTenantId = cookieStore.get('superAdminTenantId')?.value || '6d78d2cc-27ba-4da7-a06f-6186aadb4766';
+    // Check both namespaced and plain cookie names
+    const accessToken = cookieStore.get('tn_accessToken')?.value || cookieStore.get('sa_accessToken')?.value || cookieStore.get('accessToken')?.value;
 
     if (!accessToken) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Use BACKEND_API_URL for server-side calls
-    const backendUrl = process.env.BACKEND_API_URL || 'http://localhost:8000/api/v1';
+    let backendUrl = process.env.BACKEND_API_URL || 'http://localhost:8000';
+    if (!backendUrl.endsWith('/api/v1')) {
+      backendUrl = backendUrl.replace(/\/+$/, '') + '/api/v1';
+    }
+
     const response = await fetch(`${backendUrl}/super-admin/dashboard/tenant-stats`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
-        'X-Tenant-ID': superAdminTenantId,
         'Content-Type': 'application/json',
       },
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Backend error:', response.status, errorText);
       throw new Error(`Backend API error: ${response.status}`);
     }
 
