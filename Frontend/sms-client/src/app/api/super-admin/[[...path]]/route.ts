@@ -44,7 +44,7 @@ async function proxyRequest(request: NextRequest, paramsArg: any) {
             cookieStore.get('tn_accessToken')?.value ||
             cookieStore.get('accessToken')?.value;
 
-        const tenantId = cookieStore.get('tn_tenantId')?.value || cookieStore.get('tenantId')?.value;
+        const tenantId = cookieStore.get('tn_tenantId')?.value || cookieStore.get('tenantId')?.value || '6d78d2cc-27ba-4da7-a06f-6186aadbb476';
 
         // Handle body 
         const contentType = request.headers.get('content-type');

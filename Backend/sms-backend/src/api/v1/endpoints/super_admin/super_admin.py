@@ -820,7 +820,7 @@ def get_recent_tenants(
     """Get list of recently created tenants for the super-admin dashboard."""
     try:
         # Get the most recently created tenants
-        recent_tenants = db.query(Tenant).order_by(Tenant.created_at.desc()).limit(limit).all()
+        recent_tenants = db.query(TenantModel).order_by(TenantModel.created_at.desc()).limit(limit).all()
         
         result = []
         for tenant in recent_tenants:
