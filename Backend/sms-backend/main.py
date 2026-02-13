@@ -114,7 +114,9 @@ def root():
 #     return {"cpuUsage": 0.5, "memoryUsage": 0.6, "diskUsage": 0.7, "activeConnections": 10, "alerts": [], "tenantGrowth": []}
 
 
-# Mount static files directory
+# Mount static files directory (create if doesn't exist for cloud deployment)
+import os
+os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Add this function to customize the OpenAPI schema
