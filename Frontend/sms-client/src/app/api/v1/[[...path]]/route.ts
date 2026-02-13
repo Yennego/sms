@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
+import { normalizeBaseUrl } from '@/app/api/_lib/http';
 
 /**
  * Global Catch-all Proxy for /api/v1/*
