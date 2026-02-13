@@ -63,7 +63,12 @@ export function TenantProvider({ children }: { children: ReactNode }) {
 
       console.log('[Tenant Context] Debug - hostname:', hostname, 'subdomain:', subdomain);
 
-      if (subdomain !== 'localhost' && subdomain !== 'www') {
+      // Skip subdomain extraction for deployment platforms and non-tenant domains
+      const isDeploymentPlatform = hostnameWithoutPort.endsWith('.vercel.app') ||
+        hostnameWithoutPort.endsWith('.netlify.app') ||
+        hostnameWithoutPort.endsWith('.onrender.com');
+
+      if (!isDeploymentPlatform && subdomain !== 'localhost' && subdomain !== 'www') {
         console.log('[Tenant Context] Using subdomain as tenant:', subdomain);
         return subdomain.toLowerCase();
       }
