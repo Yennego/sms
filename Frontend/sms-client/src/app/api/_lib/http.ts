@@ -33,3 +33,13 @@ export function buildAuthHeaders(accessToken?: string, tenantId?: string): Recor
   if (tenantId) headers['X-Tenant-ID'] = tenantId;
   return headers;
 }
+
+// Helper function to get namespaced cookies (e.g., sa_accessToken, tn_accessToken)
+export function getNamespacedCookie(
+  cookieStore: any, // type is ReadonlyRequestCookies from next/headers
+  key: string,
+  namespace: string = ''
+): string | undefined {
+  const namespacedKey = `${namespace}${key}`;
+  return cookieStore.get(namespacedKey)?.value;
+}
