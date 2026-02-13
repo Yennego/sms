@@ -18,8 +18,12 @@ export async function GET() {
 
     const backendUrl = normalizeBaseUrl(process.env.BACKEND_API_URL);
 
-    // Optional tenant ID for super-admin (system tenant)
-    const superAdminTenantId = cookieStore.get('tn_tenantId')?.value || '6d78d2cc-27ba-4da7-a06f-6186aadbb476';
+    const superAdminTenantId =
+      cookieStore.get('tn_tenantId')?.value ||
+      cookieStore.get('tenantId')?.value ||
+      '6d78d2cc-27ba-4da7-a06f-6186aadb4766';
+
+    console.log(`[Tenant-Stats Proxy] TenantID: ${superAdminTenantId}`);
 
     const response = await fetch(`${backendUrl}/super-admin/dashboard/tenant-stats`, {
       headers: {

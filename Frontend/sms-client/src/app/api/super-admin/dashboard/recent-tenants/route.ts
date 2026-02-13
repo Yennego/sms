@@ -20,9 +20,17 @@ export async function GET(request: NextRequest) {
 
     const backendUrl = normalizeBaseUrl(process.env.BACKEND_API_URL);
 
+    const tenantId =
+      cookieStore.get('tn_tenantId')?.value ||
+      cookieStore.get('tenantId')?.value ||
+      '6d78d2cc-27ba-4da7-a06f-6186aadb4766';
+
+    console.log(`[Recent-Tenants Proxy] TenantID: ${tenantId}`);
+
     const response = await axios.get(`${backendUrl}/super-admin/tenants?limit=${limit}`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
+        'X-Tenant-ID': tenantId,
         'Content-Type': 'application/json'
       }
     });

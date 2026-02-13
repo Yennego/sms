@@ -16,11 +16,18 @@ export async function GET() {
     }
 
     const backendUrl = normalizeBaseUrl(process.env.BACKEND_API_URL);
+    const tenantId =
+      cookieStore.get('tn_tenantId')?.value ||
+      cookieStore.get('tenantId')?.value ||
+      '6d78d2cc-27ba-4da7-a06f-6186aadb4766';
+
+    console.log(`[User-Stats Proxy] TenantID: ${tenantId}`);
 
     // Call the actual backend API
     const response = await axios.get(`${backendUrl}/super-admin/users`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
+        'X-Tenant-ID': tenantId,
         'Content-Type': 'application/json'
       }
     });
@@ -31,6 +38,7 @@ export async function GET() {
     const tenantsResponse = await axios.get(`${backendUrl}/super-admin/tenants`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
+        'X-Tenant-ID': tenantId,
         'Content-Type': 'application/json'
       }
     });
