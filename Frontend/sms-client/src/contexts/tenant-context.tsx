@@ -93,7 +93,12 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       console.log('[Tenant Context] Stored subdomain from localStorage:', storedSubdomain);
 
       // Clear invalid stored subdomains
-      if (storedSubdomain === 'system.local' || storedSubdomain === 'system') {
+      const invalidTenantValues = [
+        'system.local', 'system', 'local', 'localhost',
+        'session-expired', 'undefined', 'null', 'none',
+        'login', 'api', '_next', 'static', 'super-admin',
+      ];
+      if (storedSubdomain && invalidTenantValues.includes(storedSubdomain.toLowerCase())) {
         console.log('[Tenant Context] Clearing invalid stored subdomain:', storedSubdomain);
         localStorage.removeItem('currentTenantDomain');
         localStorage.removeItem('tenantId');
@@ -112,7 +117,12 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     console.log('[Tenant Context] Extracted tenant ID:', tenantId);
 
     // Validate tenant ID - reject invalid values
-    if (tenantId === 'system.local' || tenantId === 'system' || tenantId === 'local') {
+    const invalidTenantValues = [
+      'system.local', 'system', 'local', 'localhost',
+      'session-expired', 'undefined', 'null', 'none',
+      'login', 'api', '_next', 'static', 'super-admin',
+    ];
+    if (tenantId && invalidTenantValues.includes(tenantId.toLowerCase())) {
       console.log('[Tenant Context] Invalid tenant ID detected, clearing data:', tenantId);
       localStorage.removeItem('currentTenantDomain');
       localStorage.removeItem('tenantId');
