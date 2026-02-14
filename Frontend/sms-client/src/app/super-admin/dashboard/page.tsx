@@ -11,11 +11,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useSuperAdminService } from '@/services/api/super-admin-service';
-import { 
-  TenantStats, 
-  UserStats, 
-  SystemMetrics, 
-  RecentTenant, 
+import {
+  TenantStats,
+  UserStats,
+  SystemMetrics,
+  RecentTenant,
   UserWithRoles,
   Role,
   RoleStats
@@ -33,10 +33,10 @@ interface FilterState {
 
 export default function SuperAdminDashboard() {
 
-  const {user: currentUser} = useAuth();
+  const { user: currentUser } = useAuth();
   // Use the hook to get the service
   const superAdminService = useSuperAdminService();
-  
+
   // State management
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
   const [tenantStats, setTenantStats] = useState<TenantStats | null>(null);
@@ -47,11 +47,11 @@ export default function SuperAdminDashboard() {
   const [roleStats, setRoleStats] = useState<RoleStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Add pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const usersPerPage = 10;
-  
+
   const [filters, setFilters] = useState<FilterState>({
     search: '',
     tenantStatus: 'all',
@@ -65,7 +65,7 @@ export default function SuperAdminDashboard() {
       try {
         setLoading(true);
         setError(null);
-        
+
         // Fetch all data in parallel
         const [metricsData, tenantData, userData, tenantsData, usersData, rolesData] = await Promise.all([
           superAdminService.getSystemMetrics(),
@@ -75,18 +75,24 @@ export default function SuperAdminDashboard() {
           superAdminService.getUserList({ limit: 1000 }), // Get more users for better analytics
           superAdminService.getRoles()
         ]);
-        
+
+        console.log('[Dashboard] Metrics:', metricsData);
+        console.log('[Dashboard] Tenants:', tenantsData);
+        console.log('[Dashboard] Users:', usersData);
+        console.log('[Dashboard] Roles:', rolesData);
+
         setSystemMetrics(metricsData);
         setTenantStats(tenantData);
         setUserStats(userData);
-        setRecentTenants(tenantsData);
-        setUsers(usersData);
-        setRoles(rolesData);
-        
+        setRecentTenants(Array.isArray(tenantsData) ? tenantsData : []);
+        setUsers(Array.isArray(usersData) ? usersData : []);
+        setRoles(Array.isArray(rolesData) ? rolesData : []);
+
         // Calculate role statistics from user data
         const roleStatsData = await superAdminService.getRoleStatistics();
-        setRoleStats(roleStatsData);
-        
+        console.log('[Dashboard] Role Stats:', roleStatsData);
+        setRoleStats(Array.isArray(roleStatsData) ? roleStatsData : []);
+
       } catch (err) {
         console.error('Error fetching dashboard data:', err);
         setError('Failed to load dashboard data. Please try again.');
@@ -99,17 +105,17 @@ export default function SuperAdminDashboard() {
   }, [superAdminService]);
 
   // Filter functions with null safety
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = filters.search === '' || 
+  const filteredUsers = Array.isArray(users) ? users.filter(user => {
+    const matchesSearch = filters.search === '' ||
       (user.first_name?.toLowerCase() || '').includes(filters.search.toLowerCase()) ||
       (user.last_name?.toLowerCase() || '').includes(filters.search.toLowerCase()) ||
       (user.email?.toLowerCase() || '').includes(filters.search.toLowerCase());
-    
-    const matchesRole = filters.userRole === 'all' || 
+
+    const matchesRole = filters.userRole === 'all' ||
       user.roles.some(role => role.name === filters.userRole);
-    
+
     return matchesSearch && matchesRole;
-  });
+  }) : [];
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredUsers.length / usersPerPage);
@@ -197,7 +203,7 @@ export default function SuperAdminDashboard() {
                 onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
               />
             </div>
-            
+
             <div>
               <Label htmlFor="userRole">User Role</Label>
               <Select value={filters.userRole} onValueChange={(value) => setFilters(prev => ({ ...prev, userRole: value as UserRole }))}>
@@ -206,7 +212,7 @@ export default function SuperAdminDashboard() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Roles</SelectItem>
-                  {roles.map((role) => (
+                  {Array.isArray(roles) && roles.map((role) => (
                     <SelectItem key={role.id} value={role.name}>
                       {role.name.charAt(0).toUpperCase() + role.name.slice(1).replace('-', ' ')}
                     </SelectItem>
@@ -214,7 +220,7 @@ export default function SuperAdminDashboard() {
                 </SelectContent>
               </Select>
             </div>
-            
+
             <div>
               <Label htmlFor="dateRange">Date Range</Label>
               <Select value={filters.dateRange} onValueChange={(value) => setFilters(prev => ({ ...prev, dateRange: value as FilterState['dateRange'] }))}>
@@ -292,7 +298,7 @@ export default function SuperAdminDashboard() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {roleStats.map((stat) => (
+            {Array.isArray(roleStats) && roleStats.map((stat) => (
               <div key={stat.name} className="text-center p-4 border rounded-lg">
                 <div className="text-2xl font-bold">{stat.count}</div>
                 <div className="text-sm text-muted-foreground">{stat.name.replace('-', ' ')}</div>
@@ -365,20 +371,20 @@ export default function SuperAdminDashboard() {
                       <ChevronLeft className="h-4 w-4" />
                       Previous
                     </Button>
-                    
+
                     <div className="flex items-center space-x-1">
                       {Array.from({ length: totalPages }, (_, i) => i + 1)
                         .filter(page => {
                           // Show first page, last page, current page, and pages around current
-                          return page === 1 || 
-                                 page === totalPages || 
-                                 Math.abs(page - currentPage) <= 1;
+                          return page === 1 ||
+                            page === totalPages ||
+                            Math.abs(page - currentPage) <= 1;
                         })
                         .map((page, index, array) => {
                           // Add ellipsis if there's a gap
                           const prevPage = array[index - 1];
                           const showEllipsis = prevPage && page - prevPage > 1;
-                          
+
                           return (
                             <React.Fragment key={page}>
                               {showEllipsis && (
@@ -396,7 +402,7 @@ export default function SuperAdminDashboard() {
                           );
                         })}
                     </div>
-                    
+
                     <Button
                       variant="outline"
                       size="sm"
@@ -421,7 +427,7 @@ export default function SuperAdminDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentTenants.slice(0, 5).map((tenant) => (
+              {Array.isArray(recentTenants) && recentTenants.slice(0, 5).map((tenant) => (
                 <div key={tenant.id} className="flex items-center justify-between p-3 border rounded">
                   <div>
                     <div className="font-medium">{tenant.name}</div>

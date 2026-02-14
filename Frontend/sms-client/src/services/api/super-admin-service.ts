@@ -259,7 +259,7 @@ export function useSuperAdminService() {
 
     // Get all available roles
     getRoles: async (): Promise<Role[]> => {
-      return apiClient.get<Role[]>('/auth/roles');
+      return apiClient.get<Role[]>('/super-admin/roles');
     },
 
     // Enhanced user list with role filtering
