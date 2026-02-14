@@ -176,12 +176,16 @@ def get_optional_tenant_id_from_request(
     tenant: Optional[Tenant] = Depends(get_optional_tenant_from_request),
 ) -> Optional[str]:
     """Get tenant ID optionally, returning None if no tenant found."""
+    print(f"[TENANT DEBUG] get_optional_tenant_id_from_request called. Tenant obj: {tenant}")
     if tenant:
+        print(f"[TENANT DEBUG] Returning tenant.id from object: {tenant.id}")
         return str(tenant.id)
     try:
         context_tenant_id = get_tenant_id()
+        print(f"[TENANT DEBUG] Context tenant_id: {context_tenant_id}")
         return str(context_tenant_id) if context_tenant_id else None
     except LookupError:
+        print("[TENANT DEBUG] LookupError getting context tenant_id")
         return None
 
 async def tenant_middleware(request: Request, call_next):
