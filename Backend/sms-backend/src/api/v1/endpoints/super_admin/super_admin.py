@@ -580,7 +580,7 @@ def view_system_reports(
     
     elif report_type == "system_health":
         # Example: System health metrics
-        tenant_count = db.query(func.count(Tenant.id)).scalar()
+        tenant_count = db.query(func.count(TenantModel.id)).scalar()
         
         return {
             "report_type": "system_health",
@@ -734,16 +734,23 @@ def get_tenant_stats(
     _: User = Depends(require_super_admin())
 ) -> Any:
     """Get tenant statistics for the super-admin dashboard."""
-    dashboard_service = DashboardMetricsService(db)
-    tenant_metrics = dashboard_service.get_tenant_growth_metrics()
-    
-    return {
-        "total": tenant_metrics["total_tenants"],
-        "active": tenant_metrics["active_tenants"],
-        "inactive": tenant_metrics["inactive_tenants"],
-        "newThisMonth": tenant_metrics["new_tenants"],
-        "growthRate": tenant_metrics["growth_rate"]
-    }
+    print(f"[SUPER-ADMIN] Calling get_tenant_stats")
+    try:
+        dashboard_service = DashboardMetricsService(db)
+        tenant_metrics = dashboard_service.get_tenant_growth_metrics()
+        
+        return {
+            "total": tenant_metrics["total_tenants"],
+            "active": tenant_metrics["active_tenants"],
+            "inactive": tenant_metrics["inactive_tenants"],
+            "newThisMonth": tenant_metrics["new_tenants"],
+            "growthRate": tenant_metrics["growth_rate"]
+        }
+    except Exception as e:
+        print(f"[SUPER-ADMIN] ERROR in get_tenant_stats: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 @router.get("/dashboard/user-stats")
 def get_user_stats(
@@ -752,16 +759,23 @@ def get_user_stats(
     _: User = Depends(require_super_admin())
 ) -> Any:
     """Get user statistics for the super-admin dashboard."""
-    dashboard_service = DashboardMetricsService(db)
-    user_metrics = dashboard_service.get_user_metrics()
-    
-    return {
-        "total": user_metrics["total_users"],
-        "active": user_metrics["active_users"],
-        "inactive": user_metrics["inactive_users"],
-        "avgPerTenant": user_metrics["average_users_per_tenant"],
-        "recentLogins": user_metrics["recent_logins"]
-    }
+    print(f"[SUPER-ADMIN] Calling get_user_stats")
+    try:
+        dashboard_service = DashboardMetricsService(db)
+        user_metrics = dashboard_service.get_user_metrics()
+        
+        return {
+            "total": user_metrics["total_users"],
+            "active": user_metrics["active_users"],
+            "inactive": user_metrics["inactive_users"],
+            "avgPerTenant": user_metrics["average_users_per_tenant"],
+            "recentLogins": user_metrics["recent_logins"]
+        }
+    except Exception as e:
+        print(f"[SUPER-ADMIN] ERROR in get_user_stats: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 @router.get("/dashboard/system-metrics")
 def get_system_metrics(
@@ -818,6 +832,7 @@ def get_recent_tenants(
     limit: int = Query(5, description="Maximum number of recent tenants to return")
 ) -> Any:
     """Get list of recently created tenants for the super-admin dashboard."""
+    print(f"[SUPER-ADMIN] Calling get_recent_tenants with limit={limit}")
     try:
         # Get the most recently created tenants
         recent_tenants = db.query(TenantModel).order_by(TenantModel.created_at.desc()).limit(limit).all()

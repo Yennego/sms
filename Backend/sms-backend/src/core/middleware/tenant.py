@@ -186,10 +186,11 @@ def get_optional_tenant_id_from_request(
 
 async def tenant_middleware(request: Request, call_next):
     """Middleware to extract tenant from request and set in context."""
-    path = request.url.path
+    # Normalize path: remove double slashes and trailing slashes for consistent matching
+    path = request.url.path.replace("//", "/")
     
     # Skip non-API routes, docs, and OpenAPI
-    if (
+    is_bypass = (
         not path.startswith("/api/")
         or "openapi.json" in path
         or path.startswith("/docs")
@@ -200,7 +201,11 @@ async def tenant_middleware(request: Request, call_next):
         or path.startswith("/api/tenant/")
         or path.startswith("/api/v1/auth/")
         or path.startswith("/api/v1/super-admin/")
-    ):
+        or "/super-admin/" in path
+    )
+    
+    if is_bypass:
+        print(f"[TENANT MW] Bypass path: {path}")
         return await call_next(request)
     
     tenant_header = request.headers.get("X-Tenant-ID")
@@ -210,11 +215,11 @@ async def tenant_middleware(request: Request, call_next):
     cache_key = f"{tenant_header}:{domain}"
     if cache_key in TENANT_CACHE:
         t_id, t_domain = TENANT_CACHE[cache_key]
-        print(f"[TENANT MW] Cached hit for {cache_key} -> {t_id}") # ADDED
+        print(f"[TENANT MW] Cache hit for {path} -> {t_id}")
         set_tenant_id(t_id)
         return await call_next(request)
 
-    print(f"[TENANT MW] Resolving tenant for path: {path}, Header: {tenant_header}, Domain: {domain}") # ADDED
+    print(f"[TENANT MW] Resolving path: {path} (Header: {tenant_header}, Domain: {domain})")
     tenant = None
     db = next(get_db())
     try:
