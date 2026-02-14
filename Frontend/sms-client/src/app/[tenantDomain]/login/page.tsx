@@ -108,7 +108,8 @@ export default function TenantLoginPage() {
     setIsLoading(true);
 
     try {
-      const result = await login(email, password);
+      const normalizedEmail = email.toLowerCase().trim();
+      const result = await login(normalizedEmail, password);
 
       // Check if the user is a super-admin based on role or roles array
       const isSuperAdmin =

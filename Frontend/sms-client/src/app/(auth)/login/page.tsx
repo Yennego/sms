@@ -24,26 +24,26 @@ export default function LoginPage() {
     console.log('isAuthenticated (from useAuth):', isAuthenticated);
     console.log('user (from useAuth):', user);
     console.log('requiresPasswordChange (from useAuth):', requiresPasswordChange);
-  
+
     const registered = searchParams.get('registered');
     if (registered === 'true') {
       setMessage('Registration successful! Please log in with your new account.');
     }
-    
+
     // Check if user is already authenticated
     if (isAuthenticated && user) {
       console.log('LoginPage useEffect: User is authenticated, determining correct dashboard');
-      
+
       // Check if user is a super-admin
-      const isSuperAdmin = 
-        user?.role === 'super-admin' || 
+      const isSuperAdmin =
+        user?.role === 'super-admin' ||
         user?.role === 'superadmin' ||
-        (Array.isArray(user?.roles) && user.roles.some(role => 
-          typeof role === 'string' 
+        (Array.isArray(user?.roles) && user.roles.some(role =>
+          typeof role === 'string'
             ? (role === 'super-admin' || role === 'superadmin')
             : (role.name === 'super-admin' || role.name === 'superadmin')
         ));
-      
+
       if (isSuperAdmin) {
         console.log('LoginPage useEffect: Super admin detected, redirecting to /super-admin/dashboard');
         router.push('/super-admin/dashboard');
@@ -52,15 +52,15 @@ export default function LoginPage() {
         const tenantId = user.tenantId;
         if (tenantId && tenantId !== 'None' && tenantId !== 'null') {
           // Redirect to role-specific dashboard based on user role
-          const userRole = user.role || 
-            (Array.isArray(user?.roles) && user.roles.length > 0 ? 
-              (typeof user.roles[0] === 'string' ? 
-                user.roles[0] : 
-                user.roles[0].name) : 
+          const userRole = user.role ||
+            (Array.isArray(user?.roles) && user.roles.length > 0 ?
+              (typeof user.roles[0] === 'string' ?
+                user.roles[0] :
+                user.roles[0].name) :
               'admin');
-          
+
           console.log('LoginPage useEffect: Regular user with tenant, redirecting to role-specific dashboard using UUID');
-          
+
           if (userRole === 'admin') {
             router.push(`/${tenantId}/admin-dashboard`);
           } else if (userRole === 'teacher') {
@@ -82,7 +82,7 @@ export default function LoginPage() {
   // Add countdown timer effect
   useEffect(() => {
     let timer: NodeJS.Timeout | null = null;
-    
+
     if (waitTime > 0) {
       timer = setInterval(() => {
         setWaitTime(prevTime => {
@@ -95,7 +95,7 @@ export default function LoginPage() {
         });
       }, 1000);
     }
-    
+
     return () => {
       if (timer) clearInterval(timer);
     };
@@ -106,30 +106,31 @@ export default function LoginPage() {
     setError('');
     setIsLoading(true);
     console.log('--- handleSubmit: attempting login ---')
-  
+
     try {
-      const result = await login(email, password);
+      const normalizedEmail = email.toLowerCase().trim();
+      const result = await login(normalizedEmail, password);
       console.log('handleSubmit: Login function resolved. Result:', result);
-  
+
       // Log the current state variables *after* the login promise resolves
       console.log('handleSubmit: isAuthenticated after login call:', isAuthenticated);
       console.log('handleSubmit: user after login call:', user);
       console.log('handleSubmit: requiresPasswordChange after login call:', requiresPasswordChange);
-      
+
       // Check if password change is required
       if (result?.requiresPasswordChange) {
         console.log('handleSubmit: Password change required, redirecting to /change-password');
         router.push('/change-password');
       } else {
         // Check if user is a super-admin
-        const isSuperAdmin = 
+        const isSuperAdmin =
           (result?.user?.role === 'super-admin' || result?.user?.role === 'superadmin') ||
-          (Array.isArray(result?.user?.roles) && result.user.roles.some(role => 
-            typeof role === 'string' 
+          (Array.isArray(result?.user?.roles) && result.user.roles.some(role =>
+            typeof role === 'string'
               ? (role === 'super-admin' || role === 'superadmin')
               : (role.name === 'super-admin' || role.name === 'superadmin')
           ));
-        
+
         if (isSuperAdmin) {
           console.log('handleSubmit: Super admin login, redirecting to /super-admin/dashboard');
           router.push('/super-admin/dashboard');
@@ -148,13 +149,13 @@ export default function LoginPage() {
       }
     } catch (err: Error | unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to login';
-      
+
       // Check if it's a rate limiting error
       if (errorMessage.includes('429') || errorMessage.includes('Too Many Requests')) {
         // Extract wait time from error message if available
         const waitTimeMatch = errorMessage.match(/wait (\d+) seconds/i);
         const waitTimeValue = waitTimeMatch ? parseInt(waitTimeMatch[1], 10) : 30;
-        
+
         setWaitTime(waitTimeValue);
         setError(`Too many login attempts. Please wait ${waitTimeValue} seconds before trying again.`);
       } else {
@@ -189,8 +190,8 @@ export default function LoginPage() {
         {error && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
             <span className="block sm:inline">
-              {waitTime > 0 
-                ? `Too many login attempts. Please wait ${waitTime} seconds before trying again.` 
+              {waitTime > 0
+                ? `Too many login attempts. Please wait ${waitTime} seconds before trying again.`
                 : error}
             </span>
           </div>
