@@ -106,6 +106,7 @@ export default function TenantLoginPage() {
     e.preventDefault();
     setError('');
     setIsLoading(true);
+    console.log('[Login] Submitting login request (Fix v1.0)...');
 
     try {
       const normalizedEmail = email.toLowerCase().trim();
