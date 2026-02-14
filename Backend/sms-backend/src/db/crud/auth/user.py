@@ -68,7 +68,7 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
     def authenticate(self, db: Session, tenant_id: Any, *, email: str, password: str) -> Any:
         """Authenticate a user by email and password."""
         tenant_id_uuid = ensure_uuid(tenant_id)
-        logger.debug(f"[AUTH] Authenticating email={email}, tenant_id={tenant_id}, tenant_uuid={tenant_id_uuid}")
+        logger.info(f"[AUTH] Authenticating email={email} (Fix v1.0), tenant_id={tenant_id}")
         
         # First try to find the user in the specified tenant
         user = self.get_by_email(db, tenant_id=tenant_id_uuid, email=email)
