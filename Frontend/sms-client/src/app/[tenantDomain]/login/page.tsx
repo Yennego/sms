@@ -106,11 +106,12 @@ export default function TenantLoginPage() {
     e.preventDefault();
     setError('');
     setIsLoading(true);
-    console.log('[Login] Submitting login request (Fix v1.0)...');
+    console.log('[Login] Submitting login request (Fix v1.1) with explicit tenantId:', tenant?.id);
 
     try {
       const normalizedEmail = email.toLowerCase().trim();
-      const result = await login(normalizedEmail, password);
+      // Pass tenant.id explicitly to avoid cookie race conditions
+      const result = await login(normalizedEmail, password, tenant?.id);
 
       // Check if the user is a super-admin based on role or roles array
       const isSuperAdmin =

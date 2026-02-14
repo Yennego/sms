@@ -16,7 +16,7 @@ type AuthContextType = {
   requiresPasswordChange: boolean;
   selectedTenantId: string | null;
   setSelectedTenant: (tenantId: string | null) => void;
-  login: (email: string, password: string) => Promise<{ requiresPasswordChange?: boolean, user?: User, access_token?: string, refresh_token?: string }>;
+  login: (email: string, password: string, tenantId?: string) => Promise<{ requiresPasswordChange?: boolean, user?: User, access_token?: string, refresh_token?: string }>;
   logout: (options?: { redirectTo?: string }) => void;
   refreshAccessToken: () => Promise<string | null>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
@@ -272,7 +272,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, [accessToken, refreshAccessToken, clearAuthState]);
 
-  const login = async (email: string, password: string): Promise<{ requiresPasswordChange?: boolean, user?: User, access_token?: string, refresh_token?: string }> => {
+  const login = async (email: string, password: string, explicitTenantId?: string): Promise<{ requiresPasswordChange?: boolean, user?: User, access_token?: string, refresh_token?: string }> => {
     try {
       const formData = new URLSearchParams();
       formData.append("username", email);
@@ -280,7 +280,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 
       const currentContext = getCurrentContext();
-      const tenantId = contextualCookies.get('tenantId', currentContext);
+      // Use explicit tenantId if provided, otherwise fallback to cookie
+      const tenantId = explicitTenantId || contextualCookies.get('tenantId', currentContext);
 
       const headers: { [key: string]: string } = {
         'Content-Type': 'application/x-www-form-urlencoded',
