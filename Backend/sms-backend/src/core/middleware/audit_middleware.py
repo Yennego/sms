@@ -172,7 +172,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                 # IMPORTANT: Consuming request.body() exhausts the stream.
                 # We must replace it so downstream handlers (like FastAPI route handlers) can read it.
                 body = await request.body()
-                if body:
+                if body and body.strip():
                     request_body = json.loads(body.decode('utf-8'))
                     
                     # Restore the request body stream
