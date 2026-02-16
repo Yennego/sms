@@ -431,8 +431,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
   const logout = useCallback(async (options?: { redirectTo?: string }) => {
     try {
+      setIsLoggingOut(true); // Start logout state to hide UI
+
       // Call backend logout API to blacklist the token
       if (accessToken) {
         const currentContext = getCurrentContext();
@@ -456,10 +460,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Always clear local state regardless of API call result
       clearAuthState();
 
+      // Small delay to ensure state updates propagate before redirect
+      // This helps prevent "flash" of content if redirect is too fast
+      await new Promise(resolve => setTimeout(resolve, 50));
+
       const redirectTarget = options?.redirectTo;
       if (redirectTarget) {
         // Optional redirect path override (e.g. '/session-expired')
         router.push(redirectTarget);
+        // Don't reset isLoggingOut here, let the new page load handle it
         return;
       }
 
@@ -479,6 +488,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           router.push('/login');
         }
       }
+
+      // We don't set setIsLoggingOut(false) here because the page will unmount/reload
+      // If we did, it might flash the UI again before the redirect completes
     }
   }, [router, clearAuthState, accessToken]);
 
@@ -541,35 +553,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // Idle timeout: auto-logout after inactivity and route to session-expired
-  useEffect(() => {
-    const minutesVal = Number(process.env.NEXT_PUBLIC_IDLE_TIMEOUT_MINUTES) || 15;
-    const idleTimeoutMs = minutesVal * 60 * 1000;
-
-    const lastActiveRef = { current: Date.now() };
-    const activityHandler = () => {
-      lastActiveRef.current = Date.now();
-    };
-
-    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
-    events.forEach(e => window.addEventListener(e, activityHandler, { passive: true }));
-
-    const interval = setInterval(() => {
-      if (!accessToken) return;
-      const idleMs = Date.now() - lastActiveRef.current;
-      if (idleMs > idleTimeoutMs) {
-        const currentContext = getCurrentContext();
-        const tid = contextualCookies.get('tenantId', currentContext);
-        const target = tid ? `/${tid}/session-expired` : '/session-expired';
-        logout({ redirectTo: target });
-      }
-    }, 30000); // check every 30 seconds
-
-    return () => {
-      events.forEach(e => window.removeEventListener(e, activityHandler));
-      clearInterval(interval);
-    };
-  }, [accessToken, logout]);
-
   return (
     <AuthContext.Provider value={{
       user,
@@ -588,7 +571,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       validateTokenBeforeRequest,
       refetchUser,
       updateUser,
-      isLoggingOut: false
+      isLoggingOut // Expose to consumers
     }}>
       {children}
     </AuthContext.Provider>

@@ -12,7 +12,7 @@ export default function SuperAdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { user, isAuthenticated, isLoading, accessToken } = useAuth();
+  const { user, isAuthenticated, isLoading, accessToken, isLoggingOut } = useAuth();
   const router = useRouter();
   const hasRedirected = useRef(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -40,11 +40,11 @@ export default function SuperAdminLayout({
       }
 
       // Consistent super-admin role checking
-      const isSuperAdmin = 
-        user?.role === 'superadmin' || 
-        user?.role === 'super-admin' || 
-        (Array.isArray(user?.roles) && user.roles.some(role => 
-          typeof role === 'string' 
+      const isSuperAdmin =
+        user?.role === 'superadmin' ||
+        user?.role === 'super-admin' ||
+        (Array.isArray(user?.roles) && user.roles.some(role =>
+          typeof role === 'string'
             ? (role === 'superadmin' || role === 'super-admin')
             : (role.name === 'superadmin' || role.name === 'super-admin')
         ));
@@ -66,7 +66,7 @@ export default function SuperAdminLayout({
     setIsSidebarCollapsed(collapsed);
   };
 
-  if (isLoading) {
+  if (isLoading || isLoggingOut) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-lg">Loading...</div>
@@ -75,11 +75,11 @@ export default function SuperAdminLayout({
   }
 
   // Final role check before rendering
-  const isSuperAdmin = 
-    user?.role === 'superadmin' || 
-    user?.role === 'super-admin' || 
-    (Array.isArray(user?.roles) && user.roles.some(role => 
-      typeof role === 'string' 
+  const isSuperAdmin =
+    user?.role === 'superadmin' ||
+    user?.role === 'super-admin' ||
+    (Array.isArray(user?.roles) && user.roles.some(role =>
+      typeof role === 'string'
         ? (role === 'superadmin' || role === 'super-admin')
         : (role.name === 'superadmin' || role.name === 'super-admin')
     ));
@@ -91,13 +91,13 @@ export default function SuperAdminLayout({
   return (
     <ErrorBoundary>
       <div className="h-screen flex overflow-hidden bg-gray-100">
-        <SuperAdminSidebar 
+        <SuperAdminSidebar
           isOpen={isSidebarOpen}
           onToggle={toggleSidebar}
           isCollapsed={isSidebarCollapsed}
           onCollapse={handleSidebarCollapse}
         />
-        
+
         {/* Main content area - no margin needed now */}
         <div className="flex flex-col flex-1 overflow-hidden">
           <SuperAdminHeader onMenuToggle={toggleSidebar} />
