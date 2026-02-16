@@ -295,34 +295,23 @@ async def login_for_access_token(
     """OAuth2 compatible token login, get an access token for future requests."""
     # tenant_id is now injected properly by FastAPI
     # CRITICAL FIX: Handle None tenant_id properly
-    
-    # DEBUG LOGGING (Fix v1.2)
-    print(f"[LOGIN DEBUG] login_for_access_token called. Email: {form_data.username}")
-    print(f"[LOGIN DEBUG] Received tenant_id: '{tenant_id}' (Type: {type(tenant_id)})")
-    
     if tenant_id is None or str(tenant_id).lower() in ['none', 'null', 'undefined']:
-        print("[LOGIN DEBUG] Tenant ID is None/Null - attempting global auth")
         user = user_crud.authenticate_global(db, email=form_data.username, password=form_data.password)
         if not user:
-            print("[LOGIN DEBUG] Global auth failed")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         tenant_id = user.tenant_id
-        print(f"[LOGIN DEBUG] Global auth success. Resolved tenant_id: {tenant_id}")
     else:
-        print(f"[LOGIN DEBUG] Attempting tenant-scoped auth for tenant_id: {tenant_id}")
         user = user_crud.authenticate(db, tenant_id=tenant_id, email=form_data.username, password=form_data.password)
         if not user:
-            print("[LOGIN DEBUG] Tenant-scoped auth failed")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        print(f"[LOGIN DEBUG] Tenant-scoped auth success. User: {user.email}")
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
