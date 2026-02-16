@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import SuperAdminSidebar from '@/components/layout/SuperAdminSidebar';
 import SuperAdminHeader from '@/components/layout/SuperAdminHeader';
@@ -14,6 +14,7 @@ export default function SuperAdminLayout({
 }) {
   const { user, isAuthenticated, isLoading, accessToken, isLoggingOut } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
   const hasRedirected = useRef(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -68,7 +69,7 @@ export default function SuperAdminLayout({
 
   if (isLoading || isLoggingOut) {
     // If we are redirecting to login, don't spin
-    if (usePathname()?.includes('/login')) return null;
+    if (pathname?.includes('/login')) return null;
 
     return (
       <div className="min-h-screen flex items-center justify-center">
