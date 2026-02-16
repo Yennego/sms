@@ -18,16 +18,19 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
     }
   }, [tenant?.name]);
 
+  // Prevent layout flash on login page even if authenticated (before redirect)
+  const isLoginPage = pathname?.includes('/login');
+
   if (isLoading || isLoggingOut) {
+    // If we have already reached the login page, don't show the spinner
+    if (isLoginPage) return children;
+
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
       </div>
     );
   }
-
-  // Prevent layout flash on login page even if authenticated (before redirect)
-  const isLoginPage = pathname?.includes('/login');
 
   if (!isAuthenticated || isLoginPage) {
     return children; // For login pages, etc.

@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import cookies from 'js-cookie';
 import { User } from '@/types/auth';
 import { contextualCookies, getCurrentContext } from '@/utils/cookie-manager';
@@ -553,6 +553,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // Idle timeout: auto-logout after inactivity and route to session-expired
+  const pathname = usePathname();
+
+  // Reset isLoggingOut when pathname changes (navigation complete)
+  useEffect(() => {
+    setIsLoggingOut(false);
+  }, [pathname]);
+
+  // Idle timeout: auto-logout after inactivity and route to session-expired
+  useEffect(() => {
+    const minutesVal = Number(process.env.NEXT_PUBLIC_IDLE_TIMEOUT_MINUTES) || 15;
+    const idleTimeoutMs = minutesVal * 60 * 1000;
+
+    const lastActiveRef = { current: Date.now() };
+    const activityHandler = () => {
+      lastActiveRef.current = Date.now();
+    };
+
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
+    events.forEach(e => window.addEventListener(e, activityHandler, { passive: true }));
+
+    const interval = setInterval(() => {
+      if (!accessToken) return;
+      const idleMs = Date.now() - lastActiveRef.current;
+      if (idleMs > idleTimeoutMs) {
+        const currentContext = getCurrentContext();
+        const tid = contextualCookies.get('tenantId', currentContext);
+        const target = tid ? `/${tid}/session-expired` : '/session-expired';
+        logout({ redirectTo: target });
+      }
+    }, 30000); // check every 30 seconds
+
+    return () => {
+      events.forEach(e => window.removeEventListener(e, activityHandler));
+      clearInterval(interval);
+    };
+  }, [accessToken, logout]);
+
   return (
     <AuthContext.Provider value={{
       user,

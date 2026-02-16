@@ -42,6 +42,9 @@ export default function DashboardLayout({
   }, [isLoading, isAuthenticated, user, router, pathname]);
 
   if (isLoading || isLoggingOut) {
+    // If we are redirecting to login or on login page, render children (though DashboardLayout shouldn't wrap login)
+    if (pathname?.includes('/login')) return children;
+
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
