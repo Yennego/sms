@@ -225,7 +225,7 @@ export function useSuperAdminService() {
       if (params?.start_date) queryParams.append('start_date', params.start_date);
       if (params?.end_date) queryParams.append('end_date', params.end_date);
 
-      const url = `/logging/super-admin/audit-logs${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+      const url = `/v1/logging/super-admin/audit-logs${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
       return apiClient.get<AuditLog[]>(url);
     },
 
@@ -253,7 +253,7 @@ export function useSuperAdminService() {
       if (params?.end_date) queryParams.append('end_date', params.end_date);
       if (params?.log_type) queryParams.append('log_type', params.log_type);
 
-      const url = `/logging/super-admin/audit-logs/all${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+      const url = `/v1/logging/super-admin/audit-logs/all${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
       return apiClient.get<AuditLog[]>(url);
     },
 
