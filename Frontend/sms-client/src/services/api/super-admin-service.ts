@@ -1,6 +1,7 @@
 import { useSuperAdminApiClient } from './super-admin-api-client';
 import { useMemo } from 'react';
 import { useTenant } from '@/hooks/use-tenant';
+import { toast } from 'sonner';
 
 // Define types for dashboard data
 export interface TenantStats {
@@ -337,11 +338,17 @@ export function useSuperAdminService() {
     // Update user
     updateUser: async (userId: string, userData: UserUpdate, tenant_id?: string): Promise<UserWithRoles> => {
       const url = `/super-admin/users/${userId}`;
-      // If tenant_id is needed for the API, append it or use it. 
-      // Assuming for now it might be needed as a query param or just ignored but required by the caller for some reason.
-      // If the API endpoint is global (super-admin), maybe it doesn't need tenant_id physically in the request if the ID is unique.
-      // However, to fix the TS error, we simply accept it.
       return apiClient.put<UserWithRoles>(url, userData);
+    },
+
+    // Activate tenant
+    activateTenant: async (tenantId: string): Promise<void> => {
+      return apiClient.post<void>(`/super-admin/tenants/${tenantId}/activate`, {});
+    },
+
+    // Deactivate tenant
+    deactivateTenant: async (tenantId: string): Promise<void> => {
+      return apiClient.post<void>(`/super-admin/tenants/${tenantId}/deactivate`, {});
     },
   }), [apiClient]);
 }
