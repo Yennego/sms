@@ -96,10 +96,11 @@ export interface UserCreateCrossTenant {
   first_name: string;
   last_name: string;
   email: string;
-  role: string;
+  password?: string;
+  role?: string;
+  role_id?: string;
   tenant_id: string;
-  password: string;
-  is_active: boolean;
+  is_active?: boolean;
 }
 
 export interface UserCreateResponse {
@@ -164,6 +165,16 @@ export function useSuperAdminService() {
     // Get tenant statistics
     getTenantStats: async (): Promise<TenantStats> => {
       return apiClient.get<TenantStats>('/super-admin/dashboard/tenant-stats');
+    },
+
+    // Get all tenants
+    getTenants: async (params?: { skip?: number; limit?: number }): Promise<PaginatedResponse<RecentTenant>> => {
+      const queryParams = new URLSearchParams();
+      if (params?.skip !== undefined) queryParams.append('skip', params.skip.toString());
+      if (params?.limit !== undefined) queryParams.append('limit', params.limit.toString());
+
+      const url = `/super-admin/tenants${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+      return apiClient.get<PaginatedResponse<RecentTenant>>(url);
     },
 
     // Get user statistics

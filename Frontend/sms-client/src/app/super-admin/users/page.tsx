@@ -8,8 +8,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import ConfirmationModal from '@/components/common/ConfirmationModal';
 import UserEditModal from '@/components/common/UserEditModal';
 import { PasswordResetDialog } from '@/components/common/PasswordResetDialog';
-import { Edit, UserCheck, UserX, Plus, RefreshCw, KeyRound } from 'lucide-react';
-import { UserUpdate } from '@/services/api/super-admin-service';
+import { Edit, UserCheck, UserX, Plus, RefreshCw, KeyRound, UserPlus } from 'lucide-react';
+import { UserUpdate, UserCreateCrossTenant } from '@/services/api/super-admin-service';
+import UserCreateModal from '@/components/common/UserCreateModal';
+import { toast } from 'sonner';
 
 export default function UserManagementPage() {
   const [users, setUsers] = useState<UserWithRoles[]>([]);
@@ -19,6 +21,7 @@ export default function UserManagementPage() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [resettingUser, setResettingUser] = useState<UserWithRoles | null>(null);
   const [isModalLoading, setIsModalLoading] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   const superAdminService = useSuperAdminService();
 
@@ -50,6 +53,26 @@ export default function UserManagementPage() {
     setModalAction(null);
     setSelectedUserId(null);
     setIsModalLoading(false);
+  };
+
+  // Handle user creation
+  const handleCreateSave = async (userData: UserCreateCrossTenant) => {
+    setIsModalLoading(true);
+    try {
+      const response = await superAdminService.createUserCrossTenant(userData);
+      toast.success(`User ${userData.email} created successfully${response.generated_password ? `. Generated password: ${response.generated_password}` : ''}`);
+
+      // Refresh the list to show the new user
+      fetchUsers();
+      setIsCreateModalOpen(false);
+    } catch (error: any) {
+      console.error('Failed to create user:', error);
+      const detail = error.response?.data?.detail || 'Failed to create user. Please try again.';
+      setError(detail);
+      toast.error(detail);
+    } finally {
+      setIsModalLoading(false);
+    }
   };
 
   // Handle modal confirmation for activate/deactivate
@@ -127,6 +150,10 @@ export default function UserManagementPage() {
     setModalAction('edit');
   };
 
+  const showCreateModal = () => {
+    setIsCreateModalOpen(true);
+  };
+
   const handleRefresh = () => {
     fetchUsers();
   };
@@ -156,7 +183,7 @@ export default function UserManagementPage() {
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button>
+          <Button onClick={showCreateModal}>
             <Plus className="h-4 w-4 mr-2" />
             Create User
           </Button>
@@ -363,6 +390,14 @@ export default function UserManagementPage() {
           onReset={handlePasswordResetSubmit}
         />
       )}
+
+      {/* Create User Modal */}
+      <UserCreateModal
+        isOpen={isCreateModalOpen}
+        isLoading={isModalLoading}
+        onSave={handleCreateSave}
+        onCancel={() => setIsCreateModalOpen(false)}
+      />
     </div>
   );
 }
