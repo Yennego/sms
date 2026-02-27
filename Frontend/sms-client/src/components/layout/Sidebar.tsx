@@ -132,9 +132,9 @@ function getNavigation(rawRole: string, tenantDomain?: string): MenuItem[] {
         name: 'Infrastructure',
         icon: Shield,
         children: [
-          { name: 'Roles', href: tenantDomain ? `/${tenantDomain}/admin/roles` : '/admin/roles', icon: Shield },
+          { name: 'Roles', href: tenantDomain ? `/${tenantDomain}/admin/roles` : '/admin/roles', icon: Shield, requiredPermissions: ['manage_roles'] },
           { name: 'Permissions', href: tenantDomain ? `/${tenantDomain}/admin/permissions` : '/admin/permissions', icon: Shield, requiredPermissions: ['manage_permissions'] },
-          { name: 'Role Assignment', href: tenantDomain ? `/${tenantDomain}/admin/role-assignment` : '/admin/role-assignment', icon: UserCheck },
+          { name: 'Role Assignment', href: tenantDomain ? `/${tenantDomain}/admin/role-assignment` : '/admin/role-assignment', icon: UserCheck, requiredPermissions: ['manage_users'] },
           { name: 'Activity Logs', href: tenantDomain ? `/${tenantDomain}/admin/activity-logs` : '/admin/activity-logs', icon: ClipboardList },
           { name: 'General Settings', href: tenantDomain ? `/${tenantDomain}/settings` : '/settings', icon: Settings },
         ]
