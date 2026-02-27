@@ -155,6 +155,7 @@ function getNavigation(rawRole: string, tenantDomain?: string): MenuItem[] {
         children: [
           { name: 'My Classes', href: tenantDomain ? `/${tenantDomain}/teacher/classes` : '/teacher/classes', icon: BookOpen },
           { name: 'Attendance', href: tenantDomain ? `/${tenantDomain}/teacher/attendance` : '/teacher/attendance', icon: ClipboardList },
+          { name: 'Timetable', href: tenantDomain ? `/${tenantDomain}/academics/timetables` : '/academics/timetables', icon: Calendar },
         ]
       },
 

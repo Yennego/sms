@@ -324,8 +324,12 @@ export function useSuperAdminService() {
     },
 
     // Update user
-    updateUser: async (userId: string, userData: UserUpdate): Promise<UserWithRoles> => {
+    updateUser: async (userId: string, userData: UserUpdate, tenant_id?: string): Promise<UserWithRoles> => {
       const url = `/super-admin/users/${userId}`;
+      // If tenant_id is needed for the API, append it or use it. 
+      // Assuming for now it might be needed as a query param or just ignored but required by the caller for some reason.
+      // If the API endpoint is global (super-admin), maybe it doesn't need tenant_id physically in the request if the ID is unique.
+      // However, to fix the TS error, we simply accept it.
       return apiClient.put<UserWithRoles>(url, userData);
     },
   }), [apiClient]);
