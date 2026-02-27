@@ -97,11 +97,8 @@ class GradingService(TenantBaseService):
         # 1. Get Class to find Academic Year
         cls = self.db.query(Class).filter(Class.id == class_id).first()
         if not cls:
-            print(f"[DEBUG] Class not found: {class_id}")
             return []
             
-        print(f"[DEBUG] Checking schema for Tenant: {self.tenant_id}, Class AY: {cls.academic_year_id}")
-
         # 2. Look for year-wide ACTIVE schema first
         schema = self.db.query(GradingSchema).filter(
             GradingSchema.tenant_id == self.tenant_id,
@@ -109,17 +106,12 @@ class GradingService(TenantBaseService):
             GradingSchema.is_active == True
         ).first()
         
-        if schema:
-            print(f"[DEBUG] Found active year-wide schema: {schema.id}")
-
         # 3. If no active year-wide schema, look for ANY schema for this year
         if not schema:
             schema = self.db.query(GradingSchema).filter(
                 GradingSchema.tenant_id == self.tenant_id,
                 GradingSchema.academic_year_id == cls.academic_year_id
             ).first()
-            if schema:
-                print(f"[DEBUG] Found year-wide schema (not necessarily active): {schema.id}")
             
         # 4. Fallback to ClassSubject specific schema if still not found
         if not schema:
@@ -128,27 +120,17 @@ class GradingService(TenantBaseService):
                 ClassSubject.subject_id == subject_id,
                 ClassSubject.tenant_id == self.tenant_id
             ).first()
-            if cs:
-                print(f"[DEBUG] Found ClassSubject: {cs.id}, Schema ID: {cs.grading_schema_id}")
-                if cs.grading_schema_id:
-                    schema = cs.grading_schema
+            if cs and cs.grading_schema_id:
+                schema = cs.grading_schema
             
         # 5. Last resort: ANY active schema for the tenant
         if not schema:
-            print(f"[DEBUG] Falling back to ANY active schema for tenant: {self.tenant_id}")
             schema = self.db.query(GradingSchema).filter(
                 GradingSchema.tenant_id == self.tenant_id,
                 GradingSchema.is_active == True
             ).first()
-            if schema:
-                print(f"[DEBUG] Found generic active schema: {schema.id}")
 
         if not schema:
-            # Final debug: check if ANY schemas exist for this tenant
-            any_schemas = self.db.query(GradingSchema).filter(GradingSchema.tenant_id == self.tenant_id).all()
-            print(f"[DEBUG] No schema found. Total schemas for tenant {self.tenant_id}: {len(any_schemas)}")
-            for s in any_schemas:
-                print(f"  - Schema: {s.name}, Active: {s.is_active}, AY: {s.academic_year_id}")
             return []
             
         
