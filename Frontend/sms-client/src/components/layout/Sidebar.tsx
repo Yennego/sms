@@ -216,6 +216,11 @@ export default function Sidebar() {
 
   // Helper function to check if user has required permissions
   const hasPermissions = (requiredPermissions?: string[]): boolean => {
+    // Development mode bypass for easier local testing
+    if (process.env.NEXT_PUBLIC_APP_ENV === 'development') {
+      return true;
+    }
+
     if (!requiredPermissions || requiredPermissions.length === 0) {
       return true; // No permissions required
     }
