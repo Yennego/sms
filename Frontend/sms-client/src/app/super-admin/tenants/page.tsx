@@ -7,6 +7,7 @@ import TenantList from '@/components/tenant/tenant-list';
 import TenantForm from '@/components/tenant/tenant-form';
 import TenantCreationWizard from '@/components/tenant/tenant-creation-wizard';
 import Pagination from '@/components/common/Pagination';
+import TenantFeatureToggle from '@/components/super-admin/TenantFeatureToggle';
 import { toast } from 'sonner';
 
 import {
@@ -20,6 +21,8 @@ export default function TenantsManagementPage() {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showForm, setShowForm] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
+  const [showFeatureModal, setShowFeatureModal] = useState(false);
+  const [featureTenant, setFeatureTenant] = useState<Tenant | null>(null);
 
   // TanStack Query Hooks
   const { data, isLoading, refetch } = useSuperAdminTenants({
@@ -90,6 +93,11 @@ export default function TenantsManagementPage() {
     });
   };
 
+  const handleManageFeatures = (tenant: Tenant) => {
+    setFeatureTenant(tenant);
+    setShowFeatureModal(true);
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-6">
@@ -113,6 +121,7 @@ export default function TenantsManagementPage() {
             onRefresh={() => refetch()}
             onActivate={handleActivateTenant}
             onDeactivate={handleDeactivateTenant}
+            onManageFeatures={handleManageFeatures}
           />
 
           <Pagination
@@ -137,6 +146,18 @@ export default function TenantsManagementPage() {
           tenant={selectedTenant}
           onClose={handleFormClose}
           onSubmit={handleFormSubmit}
+        />
+      )}
+
+      {showFeatureModal && featureTenant && (
+        <TenantFeatureToggle
+          tenantId={featureTenant.id}
+          tenantName={featureTenant.name}
+          isOpen={showFeatureModal}
+          onClose={() => {
+            setShowFeatureModal(false);
+            setFeatureTenant(null);
+          }}
         />
       )}
     </div>

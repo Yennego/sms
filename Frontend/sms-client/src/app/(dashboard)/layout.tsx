@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
+import { useTenant } from '@/hooks/use-tenant';
 
 export default function DashboardLayout({
   children,
@@ -12,6 +13,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { user, isAuthenticated, isLoading, isLoggingOut } = useAuth();
+  const { tenant } = useTenant();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -53,7 +55,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-screen overflow-hidden bg-gray-100">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden md:ml-64">
         <Header />

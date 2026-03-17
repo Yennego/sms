@@ -33,7 +33,7 @@ export default function ClassBuilderPage() {
 
   const [step, setStep] = useState<number>(0);
   const [form, setForm] = useState<{
-    academic_year: string;
+    academic_year_id: string;
     grade_id: string;
     section_id: string;
     subject_id: string;
@@ -45,7 +45,7 @@ export default function ClassBuilderPage() {
     end_date?: string;
     description?: string;
   }>({
-    academic_year: '',
+    academic_year_id: '',
     grade_id: '',
     section_id: '',
     subject_id: '',
@@ -71,7 +71,7 @@ export default function ClassBuilderPage() {
       setTeachers(t || []);
       const yearName = year?.name || '';
       setCurrentYearName(yearName);
-      setForm(prev => ({ ...prev, academic_year: yearName }));
+      setForm(prev => ({ ...prev, academic_year_id: year?.id || '' }));
     }
     boot();
   }, []);
@@ -83,13 +83,13 @@ export default function ClassBuilderPage() {
     if (step === 0) return !!form.grade_id && !!form.section_id;
     if (step === 1) return !!form.subject_id;
     if (step === 2) return !!form.teacher_id;
-    if (step === 3) return !!form.academic_year && !!form.start_date;
+    if (step === 3) return !!form.academic_year_id && !!form.start_date;
     return true;
   }, [step, form]);
 
   const handleCreate = async () => {
     const payload: ClassCreate = {
-      academic_year: form.academic_year,
+      academic_year_id: form.academic_year_id,
       grade_id: form.grade_id,
       section_id: form.section_id,
       subject_id: form.subject_id,
@@ -99,10 +99,11 @@ export default function ClassBuilderPage() {
       end_date: form.end_date,
       name: form.name,
       room: form.room,
-      description: form.description
+      description: form.description,
+      capacity: 30 // Default capacity
     };
     await classService.buildClass(payload);
-    // Simple UX: redirect to classes overview
+    // redirect to classes overview
     window.location.href = '../classes';
   };
 
@@ -172,7 +173,7 @@ export default function ClassBuilderPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="text-sm font-medium">Academic Year</label>
-                <Input value={form.academic_year || currentYearName || ''} disabled />
+                <Input value={currentYearName || 'Loading...'} disabled />
               </div>
               <div>
                 <label className="text-sm font-medium">Start Date</label>
@@ -206,7 +207,7 @@ export default function ClassBuilderPage() {
               <p><strong>Section:</strong> {sections.find(s => s.id === form.section_id)?.name || '—'}</p>
               <p><strong>Subject:</strong> {subjects.find(s => s.id === form.subject_id)?.name || '—'}</p>
               <p><strong>Teacher:</strong> {teachers.find(t => t.id === form.teacher_id) ? [teachers.find(t => t.id === form.teacher_id)?.first_name, teachers.find(t => t.id === form.teacher_id)?.last_name].filter(Boolean).join(' ') : '—'}</p>
-              <p><strong>Academic Year:</strong> {form.academic_year || '—'}</p>
+              <p><strong>Academic Year:</strong> {currentYearName || '—'}</p>
               <p><strong>Start:</strong> {form.start_date || '—'} <strong>End:</strong> {form.end_date || '—'}</p>
               <p><strong>Name:</strong> {form.name || '—'} <strong>Room:</strong> {form.room || '—'} <strong>Status:</strong> {form.is_active ? 'Active' : 'Inactive'}</p>
               <div className="flex gap-2 mt-4">

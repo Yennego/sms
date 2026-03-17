@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useTenant } from '@/hooks/use-tenant';
 import { useAuth } from '@/hooks/use-auth';
 import AdminDashboard from '@/components/dashboards/AdminDashboard';
+import { contextualCookies, getCurrentContext } from '@/utils/cookie-manager';
 
 export default function AdminDashboardPage() {
   const router = useRouter();
@@ -36,6 +37,9 @@ export default function AdminDashboardPage() {
     try {
       // Store current tenant information when we have the data
       if (!tenantLoading && stableTenant) {
+        const currentContext = getCurrentContext();
+        contextualCookies.set('currentTenantDomain', stableTenant.domain || '', { expires: 30 }, currentContext);
+        contextualCookies.set('currentTenantName', stableTenant.name || '', { expires: 30 }, currentContext);
         localStorage.setItem('currentTenantDomain', stableTenant.domain || '');
         localStorage.setItem('currentTenantName', stableTenant.name || '');
       }

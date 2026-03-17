@@ -17,19 +17,23 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
-  User
+  User,
+  BarChart3,
+  Terminal
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 const navigation = [
-  { name: 'Global Dashboard', href: '/super-admin/dashboard', icon: LayoutDashboard },
+  { name: 'Metrics Dashboard', href: '/super-admin/dashboard', icon: LayoutDashboard },
   { name: 'Tenant Management', href: '/super-admin/tenants', icon: Building },
+  { name: 'AI Analytics', href: '/super-admin/analytics', icon: BarChart3 },
   { name: 'User Management', href: '/super-admin/users', icon: Users },
   { name: 'Roles & Permissions', href: '/super-admin/roles-permissions', icon: Shield },
   { name: 'Security & Audit', href: '/super-admin/security', icon: Lock },
   { name: 'System Settings', href: '/super-admin/settings', icon: Settings },
   { name: 'Profile', href: '/super-admin/profile', icon: User },
   { name: 'Database', href: '/super-admin/database', icon: Database },
+  { name: 'API Documentation', href: '/super-admin/api-docs', icon: Terminal },
   { name: 'System Health', href: '/super-admin/health', icon: Activity },
 ];
 
@@ -40,11 +44,11 @@ interface SuperAdminSidebarProps {
   onCollapse?: (collapsed: boolean) => void;
 }
 
-export default function SuperAdminSidebar({ 
-  isOpen = false, 
-  onToggle, 
-  isCollapsed = false, 
-  onCollapse 
+export default function SuperAdminSidebar({
+  isOpen = false,
+  onToggle,
+  isCollapsed = false,
+  onCollapse
 }: SuperAdminSidebarProps) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
@@ -66,12 +70,12 @@ export default function SuperAdminSidebar({
     <>
       {/* Mobile Overlay */}
       {isOpen && (
-        <div 
+        <div
           className="fixed inset-0 z-40 bg-black bg-opacity-50 transition-opacity duration-300 ease-in-out md:hidden"
           onClick={onToggle}
         />
       )}
-      
+
       {/* Sidebar */}
       <div className={cn(
         "flex flex-col transition-all duration-300 ease-in-out",
@@ -113,8 +117,8 @@ export default function SuperAdminSidebar({
                     className={cn(
                       "w-full mb-1 transition-all duration-200",
                       isCollapsed ? "justify-center px-2" : "justify-start",
-                      isActive 
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground" 
+                      isActive
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
                         : "text-sidebar-foreground hover:bg-sidebar-accent/50"
                     )}
                   >
@@ -176,10 +180,10 @@ export default function SuperAdminSidebar({
                     Super Administrator
                   </p>
                 </div>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={logout} 
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => logout()}
                   title="Sign out"
                   className="flex-shrink-0"
                 >
@@ -188,10 +192,10 @@ export default function SuperAdminSidebar({
               </>
             )}
             {isCollapsed && (
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={logout} 
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => logout()}
                 title="Sign out"
                 className="mt-2"
               >

@@ -8,7 +8,18 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, BarChart3, TrendingUp, Users, ShieldAlert, DollarSign, CreditCard } from 'lucide-react';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  AreaChart,
+  Area
+} from 'recharts';
 import { useAuth } from '@/hooks/use-auth';
 import { useSuperAdminService } from '@/services/api/super-admin-service';
 import {
@@ -18,89 +29,76 @@ import {
   useSuperAdminRecentTenants,
   useSuperAdminUserList,
   useSuperAdminRoles,
-  useSuperAdminRoleStatistics
+  useSuperAdminRoleStatistics,
+  useSuperAdminRevenueByTenant
 } from '@/hooks/queries/super-admin';
+import {
+  useReactTable,
+  getCoreRowModel,
+  flexRender,
+  createColumnHelper,
+} from '@tanstack/react-table';
+import { useQueryState, parseAsString, parseAsInteger } from 'nuqs';
+import { UserWithRoles } from '@/services/api/super-admin-service';
 
 // Dynamic role type - no longer static
 type UserRole = string;
 
-interface FilterState {
-  search: string;
-  tenantStatus: 'all' | 'active' | 'inactive';
-  userRole: 'all' | UserRole;
-  dateRange: 'all' | '7d' | '30d' | '90d';
-}
-
 export default function SuperAdminDashboard() {
   const { user: currentUser } = useAuth();
+
+  // nuqs URL state
+  const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
+  const [userRole, setUserRole] = useQueryState('role', parseAsString.withDefault('all'));
+  const [dateRange, setDateRange] = useQueryState('range', parseAsString.withDefault('all'));
+  const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
+  const usersPerPage = 10;
 
   // TanStack Query Hooks
   const { data: tenantStats, isLoading: tenantLoading } = useSuperAdminTenantStats();
   const { data: userStats, isLoading: userLoading } = useSuperAdminUserStats();
-  const { data: systemMetrics, isLoading: systemLoading } = useSuperAdminSystemMetrics({ refetchInterval: 30000 });
+
+  // Memoize options to prevent infinite refetch loops
+  const systemMetricsOptions = React.useMemo(() => ({ refetchInterval: 30000 }), []);
+  const { data: systemMetrics, isLoading: systemLoading } = useSuperAdminSystemMetrics(systemMetricsOptions);
+
   const { data: recentTenants, isLoading: recentLoading } = useSuperAdminRecentTenants();
   const { data: roles, isLoading: rolesLoading } = useSuperAdminRoles();
   const { data: roleStats, isLoading: roleStatsLoading } = useSuperAdminRoleStatistics();
+  const { data: revenueByTenant, isLoading: revenueLoading } = useSuperAdminRevenueByTenant();
 
   // Fetch users with a high limit for the overview table/analytics
   const { data: users, isLoading: usersLoading, refetch: refetchUsers } = useSuperAdminUserList({ limit: 1000 });
 
-  // Page state for filters and pagination
-  const [currentPage, setCurrentPage] = useState(1);
-  const usersPerPage = 10;
+  const isLoading = tenantLoading || userLoading || systemLoading || recentLoading || rolesLoading || usersLoading || roleStatsLoading || revenueLoading;
 
-  const [filters, setFilters] = useState<FilterState>({
-    search: '',
-    tenantStatus: 'all',
-    userRole: 'all',
-    dateRange: 'all'
-  });
-
-  const isLoading = tenantLoading || userLoading || systemLoading || recentLoading || rolesLoading || usersLoading || roleStatsLoading;
+  const usersList = React.useMemo(() => users?.items || [], [users]);
 
   // Filter functions with null safety
-  const filteredUsers = Array.isArray(users) ? users.filter(user => {
-    const matchesSearch = filters.search === '' ||
-      (user.first_name?.toLowerCase() || '').includes(filters.search.toLowerCase()) ||
-      (user.last_name?.toLowerCase() || '').includes(filters.search.toLowerCase()) ||
-      (user.email?.toLowerCase() || '').includes(filters.search.toLowerCase());
+  const filteredUsers = React.useMemo(() => {
+    return usersList.filter((user: UserWithRoles) => {
+      const matchesSearch = search === '' ||
+        (user.first_name?.toLowerCase() || '').includes(search.toLowerCase()) ||
+        (user.last_name?.toLowerCase() || '').includes(search.toLowerCase()) ||
+        (user.email?.toLowerCase() || '').includes(search.toLowerCase());
 
-    const matchesRole = filters.userRole === 'all' ||
-      user.roles.some(role => role.name === filters.userRole);
+      const matchesRole = userRole === 'all' ||
+        (user.roles && user.roles.some((role: any) => role.name === userRole));
 
-    return matchesSearch && matchesRole;
-  }) : [];
+      return matchesSearch && matchesRole;
+    });
+  }, [usersList, search, userRole]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredUsers.length / usersPerPage);
-  const startIndex = (currentPage - 1) * usersPerPage;
+  const startIndex = (page - 1) * usersPerPage;
   const endIndex = startIndex + usersPerPage;
-  const currentUsers = filteredUsers.slice(startIndex, endIndex);
+  const currentUsers = React.useMemo(() => filteredUsers.slice(startIndex, endIndex), [filteredUsers, startIndex, endIndex]);
 
-  // Reset to first page when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [filters.search, filters.userRole]);
+  // TanStack Table Setup
+  const columnHelper = createColumnHelper<UserWithRoles>();
 
-  // Pagination handlers
-  const goToPage = (page: number) => {
-    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
-  };
-
-  const goToPreviousPage = () => {
-    if (currentPage > 1) {
-      setCurrentPage(currentPage - 1);
-    }
-  };
-
-  const goToNextPage = () => {
-    if (currentPage < totalPages) {
-      setCurrentPage(currentPage + 1);
-    }
-  };
-
-  // Get role badge color
-  const getRoleBadgeColor = (roleName: string) => {
+  const getRoleBadgeColor = React.useCallback((roleName: string) => {
     const roleColors: { [key: string]: string } = {
       'super-admin': 'bg-red-100 text-red-800',
       'admin': 'bg-blue-100 text-blue-800',
@@ -115,12 +113,70 @@ export default function SuperAdminDashboard() {
       'accountant': 'bg-cyan-100 text-cyan-800'
     };
     return roleColors[roleName] || 'bg-gray-100 text-gray-800';
-  };
+  }, []);
+
+  const columns = React.useMemo(() => [
+    columnHelper.accessor(row => `${row.first_name || ''} ${row.last_name || ''}`.trim(), {
+      id: 'name',
+      header: 'Name',
+      cell: info => <span className="font-medium text-gray-900">{info.getValue() || 'Unnamed User'}</span>,
+    }),
+    columnHelper.accessor('email', {
+      header: 'Email',
+    }),
+    columnHelper.accessor('roles', {
+      header: 'Roles',
+      cell: info => (
+        <div className="flex flex-wrap gap-1">
+          {(info.getValue() || []).map((role) => (
+            <Badge key={role.id} className={getRoleBadgeColor(role.name)}>
+              {role.displayName || role.name}
+            </Badge>
+          ))}
+        </div>
+      ),
+    }),
+    columnHelper.accessor('is_active', {
+      header: 'Status',
+      cell: info => (
+        <Badge variant={info.getValue() ? 'default' : 'secondary'}>
+          {info.getValue() ? 'Active' : 'Inactive'}
+        </Badge>
+      ),
+    }),
+  ], [columnHelper, getRoleBadgeColor]);
+
+  const table = useReactTable({
+    data: currentUsers,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+  });
+
+  // Pagination handlers
+  const goToPage = React.useCallback((newPage: number) => {
+    setPage(Math.max(1, Math.min(newPage, totalPages)));
+  }, [setPage, totalPages]);
+
+  const goToPreviousPage = React.useCallback(() => {
+    if (page > 1) {
+      setPage(page - 1);
+    }
+  }, [page, setPage]);
+
+  const goToNextPage = React.useCallback(() => {
+    if (page < totalPages) {
+      setPage(page + 1);
+    }
+  }, [page, totalPages, setPage]);
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg">Loading dashboard...</div>
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <div className="relative w-12 h-12">
+          <div className="absolute inset-0 border-4 border-primary/20 rounded-full"></div>
+          <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+        </div>
+        <div className="text-muted-foreground animate-pulse">Loading SaaS insights...</div>
       </div>
     );
   }
@@ -145,20 +201,26 @@ export default function SuperAdminDashboard() {
               <Input
                 id="search"
                 placeholder="Search by name or email..."
-                value={filters.search}
-                onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
               />
             </div>
 
             <div>
               <Label htmlFor="userRole">User Role</Label>
-              <Select value={filters.userRole} onValueChange={(value) => setFilters(prev => ({ ...prev, userRole: value as UserRole }))}>
+              <Select value={userRole} onValueChange={(value) => {
+                setUserRole(value);
+                setPage(1);
+              }}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Roles</SelectItem>
-                  {Array.isArray(roles) && roles.map((role) => (
+                  {Array.isArray(roles) && roles.map((role: any) => (
                     <SelectItem key={role.id} value={role.name}>
                       {role.name.charAt(0).toUpperCase() + role.name.slice(1).replace('-', ' ')}
                     </SelectItem>
@@ -169,7 +231,7 @@ export default function SuperAdminDashboard() {
 
             <div>
               <Label htmlFor="dateRange">Date Range</Label>
-              <Select value={filters.dateRange} onValueChange={(value) => setFilters(prev => ({ ...prev, dateRange: value as FilterState['dateRange'] }))}>
+              <Select value={dateRange} onValueChange={(value) => setDateRange(value)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select range" />
                 </SelectTrigger>
@@ -187,75 +249,198 @@ export default function SuperAdminDashboard() {
 
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Tenants</CardTitle>
+            <BarChart3 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{tenantStats?.total || 0}</div>
             <p className="text-xs text-muted-foreground">
-              {tenantStats?.active || 0} active, {tenantStats?.inactive || 0} inactive
+              <span className="text-green-600 font-medium">{tenantStats?.active || 0} active</span>, {tenantStats?.inactive || 0} inactive
             </p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Users</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{userStats?.total || 0}</div>
             <p className="text-xs text-muted-foreground">
-              {userStats?.active || 0} active, {userStats?.inactive || 0} inactive
+              {userStats?.avgPerTenant || 0} avg per tenant
             </p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">System Health</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{systemMetrics?.cpuUsage || 0}%</div>
-            <p className="text-xs text-muted-foreground">
-              CPU Usage
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Growth Rate</CardTitle>
+            <CardTitle className="text-sm font-medium">Monthly Growth</CardTitle>
+            <TrendingUp className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">+{tenantStats?.growthRate || 0}%</div>
             <p className="text-xs text-muted-foreground">
-              {tenantStats?.newThisMonth || 0} new tenants this month
+              {tenantStats?.newThisMonth || 0} new tenants (30d)
             </p>
+          </CardContent>
+        </Card>
+
+        <Card className="hover:shadow-md transition-shadow border-orange-100">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active Logins</CardTitle>
+            <ShieldAlert className="h-4 w-4 text-orange-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{userStats?.recentLogins || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              Users active in last 24h
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* New Revenue Card */}
+        <Card className="hover:shadow-md transition-shadow border-green-100 bg-green-50/30">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Est. Monthly Revenue</CardTitle>
+            <DollarSign className="h-4 w-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-700">
+              ${systemMetrics?.revenue_metrics?.total_monthly_revenue?.toLocaleString() || '0.00'}
+            </div>
+            <div className="flex flex-col gap-1 mt-1">
+              <p className="text-[10px] text-muted-foreground flex justify-between">
+                <span>Flat Rate:</span>
+                <span className="font-semibold">${systemMetrics?.revenue_metrics?.flat_rate_revenue?.toLocaleString() || '0.00'}</span>
+              </p>
+              <p className="text-[10px] text-muted-foreground flex justify-between">
+                <span>Per User:</span>
+                <span className="font-semibold">${systemMetrics?.revenue_metrics?.per_user_revenue?.toLocaleString() || '0.00'}</span>
+              </p>
+            </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Role Distribution */}
+      {/* Growth Trends Chart */}
       <Card>
         <CardHeader>
-          <CardTitle>User Role Distribution</CardTitle>
-          <CardDescription>Distribution of users across different roles</CardDescription>
+          <CardTitle>Tenant Growth Trends</CardTitle>
+          <CardDescription>Cumulative tenant registrations over the last 6 months</CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {Array.isArray(roleStats) && roleStats.map((stat) => (
-              <div key={stat.name} className="text-center p-4 border rounded-lg">
-                <div className="text-2xl font-bold">{stat.count}</div>
-                <div className="text-sm text-muted-foreground">{stat.name.replace('-', ' ')}</div>
-                <div className="text-xs text-muted-foreground">{stat.percentage.toFixed(1)}%</div>
-              </div>
-            ))}
-          </div>
+        <CardContent className="h-[300px] mt-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={systemMetrics?.tenantGrowth || []}>
+              <defs>
+                <linearGradient id="colorTenants" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+              <XAxis
+                dataKey="month"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: '#666', fontSize: 12 }}
+              />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: '#666', fontSize: 12 }}
+              />
+              <Tooltip
+                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+              />
+              <Area
+                type="monotone"
+                dataKey="tenants"
+                stroke="#0ea5e9"
+                strokeWidth={2}
+                fillOpacity={1}
+                fill="url(#colorTenants)"
+                name="Total Tenants"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
         </CardContent>
       </Card>
 
       {/* Detailed Analytics */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Revenue by Tenant</CardTitle>
+            <CardDescription>Monthly revenue breakdown per tenant (excludes admins/no-role)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="max-h-96 overflow-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Tenant</TableHead>
+                    <TableHead>Plan</TableHead>
+                    <TableHead className="text-right">Billable Users</TableHead>
+                    <TableHead className="text-right">Monthly Revenue</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {revenueByTenant?.map((tenant) => (
+                    <TableRow key={tenant.tenant_id}>
+                      <TableCell className="font-medium">{tenant.tenant_name}</TableCell>
+                      <TableCell className="capitalize">{tenant.plan_type.replace('_', ' ')} (${tenant.plan_amount})</TableCell>
+                      <TableCell className="text-right">{tenant.billable_users}</TableCell>
+                      <TableCell className="text-right font-bold text-green-600">
+                        ${tenant.monthly_revenue.toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {(!revenueByTenant || revenueByTenant.length === 0) && (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center py-4 text-muted-foreground">
+                        No revenue data available
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Role Distribution (moved inside the grid) */}
+        <Card>
+          <CardHeader>
+            <CardTitle>User Role Distribution</CardTitle>
+            <CardDescription>Breakdown of users by role (Total: {userStats?.total || 0})</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4">
+              {Array.isArray(roleStats) && roleStats.map((stat) => (
+                <div key={stat.name} className="text-center p-3 border rounded-lg bg-gray-50/50">
+                  <div className="text-xl font-bold">{stat.count}</div>
+                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{stat.name.replace('-', ' ')}</div>
+                  <div className="text-[10px] text-muted-foreground">{stat.percentage.toFixed(1)}%</div>
+                </div>
+              ))}
+              {userStats && userStats.usersWithoutRoles > 0 && (
+                <div className="text-center p-3 border rounded-lg bg-orange-50/50 border-orange-100">
+                  <div className="text-xl font-bold text-orange-700">{userStats.usersWithoutRoles}</div>
+                  <div className="text-xs font-medium text-orange-600 uppercase tracking-wider">No Role assigned</div>
+                  <div className="text-[10px] text-orange-500">
+                    {((userStats.usersWithoutRoles / (userStats.total || 1)) * 100).toFixed(1)}% (Not Billable)
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Users Table and Recent Tenants */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Users Table with Pagination */}
         <Card>
@@ -277,24 +462,13 @@ export default function SuperAdminDashboard() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {currentUsers.map((user) => (
-                      <TableRow key={user.id}>
-                        <TableCell>{user.first_name} {user.last_name}</TableCell>
-                        <TableCell>{user.email}</TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {user.roles.map((role) => (
-                              <Badge key={role.id} className={getRoleBadgeColor(role.name)}>
-                                {role.name}
-                              </Badge>
-                            ))}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={user.is_active ? 'default' : 'secondary'}>
-                            {user.is_active ? 'Active' : 'Inactive'}
-                          </Badge>
-                        </TableCell>
+                    {table.getRowModel().rows.map(row => (
+                      <TableRow key={row.id}>
+                        {row.getVisibleCells().map(cell => (
+                          <TableCell key={cell.id}>
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </TableCell>
+                        ))}
                       </TableRow>
                     ))}
                   </TableBody>
@@ -312,7 +486,7 @@ export default function SuperAdminDashboard() {
                       variant="outline"
                       size="sm"
                       onClick={goToPreviousPage}
-                      disabled={currentPage === 1}
+                      disabled={page === 1}
                     >
                       <ChevronLeft className="h-4 w-4" />
                       Previous
@@ -320,29 +494,29 @@ export default function SuperAdminDashboard() {
 
                     <div className="flex items-center space-x-1">
                       {Array.from({ length: totalPages }, (_, i) => i + 1)
-                        .filter(page => {
+                        .filter(p => {
                           // Show first page, last page, current page, and pages around current
-                          return page === 1 ||
-                            page === totalPages ||
-                            Math.abs(page - currentPage) <= 1;
+                          return p === 1 ||
+                            p === totalPages ||
+                            Math.abs(p - page) <= 1;
                         })
-                        .map((page, index, array) => {
+                        .map((p, index, array) => {
                           // Add ellipsis if there's a gap
                           const prevPage = array[index - 1];
-                          const showEllipsis = prevPage && page - prevPage > 1;
+                          const showEllipsis = prevPage && p - prevPage > 1;
 
                           return (
-                            <React.Fragment key={page}>
+                            <React.Fragment key={p}>
                               {showEllipsis && (
                                 <span className="px-2 text-muted-foreground">...</span>
                               )}
                               <Button
-                                variant={currentPage === page ? "default" : "outline"}
+                                variant={page === p ? "default" : "outline"}
                                 size="sm"
-                                onClick={() => goToPage(page)}
+                                onClick={() => goToPage(p)}
                                 className="w-8 h-8 p-0"
                               >
-                                {page}
+                                {p}
                               </Button>
                             </React.Fragment>
                           );
@@ -353,7 +527,7 @@ export default function SuperAdminDashboard() {
                       variant="outline"
                       size="sm"
                       onClick={goToNextPage}
-                      disabled={currentPage === totalPages}
+                      disabled={page === totalPages}
                     >
                       Next
                       <ChevronRight className="h-4 w-4" />

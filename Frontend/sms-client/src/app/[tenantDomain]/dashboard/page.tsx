@@ -1,148 +1,78 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { useTenant } from '@/hooks/use-tenant';
 import { useAuth } from '@/hooks/use-auth';
 import AdminDashboard from '@/components/dashboards/AdminDashboard';
 import TeacherDashboard from '@/components/dashboards/TeacherDashboard';
 import StudentDashboard from '@/components/dashboards/StudentDashboard';
 import SuperAdminDashboard from '@/components/dashboards/SuperAdminDashboard';
+import { Loader2 } from "lucide-react";
 
 export default function TenantDashboardPage() {
   const router = useRouter();
+  const params = useParams();
+  const tenantDomain = (params?.tenantDomain as string) || "";
+  
   const { tenant, isLoading: tenantLoading } = useTenant();
-  const { user, isLoading: authLoading } = useAuth();
-  const [error, setError] = useState<string | null>(null);
-  
-  // Stabilize tenant object to prevent unnecessary re-renders
-  const stableTenant = useMemo(() => {
-    if (!tenant) return null;
-    return {
-      domain: tenant.domain,
-      name: tenant.name,
-      id: tenant.id
-    };
-  }, [tenant]);
-  
-  // Get user role early to use in hooks
-  const userRole = user?.role || 
-    (Array.isArray(user?.roles) && user.roles.length > 0 ? 
-      (typeof user.roles[0] === 'string' ? 
-        user.roles[0] : 
-        user.roles[0].name) : 
-      'admin');
-  
-  const isSuperAdmin = userRole === 'super_admin';
-  
-  useEffect(() => {
-    try {
-      // Store current tenant information when we have the data
-      if (!tenantLoading && stableTenant) {
-        localStorage.setItem('currentTenantDomain', stableTenant.domain || '');
-        localStorage.setItem('currentTenantName', stableTenant.name || '');
-      }
-      
-      if (!tenantLoading && !stableTenant) {
-        setError('Tenant information not found');
-      }
-    } catch (err) {
-      setError('An error occurred while loading dashboard');
-      console.error('Dashboard error:', err);
-    }
-  }, [tenantLoading, stableTenant]);
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
-  // Handle redirect to login if no user
-  useEffect(() => {
-    if (!authLoading && !user) {
-      // Check if we have tenant info to determine redirect path
-      if (stableTenant?.domain) {
-        router.push(`/${stableTenant.domain}/login`);
-      } else {
-        // Fallback to root login if no tenant domain
-        router.push('/login');
-      }
+  // Derive role
+  const userRole = useMemo(() => {
+    if (!user) return 'admin';
+    if (user.role) return user.role;
+    if (Array.isArray(user.roles) && user.roles.length > 0) {
+      return typeof user.roles[0] === 'string' ? user.roles[0] : user.roles[0].name;
     }
-  }, [user, authLoading, router, stableTenant]);
+    return 'admin';
+  }, [user]);
 
-  // Handle super-admin redirect - moved to hooks section
+  const isSuperAdmin = userRole === 'super_admin' || userRole === 'superadmin';
+
   useEffect(() => {
-    if (!authLoading && user && isSuperAdmin) {
-      router.push('/login');
-    }
-  }, [user, authLoading, isSuperAdmin, router]);
+    // Wait for both to finish loading
+    if (authLoading || tenantLoading) return;
 
-  // Show loading state
-  if (tenantLoading || authLoading) {
+    if (!isAuthenticated) {
+      console.log("[Dashboard] Not authenticated. Redirecting to login...");
+      setIsRedirecting(true);
+      const loginPath = tenantDomain ? `/${tenantDomain}/login` : "/login";
+      router.push(loginPath);
+      return;
+    }
+
+    if (isSuperAdmin) {
+      console.log("[Dashboard] Super admin in tenant context. Redirecting to super-admin dashboard...");
+      setIsRedirecting(true);
+      router.push('/super-admin/dashboard');
+    }
+  }, [isAuthenticated, authLoading, tenantLoading, isSuperAdmin, router, tenantDomain]);
+
+  if (tenantLoading || authLoading || isRedirecting) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold mb-2">Loading Dashboard...</h2>
-          <p className="text-gray-500">Please wait while we prepare your dashboard.</p>
-        </div>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+        <Loader2 className="h-10 w-10 animate-spin text-primary opacity-50" />
+        <p className="text-slate-500 font-medium animate-pulse">
+          {isRedirecting ? "Redirecting..." : "Preparing your dashboard..."}
+        </p>
       </div>
     );
   }
 
-  // Show error state
-  if (error) {
-    const getLoginPath = () => {
-      if (stableTenant?.domain) {
-        return `/${stableTenant.domain}/login`;
-      }
-      return '/login';
-    };
+  // Render based on role
+  if (userRole === 'admin') return <AdminDashboard />;
+  if (userRole === 'teacher') return <TeacherDashboard />;
+  if (userRole === 'student') return <StudentDashboard />;
 
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold mb-2 text-red-600">Error</h2>
-          <p className="text-gray-700">{error}</p>
-          <button 
-            onClick={() => router.push(getLoginPath())} 
-            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            Go to Login
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Return loading state if no user (while redirect is happening)
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold mb-2">Redirecting...</h2>
-          <p className="text-gray-500">Please wait...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Determine role-based flags
-  const isAdmin = userRole === 'admin';
-  const isTeacher = userRole === 'teacher';
-  const isStudent = userRole === 'student';
-
-  // Render appropriate dashboard component based on role
-  if (isSuperAdmin) {
-    return <SuperAdminDashboard />;
-  } else if (isAdmin) {
-    return <AdminDashboard />;
-  } else if (isTeacher) {
-    return <TeacherDashboard />;
-  } else if (isStudent) {
-    return <StudentDashboard />;
-  }
-  
-  // Fallback for unknown roles
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold">Dashboard</h1>
-      <p className="mt-4">Welcome to the school management system.</p>
-      <p className="mt-2 text-sm text-gray-600">Role: {userRole}</p>
+      <h1 className="text-2xl font-bold">Dashboard</h1>
+      <p className="mt-2 text-slate-600 font-medium">Welcome to the school management system.</p>
+      <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-lg inline-block">
+        <span className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Role: {userRole}</span>
+      </div>
     </div>
   );
 }

@@ -18,15 +18,16 @@ async function getAuth() {
   return { accessToken, tenantId };
 }
 
-export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const { accessToken, tenantId } = await getAuth();
     if (!accessToken) return NextResponse.json({ message: 'Authentication required' }, { status: 401 });
     if (!tenantId) return NextResponse.json({ message: 'Tenant context required' }, { status: 400 });
 
     const baseUrl = normalizeBaseUrl(process.env.BACKEND_API_URL);
     const { signal, cancel } = createTimeoutSignal(30_000);
-    const response = await fetch(`${baseUrl}/academics/academic-grades/${params.id}`, {
+    const response = await fetch(`${baseUrl}/academics/academic-grades/${id}`, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Tenant-ID': tenantId, 'Content-Type': 'application/json' },
       signal,
@@ -44,8 +45,9 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
   }
 }
 
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const { accessToken, tenantId } = await getAuth();
     if (!accessToken) return NextResponse.json({ message: 'Authentication required' }, { status: 401 });
     if (!tenantId) return NextResponse.json({ message: 'Tenant context required' }, { status: 400 });
@@ -53,7 +55,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     const body = await request.json();
     const baseUrl = normalizeBaseUrl(process.env.BACKEND_API_URL);
     const { signal: s2, cancel: c2 } = createTimeoutSignal(45_000);
-    const response = await fetch(`${baseUrl}/academics/academic-grades/${params.id}`, {
+    const response = await fetch(`${baseUrl}/academics/academic-grades/${id}`, {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Tenant-ID': tenantId, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -72,15 +74,16 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
   }
 }
 
-export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const { accessToken, tenantId } = await getAuth();
     if (!accessToken) return NextResponse.json({ message: 'Authentication required' }, { status: 401 });
     if (!tenantId) return NextResponse.json({ message: 'Tenant context required' }, { status: 400 });
 
     const baseUrl = normalizeBaseUrl(process.env.BACKEND_API_URL);
     const { signal: s3, cancel: c3 } = createTimeoutSignal(30_000);
-    const response = await fetch(`${baseUrl}/academics/academic-grades/${params.id}`, {
+    const response = await fetch(`${baseUrl}/academics/academic-grades/${id}`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Tenant-ID': tenantId, 'Content-Type': 'application/json' },
       signal: s3,

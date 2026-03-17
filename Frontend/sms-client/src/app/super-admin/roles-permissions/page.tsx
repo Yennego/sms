@@ -78,14 +78,16 @@ export default function RolePermissionManagementPage() {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [rolesData, permissionsData, usersData] = await Promise.all([
+      const [rolesData, permissionsData, usersResponse] = await Promise.all([
         apiClient.get<Role[]>('/super-admin/roles'),  // Changed from /auth/roles
         apiClient.get<Permission[]>('/super-admin/permissions'),  // Changed from /auth/permissions
-        apiClient.get<User[]>('/super-admin/users')
+        apiClient.get<any>('/super-admin/users')
       ]);
-      
+
       setRoles(rolesData);
       setPermissions(permissionsData);
+      // Backend returns PaginatedResponse[UserWithRoles]
+      const usersData = Array.isArray(usersResponse) ? usersResponse : (usersResponse.items || []);
       setUsers(usersData);
     } catch (error) {
       console.error('Error loading data:', error);
@@ -166,7 +168,8 @@ export default function RolePermissionManagementPage() {
     try {
       await apiClient.post(`/super-admin/users/${userId}/roles`, roleIds);  // Changed from /auth/users
       // Reload users data
-      const usersData = await apiClient.get<User[]>('/super-admin/users');
+      const usersResponse = await apiClient.get<any>('/super-admin/users');
+      const usersData = Array.isArray(usersResponse) ? usersResponse : (usersResponse.items || []);
       setUsers(usersData);
       setIsAssignRoleOpen(false);
       setSelectedUser(null);
@@ -321,11 +324,10 @@ export default function RolePermissionManagementPage() {
                   {roles.map((role) => (
                     <div
                       key={role.id}
-                      className={`p-3 border rounded-lg cursor-pointer transition-colors ${
-                        selectedRole?.id === role.id
+                      className={`p-3 border rounded-lg cursor-pointer transition-colors ${selectedRole?.id === role.id
                           ? 'bg-primary/10 border-primary'
                           : 'hover:bg-gray-50'
-                      }`}
+                        }`}
                       onClick={() => handleRoleSelect(role)}
                     >
                       <div className="font-medium">{role.name}</div>
@@ -357,7 +359,7 @@ export default function RolePermissionManagementPage() {
                       <h4 className="font-medium mb-2">Role Information</h4>
                       <p className="text-sm text-gray-600">{selectedRole.description || 'No description'}</p>
                     </div>
-                    
+
                     <div>
                       <h4 className="font-medium mb-2">Assign Permissions</h4>
                       <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">

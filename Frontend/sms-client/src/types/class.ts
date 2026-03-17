@@ -21,6 +21,13 @@ export interface ClassBase {
   grade_id: string;
   section_id: string;
   class_teacher_id?: string; // Class Sponsor
+  teacher_id?: string; // Primary teacher for subject (builder/edit views)
+  subject_id?: string; // Primary subject (builder/edit views)
+  grade_name?: string;
+  section_name?: string;
+  academic_year_name?: string;
+  class_teacher_name?: string;
+  subject_name?: string;
 }
 
 // Make start_date optional for create (backend defaults to today)
@@ -38,6 +45,8 @@ export interface ClassUpdate {
   grade_id?: string;
   section_id?: string;
   class_teacher_id?: string;
+  teacher_id?: string;
+  subject_id?: string;
 }
 
 export interface Class extends ClassBase {

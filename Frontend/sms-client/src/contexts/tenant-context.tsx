@@ -4,6 +4,8 @@ import { createContext, useContext, useState, ReactNode, useEffect, useRef } fro
 import { Tenant } from '@/types/tenant';
 import { usePathname } from 'next/navigation';
 import cookies from 'js-cookie';
+import { queryClient } from '@/lib/query-client';
+import { contextualCookies, getCurrentContext } from '@/utils/cookie-manager';
 
 type TenantContextType = {
   tenant: Tenant | null;
@@ -22,14 +24,24 @@ export function TenantProvider({ children }: { children: ReactNode }) {
   const lastPathnameRef = useRef<string | null>(null);
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
+  // Prevent data bleed: clear all TanStack Query caches whenever the tenant context changes
+  useEffect(() => {
+    if (tenant?.id) {
+      console.log('[Tenant Context] Tenant changed to', tenant.id, '- Clearing query cache');
+      queryClient.clear();
+    }
+  }, [tenant?.id]);
+
   useEffect(() => {
     if (!pathname) return;
     if (lastPathnameRef.current === pathname) return;
     lastPathnameRef.current = pathname;
 
-    // Extract tenant from subdomain, path, or localStorage
+    const currentContext = getCurrentContext();
+
+    // Extract tenant from subdomain, path, or Cookies
     function extractTenantFromDomain() {
-      // First, try to extract tenant ID from URL path
+      // First, try to extract tenant ID from URL path (Absolute Priority)
       const pathSegments = pathname?.split('/') || [];
       if (pathSegments.length >= 2 && pathSegments[1]) {
         const firstSegment = pathSegments[1];
@@ -82,15 +94,15 @@ export function TenantProvider({ children }: { children: ReactNode }) {
         if (dashboardRoutes.includes(pathSegments[1]) ||
           (pathSegments.length >= 3 && dashboardRoutes.includes(pathSegments[2]))) {
           console.log('[Tenant Context] Persisting tenant for dashboard route');
-          const persistedTenant = tenant.domain || localStorage.getItem('currentTenantDomain');
+          const persistedTenant = tenant.domain || contextualCookies.get('currentTenantDomain', currentContext);
           console.log('[Tenant Context] Persisted tenant value:', persistedTenant);
           return persistedTenant;
         }
       }
 
-      // Fallback to stored subdomain
-      const storedSubdomain = localStorage.getItem('currentTenantDomain');
-      console.log('[Tenant Context] Stored subdomain from localStorage:', storedSubdomain);
+      // Fallback to stored subdomain/domain in Cookies
+      const storedSubdomain = contextualCookies.get('currentTenantDomain', currentContext) || localStorage.getItem('currentTenantDomain');
+      console.log('[Tenant Context] Stored subdomain from cookies/localStorage:', storedSubdomain);
 
       // Clear invalid stored subdomains
       const invalidTenantValues = [
@@ -100,6 +112,8 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       ];
       if (storedSubdomain && invalidTenantValues.includes(storedSubdomain.toLowerCase())) {
         console.log('[Tenant Context] Clearing invalid stored subdomain:', storedSubdomain);
+        contextualCookies.remove('currentTenantDomain', currentContext);
+        contextualCookies.remove('tenantId', currentContext);
         localStorage.removeItem('currentTenantDomain');
         localStorage.removeItem('tenantId');
         try { cookies.remove('tn_tenantId', { path: '/' }); } catch { }
@@ -111,7 +125,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     };
 
     const tenantId = extractTenantFromDomain();
-    const cookieTenantId = cookies.get('tn_tenantId') || cookies.get('tenantId') || null;
+    const cookieTenantId = contextualCookies.get('tenantId', currentContext) || cookies.get('tn_tenantId') || cookies.get('tenantId') || null;
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const cookieIsUUID = typeof cookieTenantId === 'string' && uuidRegex.test(cookieTenantId);
     console.log('[Tenant Context] Extracted tenant ID:', tenantId);
@@ -124,6 +138,8 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     ];
     if (tenantId && invalidTenantValues.includes(tenantId.toLowerCase())) {
       console.log('[Tenant Context] Invalid tenant ID detected, clearing data:', tenantId);
+      contextualCookies.remove('currentTenantDomain', currentContext);
+      contextualCookies.remove('tenantId', currentContext);
       localStorage.removeItem('currentTenantDomain');
       localStorage.removeItem('tenantId');
       try { cookies.remove('tn_tenantId', { path: '/' }); } catch { }
@@ -142,20 +158,23 @@ export function TenantProvider({ children }: { children: ReactNode }) {
           domain: 'localhost'
         };
         setTenant(mockTenant);
+        contextualCookies.set('tenantId', tenantId, { expires: 30 }, currentContext);
         localStorage.setItem('tenantId', tenantId);
         setIsLoading(false);
       } else {
         // Check if tenantId is a UUID or a domain name
-        const isUUID = uuidRegex.test(tenantId || '') || cookieIsUUID;
+        const urlIsUUID = uuidRegex.test(tenantId || '');
+        const isUUID = urlIsUUID || (!tenantId && cookieIsUUID);
 
         // For valid UUIDs, create a minimal tenant object to allow API calls to work
         if (isUUID) {
-          const id = cookieIsUUID ? (cookieTenantId as string) : (tenantId as string);
+          const id = urlIsUUID ? (tenantId as string) : (cookieTenantId as string);
           console.log('[Tenant Context] UUID detected, fetching full details for:', id);
 
           // Set minimal tenant first to allow API calls to pass auth/tenant checks
           const minimalTenant = { id, name: 'Loading...', domain: null as any } as Tenant;
           setTenant(minimalTenant);
+          contextualCookies.set('tenantId', id, { expires: 30 }, currentContext);
           localStorage.setItem('tenantId', id);
           try { cookies.set('tn_tenantId', id, { path: '/' }); } catch { }
 
@@ -179,6 +198,13 @@ export function TenantProvider({ children }: { children: ReactNode }) {
 
               if (active !== false) {
                 const cleanVal = (val: any) => (val === '[null]' || val === 'null' ? null : val);
+                const formatColor = (val: any) => {
+                  const cleaned = cleanVal(val);
+                  if (!cleaned) return null;
+                  const trimmed = cleaned.trim();
+                  if (/^([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6})$/.test(trimmed)) return `#${trimmed}`;
+                  return trimmed;
+                };
                 const normalized: Tenant = {
                   id: data.id,
                   name: data.name,
@@ -186,14 +212,17 @@ export function TenantProvider({ children }: { children: ReactNode }) {
                   domain: data.domain,
                   subdomain: data.subdomain,
                   logo: cleanVal(data.logo),
-                  primaryColor: cleanVal(data.primary_color || data.primaryColor),
-                  secondaryColor: cleanVal(data.secondary_color || data.secondaryColor),
+                  primaryColor: formatColor(data.primary_color || data.primaryColor),
+                  secondaryColor: formatColor(data.secondary_color || data.secondaryColor),
                   isActive: active,
                   createdAt: data.created_at || data.createdAt,
                   updatedAt: data.updated_at || data.updatedAt
                 };
                 setTenant(normalized);
-                if (data.domain) localStorage.setItem('currentTenantDomain', data.domain);
+                if (data.domain) {
+                  contextualCookies.set('currentTenantDomain', data.domain, { expires: 30 }, currentContext);
+                  localStorage.setItem('currentTenantDomain', data.domain);
+                }
               }
             })
             .catch(err => {
@@ -208,9 +237,12 @@ export function TenantProvider({ children }: { children: ReactNode }) {
 
         // Optimistically set minimal tenant using domain, then fetch details to hydrate id/name
         const domainCandidate = tenantId as string;
-        const minimalDomainTenant = { id: localStorage.getItem('tenantId') || null, name: 'Loading...', domain: domainCandidate } as Tenant;
+        const storedId = contextualCookies.get('tenantId', currentContext) || localStorage.getItem('tenantId');
+        const minimalDomainTenant = { id: storedId || null, name: 'Loading...', domain: domainCandidate } as Tenant;
         setTenant(minimalDomainTenant);
+        contextualCookies.set('currentTenantDomain', domainCandidate, { expires: 30 }, currentContext);
         localStorage.setItem('currentTenantDomain', domainCandidate);
+        
         const endpoint = `/api/tenants?domain=${encodeURIComponent(domainCandidate)}`;
         console.log('[Tenant Context] Fetching tenant details from:', endpoint);
         fetch(endpoint)
@@ -232,11 +264,18 @@ export function TenantProvider({ children }: { children: ReactNode }) {
               return;
             }
 
-            const id = raw.id || raw.tenant_id || localStorage.getItem('tenantId');
-            const domain = raw.domain || raw.subdomain || localStorage.getItem('currentTenantDomain');
+            const id = raw.id || raw.tenant_id || contextualCookies.get('tenantId', currentContext) || localStorage.getItem('tenantId');
+            const domain = raw.domain || raw.subdomain || domainCandidate;
             const active = raw.isActive ?? raw.is_active ?? true;
             if (id && active !== false) {
               const cleanVal = (val: any) => (val === '[null]' || val === 'null' ? null : val);
+              const formatColor = (val: any) => {
+                const cleaned = cleanVal(val);
+                if (!cleaned) return null;
+                const trimmed = cleaned.trim();
+                if (/^([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6})$/.test(trimmed)) return `#${trimmed}`;
+                return trimmed;
+              };
 
               const normalized: Tenant = {
                 id,
@@ -245,16 +284,20 @@ export function TenantProvider({ children }: { children: ReactNode }) {
                 domain,
                 subdomain: raw.subdomain,
                 logo: cleanVal(raw.logo),
-                primaryColor: cleanVal(raw.primary_color || (raw as any).primaryColor),
-                secondaryColor: cleanVal(raw.secondary_color || (raw as any).secondaryColor),
+                primaryColor: formatColor(raw.primary_color || (raw as any).primaryColor),
+                secondaryColor: formatColor(raw.secondary_color || (raw as any).secondaryColor),
                 isActive: active,
                 createdAt: raw.created_at || (raw as any).createdAt,
                 updatedAt: raw.updated_at || (raw as any).updatedAt
               };
               console.log('[Tenant Context] Setting tenant data:', normalized);
               setTenant(normalized);
+              contextualCookies.set('tenantId', id, { expires: 30 }, currentContext);
               localStorage.setItem('tenantId', id);
-              if (domain) localStorage.setItem('currentTenantDomain', domain);
+              if (domain) {
+                contextualCookies.set('currentTenantDomain', domain, { expires: 30 }, currentContext);
+                localStorage.setItem('currentTenantDomain', domain);
+              }
               try { cookies.set('tn_tenantId', id, { path: '/' }); } catch { }
             } else {
               console.error('Tenant is inactive or not found, but keeping minimal tenant for API calls');
@@ -264,6 +307,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
               } else {
                 // Keep minimal domain tenant so UI can render
                 setTenant(minimalDomainTenant);
+                contextualCookies.remove('tenantId', currentContext);
                 localStorage.removeItem('tenantId');
               }
             }
@@ -277,6 +321,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
             } else {
               // Clear tenant data on error for domain-based lookups
               setTenant(minimalDomainTenant);
+              contextualCookies.remove('tenantId', currentContext);
               localStorage.removeItem('tenantId');
               try { cookies.remove('tn_tenantId', { path: '/' }); } catch { }
               try { cookies.remove('tenantId', { path: '/' }); } catch { }
@@ -296,7 +341,8 @@ export function TenantProvider({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   const refreshTenant = async () => {
-    const tid = tenant?.id || localStorage.getItem('tenantId');
+    const currentContext = getCurrentContext();
+    const tid = tenant?.id || contextualCookies.get('tenantId', currentContext) || localStorage.getItem('tenantId');
     if (!tid) return;
 
     try {
@@ -306,6 +352,13 @@ export function TenantProvider({ children }: { children: ReactNode }) {
         const data = await res.json();
         const active = data.isActive ?? data.is_active ?? true;
         const cleanVal = (val: any) => (val === '[null]' || val === 'null' ? null : val);
+        const formatColor = (val: any) => {
+          const cleaned = cleanVal(val);
+          if (!cleaned) return null;
+          const trimmed = cleaned.trim();
+          if (/^([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6})$/.test(trimmed)) return `#${trimmed}`;
+          return trimmed;
+        };
         const normalized: Tenant = {
           id: data.id,
           name: data.name,
@@ -313,8 +366,8 @@ export function TenantProvider({ children }: { children: ReactNode }) {
           domain: data.domain,
           subdomain: data.subdomain,
           logo: cleanVal(data.logo),
-          primaryColor: cleanVal(data.primary_color || data.primaryColor),
-          secondaryColor: cleanVal(data.secondary_color || data.secondaryColor),
+          primaryColor: formatColor(data.primary_color || data.primaryColor),
+          secondaryColor: formatColor(data.secondary_color || data.secondaryColor),
           isActive: active,
           createdAt: data.created_at || data.createdAt,
           updatedAt: data.updated_at || data.updatedAt

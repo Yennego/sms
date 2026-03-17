@@ -49,6 +49,22 @@ export function useClassService() {
       return client.post<Class>('/academics/classes', classData);
     },
 
+    buildClass: async (classData: ClassCreate): Promise<Class> => {
+      const client = await waitForApiClientReady();
+      // 1. Create the class
+      const cls = await client.post<Class>('/academics/classes', classData);
+
+      // 2. If a subject and teacher are provided, add the subject to the class
+      if (classData.subject_id) {
+        await client.post(`/academics/classes/${cls.id}/subjects`, {
+          subject_id: classData.subject_id,
+          teacher_id: classData.teacher_id || classData.class_teacher_id
+        });
+      }
+
+      return cls;
+    },
+
     updateClass: async (id: string, classData: ClassUpdate): Promise<Class> => {
       const client = await waitForApiClientReady();
       return client.put<Class>(`/academics/classes/${id}`, classData);
@@ -159,6 +175,14 @@ export function useClassService() {
           c.grade_id === identity.grade_id &&
           c.section_id === identity.section_id
       ) || null;
+    },
+
+    getClassesByTeacher: async (teacherId: string): Promise<Class[]> => {
+      return service.getClasses({ teacher_id: teacherId });
+    },
+
+    getClassesByGrade: async (gradeId: string): Promise<Class[]> => {
+      return service.getClasses({ grade_id: gradeId });
     }
   }), [waitForApiClientReady]);
 

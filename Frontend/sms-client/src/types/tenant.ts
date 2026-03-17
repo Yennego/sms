@@ -10,6 +10,18 @@ export interface Tenant {
   isActive?: boolean;
   createdAt?: string;
   updatedAt?: string;
+  plan_type?: string;
+  plan_amount?: number;
+  subscription_status?: string;
+  features?: {
+    enable_finance: boolean;
+    enable_transportation: boolean;
+    enable_cafeteria: boolean;
+    enable_health: boolean;
+    enable_parent_portal: boolean;
+    enable_sms_notifications: boolean;
+    [key: string]: boolean;
+  };
 }
 
 export interface TenantCreate {
@@ -21,8 +33,11 @@ export interface TenantCreate {
   primaryColor?: string;
   secondaryColor?: string;
   isActive?: boolean;
-  created_at?: string; // Add this
-  updated_at?: string; // Add this
+  created_at?: string;
+  updated_at?: string;
+  plan_type?: string;
+  plan_amount?: number;
+  subscription_status?: string;
 }
 
 export interface TenantUpdate {
@@ -34,6 +49,9 @@ export interface TenantUpdate {
   primaryColor?: string;
   secondaryColor?: string;
   isActive?: boolean;
+  plan_type?: string;
+  plan_amount?: number;
+  subscription_status?: string;
 }
 
 export interface AdminUserData {

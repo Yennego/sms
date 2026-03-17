@@ -38,6 +38,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [requiresPasswordChange, setRequiresPasswordChange] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  
   const [selectedTenantIdState, setSelectedTenantIdState] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       return contextualCookies.get('selectedTenantId', 'SUPER_ADMIN') || null;
@@ -79,6 +81,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('superAdminTenantId');
     localStorage.removeItem('selectedTenantId');
     localStorage.removeItem('user');
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
   }, []);
 
   const refreshAccessToken = useCallback(async () => {
@@ -105,10 +109,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       contextualCookies.set('accessToken', data.access_token, { expires: 1 / 24 }, context);
       contextualCookies.set('refreshToken', data.refresh_token, { expires: 7 }, context);
-      if (tenantId) {
-        contextualCookies.set('tenantId', tenantId, { expires: 7 }, context);
-      }
-
+      
+      // Update states
       setAccessToken(data.access_token);
       setRefreshToken(data.refresh_token);
 
@@ -165,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   // If 5xx error, wait and retry
                   if (res.status >= 500) {
                     console.warn(`[Auth] /api/auth/me returned ${res.status}, retrying (${i + 1}/${retries})...`);
-                    await new Promise(r => setTimeout(r, 1000 * (i + 1))); // Exponential backoff
+                    await new Promise(r => setTimeout(r, 1000 * (i + 1)));
                     continue;
                   }
                   return res;
@@ -181,29 +183,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const response = await fetchUserWithRetry(storedAccessToken);
 
             if (!response.ok) {
-              // If the token is expired, try to refresh it
               if (response.status === 401) {
                 const newAccessToken = await refreshAccessToken();
                 if (newAccessToken) {
                   const refreshedResponse = await fetch('/api/auth/me', {
-                    headers: {
-                      'Authorization': `Bearer ${newAccessToken}`,
-                    }
+                    headers: { 'Authorization': `Bearer ${newAccessToken}` }
                   });
                   if (!refreshedResponse.ok) throw new Error('Failed to fetch user after refresh');
                   const refreshedUserData = await refreshedResponse.json();
                   setUser(refreshedUserData as User);
-
-                  // CRITICAL FIX: Set tenantId cookie after token refresh
-                  const existingTenantId = contextualCookies.get('tn_tenantId', 'DEFAULT');
-                  console.log(`[Auth] Page load - userData.tenant_id: ${refreshedUserData.tenant_id}, existingTenantId: ${existingTenantId}`);
-                  if (!existingTenantId && refreshedUserData.tenant_id &&
-                    refreshedUserData.tenantId !== 'None' &&
-                    refreshedUserData.tenantId !== 'null' &&
-                    refreshedUserData.tenantId !== 'undefined') {
-                    console.log(`[Auth] Setting tenantId cookie during token refresh: ${refreshedUserData.tenant_id}`);
-                    contextualCookies.set('tn_tenantId', refreshedUserData.tenant_id, { expires: 7 }, 'DEFAULT');
-                  }
                 } else {
                   clearAuthState();
                 }
@@ -213,18 +201,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             } else {
               const userData = await response.json();
               setUser(userData as User);
-
-              // CRITICAL FIX: Set tenantId cookie during page load
-              const existingTenantId = contextualCookies.get('tn_tenantId', 'DEFAULT');
-              console.log(`[Auth] Page load - userData.tenant_id: ${userData.tenantId}, existingTenantId: ${existingTenantId}`);
-
-              if (!existingTenantId && userData.tenant_id &&
-                userData.tenantId !== 'None' &&
-                userData.tenantId !== 'null' &&
-                userData.tenantId !== 'undefined') {
-                console.log(`[Auth] Setting tenantId cookie during page load: ${userData.tenant_id}`);
-                contextualCookies.set('tn_tenantId', userData.tenant_id, { expires: 7 }, 'DEFAULT');
-              }
             }
           } catch (error) {
             console.error('Failed fetching user, trying to refresh token', error);
@@ -233,8 +209,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (e) {
         console.error("Error in auth data loading logic", e);
-        // Only clear auth state if it's not a transient error or if we've exhausted retries
-        // For now, we'll keep the existing behavior but log more details
         clearAuthState();
       } finally {
         setIsLoading(false);
@@ -243,7 +217,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     loadAuthData();
-  }, [refreshAccessToken, clearAuthState, user]);
+  }, [refreshAccessToken, clearAuthState, user, isLoggingOut]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -265,9 +239,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (!response.ok && response.status === 401) {
           const newToken = await refreshAccessToken();
-          if (!newToken) {
-            clearAuthState();
-          }
+          if (!newToken) clearAuthState();
         }
       } catch (error) {
         console.error('Token validation failed:', error);
@@ -285,18 +257,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       formData.append("username", email);
       formData.append("password", password);
 
-
       const currentContext = getCurrentContext();
-      // Use explicit tenantId if provided, otherwise fallback to cookie
       const tenantId = explicitTenantId || contextualCookies.get('tenantId', currentContext);
 
       const headers: { [key: string]: string } = {
         'Content-Type': 'application/x-www-form-urlencoded',
       };
 
-      if (tenantId) {
-        headers['X-Tenant-ID'] = tenantId;
-      }
+      if (tenantId) headers['X-Tenant-ID'] = tenantId;
 
       const response = await axios.post('/api/auth/login', formData, {
         headers,
@@ -311,7 +279,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const tempAxios = axios.create();
-
       const userResponse = await tempAxios.get('/api/auth/me', {
         headers: {
           'Authorization': `Bearer ${data.access_token}`,
@@ -321,9 +288,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       const userData = userResponse.data;
-      console.log(`[Auth] Full userData from /api/auth/me:`, userData);
-      console.log(`[Auth] userData.tenant_id value:`, userData.tenant_id);
-      console.log(`[Auth] userData.tenant_id type:`, typeof userData.tenant_id);
       setUser(userData);
 
       const isSuperAdmin = userData.roles && userData.roles.some((r: { name: string }) =>
@@ -337,24 +301,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         contextualCookies.set('refreshToken', data.refresh_token, { expires: 7 }, tokenStorageContext);
       }
 
-      if (isSuperAdmin) {
-        contextualCookies.remove('tenantId', 'DEFAULT');
-      } else {
-        console.log(`[Auth] Checking tenant_id condition:`, {
-          tenant_id: userData.tenant_id,
-          truthy: !!userData.tenant_id,
-          notNone: userData.tenant_id !== 'None',
-          notNull: userData.tenant_id !== 'null',
-          notUndefined: userData.tenant_id !== 'undefined'
-        });
-
-        if (userData.tenant_id && userData.tenant_id !== 'None' && userData.tenant_id !== 'null' && userData.tenant_id !== 'undefined') {
-          console.log(`[Auth] Setting tenantId cookie: ${userData.tenant_id}`);
-          contextualCookies.set('tenantId', userData.tenant_id, { expires: 7 }, 'DEFAULT');
-          contextualCookies.clearContext('SUPER_ADMIN');
-        } else {
-          console.log(`[Auth] NOT setting tenantId cookie because condition failed`);
-        }
+      if (!isSuperAdmin && userData.tenant_id && userData.tenant_id !== 'None') {
+        contextualCookies.set('tenantId', userData.tenant_id, { expires: 7 }, 'DEFAULT');
       }
 
       setAccessToken(data.access_token);
@@ -385,13 +333,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       setRequiresPasswordChange(false);
-
       await refetchUser();
     } catch (error) {
       console.error('Password change failed:', error);
-      if (axios.isAxiosError(error)) {
-        throw new Error(error.response?.data?.message || 'Failed to change password');
-      }
       throw error;
     }
   };
@@ -411,16 +355,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await refetchUser();
     } catch (error) {
       console.error('User update failed:', error);
-      if (axios.isAxiosError(error)) {
-        throw new Error(error.response?.data?.detail || error.response?.data?.message || 'Failed to update user');
-      }
       throw error;
     }
   };
 
   const refetchUser = async () => {
     if (!accessToken) return;
-
     try {
       const currentContext = getCurrentContext();
       const tenantId = contextualCookies.get('tenantId', currentContext);
@@ -431,20 +371,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
         timeout: 90000,
       });
-
       setUser(userResponse.data);
     } catch (error) {
       console.error('Failed to refetch user data:', error);
     }
   };
 
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-
   const logout = useCallback(async (options?: { redirectTo?: string }) => {
     try {
-      setIsLoggingOut(true); // Start logout state to hide UI
+      setIsLoggingOut(true);
 
-      // Call backend logout API to blacklist the token
       if (accessToken) {
         const currentContext = getCurrentContext();
         const tenantId = contextualCookies.get('tenantId', currentContext);
@@ -456,81 +392,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             'Content-Type': 'application/json',
             ...(tenantId && { 'X-Tenant-ID': tenantId }),
           },
-        }).catch(error => {
-          // Log error but don't fail logout
-          console.error('Backend logout error:', error);
-        });
+        }).catch(err => console.error('Backend logout error:', err));
       }
     } catch (error) {
-      console.error('Logout API call failed:', error);
+      console.error('Logout error:', error);
     } finally {
-      // Always clear local state regardless of API call result
-      clearAuthState();
+      // Get tenant domain BEFORE clearing auth state
+      const currentContext = getCurrentContext();
+      const tenantDomain = contextualCookies.get('currentTenantDomain', currentContext) || localStorage.getItem('currentTenantDomain');
+      const isSA = window.location.pathname.startsWith('/super-admin');
 
-      // Small delay to ensure state updates propagate before redirect
-      // This helps prevent "flash" of content if redirect is too fast
+      clearAuthState();
       await new Promise(resolve => setTimeout(resolve, 50));
 
-      const redirectTarget = options?.redirectTo;
-      if (redirectTarget) {
-        // Optional redirect path override (e.g. '/session-expired')
-        router.push(redirectTarget);
-        // Don't reset isLoggingOut here, let the new page load handle it
+      if (options?.redirectTo) {
+        router.push(options.redirectTo);
         return;
       }
 
-      const currentPath = window.location.pathname;
-      if (currentPath.startsWith('/super-admin')) {
+      if (isSA) {
         router.push('/super-admin/login');
+      } else if (tenantDomain) {
+        router.push(`/${tenantDomain}/login`);
       } else {
-        // Extract tenant domain from current path or localStorage
-        const tenantDomain = localStorage.getItem('currentTenantDomain');
-        const pathMatch = currentPath.match(/^\/([a-zA-Z0-9-]+)\//); // Extract domain from path like /domain/dashboard
-        const extractedDomain = pathMatch ? pathMatch[1] : null;
-
-        if (tenantDomain || extractedDomain) {
-          const domain = tenantDomain || extractedDomain;
-          router.push(`/${domain}/login`);
-        } else {
-          router.push('/login');
-        }
+        router.push('/login');
       }
-
-      // We don't set setIsLoggingOut(false) here because the page will unmount/reload
-      // If we did, it might flash the UI again before the redirect completes
     }
   }, [router, clearAuthState, accessToken]);
 
   const validateTokenBeforeRequest = async () => {
     if (!accessToken) return false;
-
     if (isValidating.current) return true;
     isValidating.current = true;
 
     try {
-      try {
-        const tokenParts = accessToken.split('.');
-        if (tokenParts.length === 3) {
-          const payload = JSON.parse(atob(tokenParts[1]));
-          const expiry = payload.exp * 1000;
-
-          if (Date.now() >= expiry - 60000) {
-            console.log('Token expired or about to expire, refreshing...');
-            const newToken = await refreshAccessToken();
-            return !!newToken;
-          }
-        }
-        return true;
-      } catch (error) {
-        console.error('Error validating token:', error);
-        try {
+      const tokenParts = accessToken.split('.');
+      if (tokenParts.length === 3) {
+        const payload = JSON.parse(atob(tokenParts[1]));
+        const expiry = payload.exp * 1000;
+        if (Date.now() >= expiry - 60000) {
           const newToken = await refreshAccessToken();
           return !!newToken;
-        } catch (refreshError) {
-          console.error('Token refresh failed during validation:', refreshError);
-          return false;
         }
       }
+      return true;
+    } catch (error) {
+      console.error('Error validating token:', error);
+      const newToken = await refreshAccessToken();
+      return !!newToken;
     } finally {
       isValidating.current = false;
     }
@@ -538,12 +447,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const prepareAuthHeaders = async () => {
     const isValid = await validateTokenBeforeRequest();
-    if (!isValid) {
-      return null;
-    }
-
-    const isSuperAdmin = user?.role === 'super-admin' ||
-      (user?.roles && user.roles.some((r: { name: string }) => r.name === 'super-admin'));
+    if (!isValid) return null;
 
     const headers: Record<string, string> = {
       'Authorization': `Bearer ${accessToken}`,
@@ -551,51 +455,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const currentContext = getCurrentContext();
     const tenantId = contextualCookies.get('tenantId', currentContext);
+    const isSA = user?.roles?.some((r: any) => r.name === 'superadmin' || r.name === 'super-admin');
 
-    if (tenantId && !isSuperAdmin) {
+    if (tenantId && !isSA) {
       headers['X-Tenant-ID'] = tenantId;
     }
 
     return headers;
   };
 
-  // Idle timeout: auto-logout after inactivity and route to session-expired
   const pathname = usePathname();
-
-  // Reset isLoggingOut when pathname changes (navigation complete)
   useEffect(() => {
     setIsLoggingOut(false);
   }, [pathname]);
 
-  // Idle timeout: auto-logout after inactivity and route to session-expired
   useEffect(() => {
     const minutesVal = Number(process.env.NEXT_PUBLIC_IDLE_TIMEOUT_MINUTES) || 15;
     const idleTimeoutMs = minutesVal * 60 * 1000;
-
     const lastActiveRef = { current: Date.now() };
-    const activityHandler = () => {
-      lastActiveRef.current = Date.now();
-    };
+    const activityHandler = () => { lastActiveRef.current = Date.now(); };
 
     const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
     events.forEach(e => window.addEventListener(e, activityHandler, { passive: true }));
 
     const interval = setInterval(() => {
       if (!accessToken) return;
-      const idleMs = Date.now() - lastActiveRef.current;
-      if (idleMs > idleTimeoutMs) {
-        const currentContext = getCurrentContext();
-        const tid = contextualCookies.get('tenantId', currentContext);
-        const target = tid ? `/${tid}/session-expired` : '/session-expired';
+      if (Date.now() - lastActiveRef.current > idleTimeoutMs) {
+        const isSA = user?.roles?.some((r: any) => r.name === 'superadmin' || r.name === 'super-admin');
+        const tid = contextualCookies.get('tenantId', getCurrentContext());
+        const target = (tid && !isSA) ? `/${tid}/session-expired` : '/session-expired';
         logout({ redirectTo: target });
       }
-    }, 30000); // check every 30 seconds
+    }, 30000);
 
     return () => {
       events.forEach(e => window.removeEventListener(e, activityHandler));
       clearInterval(interval);
     };
-  }, [accessToken, logout]);
+  }, [accessToken, logout, user]);
 
   return (
     <AuthContext.Provider value={{
@@ -624,8 +521,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (context === undefined) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };

@@ -266,6 +266,24 @@ export function useTenantService() {
       // Invalidate cache after mutation
       cachedTenants = null;
       return result;
-    }
+    },
+
+    async uploadLogo(file: File): Promise<{ url: string }> {
+      const response = await fetch(`/api/upload?filename=${encodeURIComponent(file.name)}`, {
+        method: 'POST',
+        body: file,
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to upload logo');
+      }
+
+      return response.json();
+    },
+
+    // Get tenant settings (includes modular feature flags)
+    getSettings: async (tenantId: string) => {
+      return await apiClient.get<any>(`/tenants/${tenantId}/settings`);
+    },
   };
 }

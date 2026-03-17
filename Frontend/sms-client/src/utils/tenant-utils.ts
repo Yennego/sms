@@ -1,4 +1,5 @@
 import cookies from 'js-cookie';
+import { contextualCookies, getCurrentContext } from './cookie-manager';
 
 /**
  * Utility interface for tenant data
@@ -13,8 +14,8 @@ export interface TenantData {
 /**
  * Extract tenant ID from various sources in priority order:
  * 1. URL path segments (UUID format)
- * 2. Cookies (tn_tenantId, tenantId)
- * 3. localStorage
+ * 2. Contextual Cookies (tn_tenantId, tenantId)
+ * 3. localStorage (fallback)
  */
 export function extractTenantId(): string | null {
   // Check URL path for tenant UUID
@@ -28,16 +29,18 @@ export function extractTenantId(): string | null {
         pathSegments[1] !== 'super-admin') {
       
       const tenantIdentifier = pathSegments[1];
-      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tenantIdentifier);
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tenantIdentifier) || 
+                     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tenantIdentifier);
       
       if (isUUID) {
         return tenantIdentifier;
       }
     }
     
-    // Fallback to stored tenant ID
-    const storedTenantId = cookies.get('tn_tenantId') || 
-                          cookies.get('tenantId') || 
+    // Fallback to contextual cookies
+    const currentContext = getCurrentContext();
+    const storedTenantId = contextualCookies.get('tenantId', currentContext) || 
+                          contextualCookies.get('tenantId', 'DEFAULT') ||
                           localStorage.getItem('tenantId');
     
     if (storedTenantId) {
@@ -80,8 +83,11 @@ export function extractTenantSubdomain(): string | null {
       }
     }
     
-    // Fallback to stored subdomain
-    return localStorage.getItem('currentTenantSubdomain');
+    // Fallback to contextual cookies then localStorage
+    const currentContext = getCurrentContext();
+    return contextualCookies.get('currentTenantDomain', currentContext) || 
+           localStorage.getItem('currentTenantSubdomain') ||
+           localStorage.getItem('currentTenantDomain');
   }
   
   return null;
@@ -102,13 +108,14 @@ export function extractTenantDomain(): string | null {
 export function getCurrentTenantData(): TenantData {
   const tenantId = extractTenantId();
   const tenantSubdomain = extractTenantSubdomain();
+  const currentContext = getCurrentContext();
   
   let tenantName: string | null = null;
   let tenantDomain: string | null = null;
   
   if (typeof window !== 'undefined') {
-    tenantName = localStorage.getItem('currentTenantName');
-    tenantDomain = localStorage.getItem('currentTenantDomain');
+    tenantName = contextualCookies.get('currentTenantName', currentContext) || localStorage.getItem('currentTenantName');
+    tenantDomain = contextualCookies.get('currentTenantDomain', currentContext) || localStorage.getItem('currentTenantDomain');
   }
   
   return {
@@ -131,18 +138,7 @@ export function hasValidTenantContext(): boolean {
  * Get tenant ID for API headers with subdomain context
  */
 export function getTenantIdForAPI(): string | null {
-  const tenantId = extractTenantId();
-  
-  if (tenantId) {
-    return tenantId;
-  }
-  
-  // For development, use the Top Foundation tenant ID
-  if (process.env.NODE_ENV === 'development') {
-    return '34624041-c24a-4400-a9b7-f692c3f3fba7'; // Top Foundation tenant ID
-  }
-  
-  return null;
+  return extractTenantId();
 }
 
 /**
@@ -150,28 +146,23 @@ export function getTenantIdForAPI(): string | null {
  */
 export function storeTenantData(tenantId: string, domain?: string, subdomain?: string, name?: string): void {
   if (typeof window !== 'undefined') {
-    // Store in localStorage
+    const currentContext = getCurrentContext();
+    const expiry = { expires: 30 }; // 30 days
+    
+    // Store in contextual cookies (Priority)
+    contextualCookies.set('tenantId', tenantId, expiry, currentContext);
+    if (domain) contextualCookies.set('currentTenantDomain', domain, expiry, currentContext);
+    if (name) contextualCookies.set('currentTenantName', name, expiry, currentContext);
+    
+    // Legacy support / Redundancy
     localStorage.setItem('tenantId', tenantId);
+    if (domain) localStorage.setItem('currentTenantDomain', domain);
+    if (subdomain) localStorage.setItem('currentTenantSubdomain', subdomain);
+    if (name) localStorage.setItem('currentTenantName', name);
     
-    if (domain) {
-      localStorage.setItem('currentTenantDomain', domain);
-    }
-    
-    if (subdomain) {
-      localStorage.setItem('currentTenantSubdomain', subdomain);
-    }
-    
-    if (name) {
-      localStorage.setItem('currentTenantName', name);
-    }
-    
-    // Store in cookies
-    cookies.set('tenantId', tenantId, { expires: 30 }); // 30 days
-    cookies.set('tn_tenantId', tenantId, { expires: 30 });
-    
-    if (subdomain) {
-      cookies.set('tenantSubdomain', subdomain, { expires: 30 });
-    }
+    // Direct cookie access for middleware (non-namespaced)
+    cookies.set('tenantId', tenantId, expiry);
+    if (domain) cookies.set('currentTenantDomain', domain, expiry);
   }
 }
 
@@ -180,15 +171,24 @@ export function storeTenantData(tenantId: string, domain?: string, subdomain?: s
  */
 export function clearTenantData(): void {
   if (typeof window !== 'undefined') {
+    const currentContext = getCurrentContext();
+    
+    // Clear contextual cookies
+    contextualCookies.remove('tenantId', currentContext);
+    contextualCookies.remove('currentTenantDomain', currentContext);
+    contextualCookies.remove('currentTenantName', currentContext);
+    contextualCookies.clearContext('TENANT');
+    
+    // Clear general cookies
+    cookies.remove('tenantId');
+    cookies.remove('tn_tenantId');
+    cookies.remove('tenantSubdomain');
+    cookies.remove('currentTenantDomain');
+    
     // Clear localStorage
     localStorage.removeItem('tenantId');
     localStorage.removeItem('currentTenantDomain');
     localStorage.removeItem('currentTenantSubdomain');
     localStorage.removeItem('currentTenantName');
-    
-    // Clear cookies
-    cookies.remove('tenantId');
-    cookies.remove('tn_tenantId');
-    cookies.remove('tenantSubdomain');
   }
 }

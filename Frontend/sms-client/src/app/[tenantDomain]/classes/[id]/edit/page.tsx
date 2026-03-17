@@ -41,10 +41,11 @@ export default function EditClassPage() {
   const [sections, setSections] = useState<Section[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [selectedGradeId, setSelectedGradeId] = useState<string>('');
+  const [academicYearName, setAcademicYearName] = useState<string>('');
 
   const [formData, setFormData] = useState<ClassUpdate>({
     name: '',
-    academic_year: '',
+    academic_year_id: '',
     description: '',
     room: '',
     is_active: true,
@@ -81,7 +82,7 @@ export default function EditClassPage() {
 
         setFormData({
           name: cls.name || '',
-          academic_year: cls.academic_year || '',
+          academic_year_id: cls.academic_year_id || '',
           description: cls.description || '',
           room: cls.room || '',
           is_active: !!cls.is_active,
@@ -92,6 +93,7 @@ export default function EditClassPage() {
           subject_id: cls.subject_id || '',
           teacher_id: cls.teacher_id || ''
         });
+        setAcademicYearName(cls.academic_year_name || '');
       } catch (err) {
         console.error('Error initializing edit page:', err);
         toast.error('Failed to load class');
@@ -211,16 +213,14 @@ export default function EditClassPage() {
                 {errors.name && <p className="text-red-600 text-sm mt-1">{errors.name}</p>}
               </div>
 
-              <div>
-                <Label htmlFor="academic_year">Academic Year *</Label>
-                <Input
-                  id="academic_year"
-                  value={formData.academic_year || ''}
-                  onChange={(e) => handleInputChange('academic_year', e.target.value)}
-                  placeholder="e.g., 2024-2025"
-                />
-                {errors.academic_year && <p className="text-red-600 text-sm mt-1">{errors.academic_year}</p>}
-              </div>
+              {/* Display academic year name if available, but keep it as a label/input */}
+              <Label htmlFor="academic_year">Academic Year</Label>
+              <Input
+                id="academic_year"
+                value={academicYearName || 'Loading...'}
+                disabled
+                placeholder="e.g., 2024-2025"
+              />
 
               <div>
                 <Label htmlFor="start_date">Start Date *</Label>

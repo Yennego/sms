@@ -4,6 +4,7 @@ import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/hooks/use-tenant';
 import { useTenantNavigation } from '@/hooks/use-tenant';
+import { contextualCookies, getCurrentContext } from '@/utils/cookie-manager';
 
 export default function TenantPage({ params }: { params: Promise<{ tenantDomain: string }> }) {
   // Use React.use() to unwrap the params Promise
@@ -40,8 +41,10 @@ export default function TenantPage({ params }: { params: Promise<{ tenantDomain:
         if (data && data.length > 0) {
           // Set the tenant in context
           setTenant(data[0]);
-          // Store tenant ID in localStorage
-          localStorage.setItem('tenantId', data[0].id);
+          // Store tenant ID in contextual cookies
+          const currentContext = getCurrentContext();
+          contextualCookies.set('tenantId', data[0].id, { expires: 30 }, currentContext);
+          localStorage.setItem('tenantId', data[0].id); // Keep fallback for now
           // Redirect to dashboard using UUID-based routing
           router.push(createTenantPath('/dashboard'));
         } else {

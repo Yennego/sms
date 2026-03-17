@@ -92,9 +92,10 @@ export async function POST(request: NextRequest) {
     const tokenTenantId = extractTenantFromToken(accessToken);
     const finalTenantId = tokenTenantId || tenantHeaderToSend;
 
-    // Determine context: if super-admin or global login (no tenant), use DEFAULT or SUPER_ADMIN
-    // For now, standardize on 'TENANT' for cookies to match expectations elsewhere
-    const context = 'TENANT';
+    // Determine context: if super-admin and no tenant context, use SUPER_ADMIN
+    // If it's a tenant user (has tenantId), use TENANT
+    const isSuperAdmin = !tokenTenantId && !tenantHeaderToSend;
+    const context = isSuperAdmin ? 'SUPER_ADMIN' : 'TENANT';
 
     const responseObj = NextResponse.json(data);
 

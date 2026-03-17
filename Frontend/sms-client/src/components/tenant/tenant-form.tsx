@@ -7,7 +7,7 @@ import { AppError } from '@/utils/error-utils';
 
 interface TenantFormProps {
   tenant: Tenant | null;
-  onClose: () => void;  
+  onClose: () => void;
   onSubmit: (tenant?: Tenant | TenantCreate) => void;
   isWizardMode?: boolean;
 }
@@ -22,12 +22,15 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
     primaryColor: '#3B82F6',
     secondaryColor: '#1E40AF',
     isActive: true,
+    plan_type: 'flat_rate',
+    plan_amount: 0,
+    subscription_status: 'active',
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   const tenantService = useTenantService();
-  
+
   useEffect(() => {
     if (tenant) {
       setFormData({
@@ -39,64 +42,67 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
         primaryColor: tenant.primaryColor || '#3B82F6',
         secondaryColor: tenant.secondaryColor || '#1E40AF',
         isActive: tenant.isActive,
+        plan_type: tenant.plan_type || 'flat_rate',
+        plan_amount: tenant.plan_amount || 0,
+        subscription_status: tenant.subscription_status || 'active',
       });
     }
   }, [tenant]);
-  
+
   // When setting the logo URL, ensure it doesn't contain backticks
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
-    
+
     // Clean URL if it's the logo field
     let finalValue = value;
     if (name === 'logo' && typeof value === 'string') {
       // Remove any backticks from the URL
       finalValue = value.replace(/`/g, '');
     }
-    
+
     setFormData({
       ...formData,
       [name]: type === 'checkbox' ? checked : finalValue,
     });
   };
-  
+
   // Add this function before the handleSubmit function
   const validateForm = (): string | null => {
     if (!formData.name || formData.name.length < 3) {
       return 'Tenant name must be at least 3 characters long';
     }
-    
+
     if (!formData.code || formData.code.length < 2) {
       return 'Tenant code must be at least 2 characters long';
     }
-    
+
     if (!/^[a-zA-Z0-9]+$/.test(formData.code)) {
       return 'Tenant code must contain only alphanumeric characters';
     }
-    
+
     return null;
   };
-  
+
   // Then modify the beginning of handleSubmit
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Validate form before submission
     const validationError = validateForm();
     if (validationError) {
       setError(validationError);
       return;
     }
-    
+
     // Clean the logo URL before submission
     const cleanedFormData = {
       ...formData,
       logo: formData.logo ? formData.logo.trim().replace(/`/g, '') : formData.logo
     };
-    
+
     setIsLoading(true);
     setError('');
-    
+
     try {
       if (tenant) {
         // Update existing tenant
@@ -116,9 +122,9 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
       }
     } catch (err: unknown) {
       console.error('Error saving tenant:', err);
-      
+
       let errorMessage = 'Failed to save tenant';
-      
+
       // Enhanced error handling
       if (err instanceof AppError) {
         console.error('AppError details:', {
@@ -126,27 +132,27 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
           statusCode: err.statusCode,
           message: err.message
         });
-        
+
         // Use the AppError message as it might contain validation details
         errorMessage = err.message;
-        
+
         // Try to extract more specific validation errors
         if (err.originalError && typeof err.originalError === 'object') {
           const originalError = err.originalError as Record<string, unknown>;
           if (originalError && 'response' in originalError) {
             const response = originalError.response as Record<string, unknown>;
             console.log('Response data:', response);
-            
+
             if (response && 'data' in response && typeof response.data === 'object') {
               const data = response.data as Record<string, unknown>;
               console.log('Error data:', data);
-              
+
               if ('detail' in data && typeof data.detail === 'string') {
                 // Use the specific validation error message
                 errorMessage = data.detail;
               } else if ('detail' in data && Array.isArray(data.detail)) {
                 // Handle array of validation errors
-                const details = data.detail as Array<{loc: string[], msg: string, type: string}>;
+                const details = data.detail as Array<{ loc: string[], msg: string, type: string }>;
                 if (details.length > 0) {
                   errorMessage = details.map(d => d.msg).join(', ');
                 }
@@ -155,13 +161,13 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
           }
         }
       }
-      
+
       setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
   };
-  
+
   return (
     <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -180,7 +186,7 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
             </button>
           </div>
         </div>
-        
+
         <div className="p-6">
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-start">
@@ -190,7 +196,7 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
               <span>{error}</span>
             </div>
           )}
-          
+
           <form onSubmit={handleSubmit}>
             {/* Basic Information Section */}
             <div className="mb-8">
@@ -212,7 +218,7 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
                     placeholder="Enter tenant name"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Code * (Unique identifier)
@@ -222,7 +228,7 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
                     name="code"
                     value={formData.code}
                     onChange={handleChange}
-                    required 
+                    required
                     pattern="[a-zA-Z0-9]+"
                     minLength={2}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors duration-200"
@@ -232,23 +238,74 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
                     Alphanumeric only, minimum 2 characters
                   </p>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Logo URL
+                    Tenant Logo
                   </label>
-                  <input
-                    type="url"
-                    name="logo"
-                    value={formData.logo}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors duration-200"
-                    placeholder="https://example.com/logo.png"
-                  />
+                  <div className="flex items-center space-x-4">
+                    {formData.logo ? (
+                      <div className="relative w-16 h-16 border rounded-lg overflow-hidden bg-gray-50">
+                        <img
+                          src={formData.logo}
+                          alt="Logo Preview"
+                          className="object-contain w-full h-full"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ ...formData, logo: '' })}
+                          className="absolute top-0 right-0 bg-red-500 text-white rounded-bl-lg p-1 hover:bg-red-600 transition-colors"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="w-16 h-16 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50 text-gray-400">
+                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                    )}
+                    <div className="flex-1">
+                      <input
+                        type="file"
+                        id="logo-upload"
+                        className="hidden"
+                        accept="image/*"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+
+                          setIsLoading(true);
+                          setError(null);
+                          try {
+                            const result = await tenantService.uploadLogo(file);
+                            setFormData({ ...formData, logo: result.url });
+                          } catch (err) {
+                            console.error('Upload failed:', err);
+                            setError('Failed to upload logo. Please try again.');
+                          } finally {
+                            setIsLoading(false);
+                          }
+                        }}
+                      />
+                      <label
+                        htmlFor="logo-upload"
+                        className={`inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 cursor-pointer ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        {isLoading ? 'Uploading...' : 'Choose Logo File'}
+                      </label>
+                      <p className="text-xs text-gray-500 mt-1">
+                        PNG, JPG, WebP up to 5MB
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-            
+
             {/* Domain Configuration Section */}
             <div className="mb-8">
               <h3 className="text-lg font-medium text-gray-900 mb-4 pb-2 border-b border-gray-200">
@@ -268,7 +325,7 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
                     placeholder="example.com"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Subdomain
@@ -284,7 +341,51 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
                 </div>
               </div>
             </div>
-            
+
+            {/* Subscription Section */}
+            <div className="mb-8">
+              <h3 className="text-lg font-medium text-gray-900 mb-4 pb-2 border-b border-gray-200">
+                Subscription & Billing
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Plan Type
+                  </label>
+                  <select
+                    name="plan_type"
+                    value={formData.plan_type || 'flat_rate'}
+                    onChange={(e: any) => setFormData({ ...formData, plan_type: e.target.value })}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors duration-200"
+                  >
+                    <option value="flat_rate">Flat Rate (Monthly)</option>
+                    <option value="per_user">Pay Per User (Monthly)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {formData.plan_type === 'per_user' ? 'Amount Per User ($)' : 'Fixed Monthly Amount ($)'}
+                  </label>
+                  <input
+                    type="number"
+                    name="plan_amount"
+                    value={formData.plan_amount || 0}
+                    onChange={(e) => setFormData({ ...formData, plan_amount: parseFloat(e.target.value) })}
+                    step="0.01"
+                    min="0"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors duration-200"
+                    placeholder="0.00"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {formData.plan_type === 'per_user'
+                      ? 'Total will be calculated as (Active Users × Amount)'
+                      : 'Total billed as a flat recurring monthly fee'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* Branding Section */}
             <div className="mb-8">
               <h3 className="text-lg font-medium text-gray-900 mb-4 pb-2 border-b border-gray-200">
@@ -306,13 +407,13 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
                     <input
                       type="text"
                       value={formData.primaryColor}
-                      onChange={(e) => handleChange({...e, target: {...e.target, name: 'primaryColor'}})}
+                      onChange={(e) => handleChange({ ...e, target: { ...e.target, name: 'primaryColor' } })}
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-sm"
                       placeholder="#3B82F6"
                     />
                   </div>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Secondary Color
@@ -328,13 +429,13 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
                     <input
                       type="text"
                       value={formData.secondaryColor}
-                      onChange={(e) => handleChange({...e, target: {...e.target, name: 'secondaryColor'}})}
+                      onChange={(e) => handleChange({ ...e, target: { ...e.target, name: 'secondaryColor' } })}
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-sm"
                       placeholder="#1E40AF"
                     />
                   </div>
                 </div>
-                
+
                 <div className="flex items-center justify-center lg:justify-start">
                   <div className="flex items-center space-x-3">
                     <input
@@ -351,7 +452,7 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
                 </div>
               </div>
             </div>
-            
+
             {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row justify-end space-y-3 sm:space-y-0 sm:space-x-4 pt-6 border-t border-gray-200">
               <button
@@ -376,8 +477,8 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
                     Saving...
                   </div>
                 ) : (
-                  tenant ? 'Update Tenant' : 
-                  isWizardMode ? 'Next: Admin Setup' : 'Create Tenant'
+                  tenant ? 'Update Tenant' :
+                    isWizardMode ? 'Next: Admin Setup' : 'Create Tenant'
                 )}
               </button>
             </div>

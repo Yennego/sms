@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { contextualCookies, getCurrentContext } from '@/utils/cookie-manager';
 
 export default function SuperAdminDashboard() {
   const searchParams = useSearchParams();
@@ -16,17 +17,18 @@ export default function SuperAdminDashboard() {
     // Get tenant from URL query parameter
     const tenantParam = searchParams.get('tenant');
     
+    const currentContext = getCurrentContext();
     if (tenantParam) {
       setCurrentTenantDomain(tenantParam);
-      // Try to get tenant name from localStorage
-      const storedTenantName = localStorage.getItem('currentTenantName');
+      // Try to get tenant name from cookies or fallback to localStorage
+      const storedTenantName = contextualCookies.get('currentTenantName', currentContext) || localStorage.getItem('currentTenantName');
       if (storedTenantName) {
         setCurrentTenantName(storedTenantName);
       }
     } else {
       // Check if we have a stored tenant domain
-      const storedTenantDomain = localStorage.getItem('currentTenantDomain');
-      const storedTenantName = localStorage.getItem('currentTenantName');
+      const storedTenantDomain = contextualCookies.get('currentTenantDomain', currentContext) || localStorage.getItem('currentTenantDomain');
+      const storedTenantName = contextualCookies.get('currentTenantName', currentContext) || localStorage.getItem('currentTenantName');
       
       if (storedTenantDomain) {
         setCurrentTenantDomain(storedTenantDomain);
@@ -48,6 +50,9 @@ export default function SuperAdminDashboard() {
   
   const handleBackToGlobal = () => {
     // Clear tenant context and go back to global dashboard
+    const currentContext = getCurrentContext();
+    contextualCookies.remove('currentTenantDomain', currentContext);
+    contextualCookies.remove('currentTenantName', currentContext);
     localStorage.removeItem('currentTenantDomain');
     localStorage.removeItem('currentTenantName');
     router.replace('/super-admin/dashboard');

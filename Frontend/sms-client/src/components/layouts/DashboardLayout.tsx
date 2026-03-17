@@ -1,43 +1,48 @@
 'use client';
 
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTenantNavigation } from '@/hooks/use-tenant';
+import { useAcademicYear } from '@/contexts/academic-year-context';
+import { Loader2 } from 'lucide-react';
 
 interface DashboardLayoutProps {
   children: ReactNode;
 }
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth();
   const { tenant, createTenantPath } = useTenantNavigation();
+  const { selectedAcademicYearName } = useAcademicYear();
   const router = useRouter();
-  const [userRole, setUserRole] = useState<string | null>(null);
   
+  const role = useMemo(() => {
+    if (!user) return null;
+    if (user.role) return user.role;
+    if (Array.isArray(user.roles) && user.roles.length > 0) {
+      return typeof user.roles[0] === 'string' ? user.roles[0] : user.roles[0].name;
+    }
+    return null;
+  }, [user]);
+
   useEffect(() => {
-    // Get user role from localStorage or user object
-    const storedRole = localStorage.getItem('userRole');
-    const role = user?.role || storedRole;
-    setUserRole(role);
-    
-    // Redirect if not authenticated
-    if (!isAuthenticated) {
+    if (!authLoading && !isAuthenticated) {
       router.push(createTenantPath('/login'));
     }
-  }, [isAuthenticated, user, router, createTenantPath]);
+  }, [isAuthenticated, authLoading, router, createTenantPath]);
   
   const handleLogout = async () => {
     await logout();
-    router.push(createTenantPath('/login'));
   };
   
-  if (!isAuthenticated || !tenant) {
+  if (authLoading || !isAuthenticated || !tenant) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold mb-2">Loading...</h2>
+        <div className="text-center space-y-4">
+          <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto opacity-50" />
+          <p className="text-gray-500 font-medium">Loading...</p>
         </div>
       </div>
     );
@@ -55,41 +60,25 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             Logout
           </button>
         </div>
-        <nav className="mt-2">
-          {userRole === 'super_admin' && (
-            <Link href="/super-admin/dashboard" className="mr-4 hover:underline">Super Admin Dashboard</Link>
+        <nav className="mt-2 flex gap-4">
+          {(role === 'super_admin' || role === 'superadmin') && (
+            <Link href="/super-admin/dashboard" className="hover:underline">Super Admin Dashboard</Link>
           )}
-          {userRole === 'admin' && (() => {
-            const currentPath = window.location.pathname;
-            const pathMatch = currentPath.match(/^\/([a-zA-Z0-9-]+)\//); 
-            const tenantDomain = pathMatch ? pathMatch[1] : tenant?.domain;
-            return tenantDomain ? (
-              <Link href={`/${tenantDomain}/admin-dashboard`} className="mr-4 hover:underline">Admin Dashboard</Link>
-            ) : null;
-          })()}
-          {userRole === 'teacher' && (() => {
-            const currentPath = window.location.pathname;
-            const pathMatch = currentPath.match(/^\/([a-zA-Z0-9-]+)\//); 
-            const tenantDomain = pathMatch ? pathMatch[1] : tenant?.domain;
-            return tenantDomain ? (
-              <Link href={`/${tenantDomain}/teacher/dashboard`} className="mr-4 hover:underline">Teacher Dashboard</Link>
-            ) : null;
-          })()}
-          {userRole === 'student' && (() => {
-            const currentPath = window.location.pathname;
-            const pathMatch = currentPath.match(/^\/([a-zA-Z0-9-]+)\//); 
-            const tenantDomain = pathMatch ? pathMatch[1] : tenant?.domain;
-            return tenantDomain ? (
-              <Link href={`/${tenantDomain}/student/dashboard`} className="mr-4 hover:underline">Student Dashboard</Link>
-            ) : null;
-          })()}
+          {role === 'admin' && (
+            <Link href={createTenantPath('/admin-dashboard')} className="hover:underline">Admin Dashboard</Link>
+          )}
+          {role === 'teacher' && (
+            <Link href={createTenantPath('/teacher/dashboard')} className="hover:underline">Teacher Dashboard</Link>
+          )}
+          {role === 'student' && (
+            <Link href={createTenantPath('/student/dashboard')} className="hover:underline">Student Dashboard</Link>
+          )}
         </nav>
       </header>
       <main className="p-4">
         <div className="mb-4">
-          <h2 className="text-xl">Welcome, {user?.firstName || user?.username || 'User'}</h2>
-          <p>Academic Year: {tenant.currentAcademicYear || 'Current'}</p>
-          {userRole === 'student' && <p>Grade: {user?.gradeLevel || 'Not specified'}</p>}
+          <h2 className="text-xl">Welcome, {user?.firstName || user?.email || 'User'}</h2>
+          <p>Academic Year: {selectedAcademicYearName || 'Current'}</p>
         </div>
         {children}
       </main>

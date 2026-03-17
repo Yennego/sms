@@ -16,8 +16,7 @@ export async function configureUndici(): Promise<void> {
   if (globalThis.__undiciConfigured) return;
 
   try {
-    const undiciModuleName = 'undici';
-    const { Agent, setGlobalDispatcher } = await import(undiciModuleName as string);
+    const { Agent, setGlobalDispatcher } = await import('undici');
 
     const agent = new Agent({
       // Increase header timeout to 120s to tolerate slow upstreams

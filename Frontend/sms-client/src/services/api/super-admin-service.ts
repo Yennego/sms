@@ -18,6 +18,14 @@ export interface UserStats {
   inactive: number;
   avgPerTenant: number;
   recentLogins: number;
+  usersWithoutRoles: number;
+}
+
+export interface RevenueStats {
+  total_monthly_revenue: number;
+  flat_rate_revenue: number;
+  per_user_revenue: number;
+  currency: string;
 }
 
 export interface SystemStats {
@@ -41,10 +49,15 @@ export interface RecentTenant {
   id: string;
   name: string;
   domain?: string;
+  subdomain?: string;
+  logo?: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
   userCount: number;
+  plan_type?: string;
+  plan_amount?: number;
+  subscription_status?: string;
 }
 
 export interface SystemMetrics {
@@ -54,6 +67,7 @@ export interface SystemMetrics {
   activeConnections: number;
   alerts: SystemAlert[];
   tenantGrowth: TenantGrowthData[];
+  revenue_metrics?: RevenueStats;
 }
 
 export interface User {
@@ -81,6 +95,8 @@ export interface UserWithRoles {
   roles: UserRole[];
   is_active: boolean;
   tenant_id?: string;
+  tenant_name?: string;
+  tenant_domain?: string;
   last_login?: string;
 }
 
@@ -139,6 +155,45 @@ export interface UserUpdate {
   is_active?: boolean;
 }
 
+export interface TenantRevenueBreakdown {
+  tenant_id: string;
+  tenant_name: string;
+  plan_type: string;
+  plan_amount: number;
+  billable_users: number;
+  monthly_revenue: number;
+}
+
+export interface TenantSubscriptionUpdate {
+  plan_type?: string;
+  plan_amount?: number;
+  subscription_status?: string;
+}
+
+export interface TenantSettings {
+  id: string;
+  tenant_id: string;
+  theme: string;
+  settings: {
+    features: {
+      enable_parent_portal: boolean;
+      enable_sms_notifications: boolean;
+      enable_finance: boolean;
+      enable_transportation: boolean;
+      enable_cafeteria: boolean;
+      enable_health: boolean;
+    };
+    [key: string]: any;
+  };
+  is_active: boolean;
+}
+
+export interface TenantSettingsUpdate {
+  theme?: string;
+  settings?: any;
+  is_active?: boolean;
+}
+
 export interface PaginatedResponse<T> {
   items: T[];
   total: number;
@@ -156,6 +211,9 @@ export interface TenantData {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  plan_type?: string;
+  plan_amount?: number;
+  subscription_status?: string;
 }
 
 export function useSuperAdminService() {
@@ -175,7 +233,38 @@ export function useSuperAdminService() {
       if (params?.limit !== undefined) queryParams.append('limit', params.limit.toString());
 
       const url = `/super-admin/tenants${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-      return apiClient.get<PaginatedResponse<RecentTenant>>(url);
+      const response = await apiClient.get<PaginatedResponse<any>>(url);
+
+      return {
+        ...response,
+        items: response.items.map(item => ({
+          id: item.id,
+          name: item.name,
+          domain: item.domain,
+          subdomain: item.subdomain,
+          logo: item.logo,
+          isActive: item.is_active ?? item.isActive,
+          createdAt: item.created_at ?? item.createdAt,
+          updatedAt: item.updated_at ?? item.updatedAt,
+          userCount: item.user_count ?? item.userCount ?? 0,
+          plan_type: item.plan_type,
+          plan_amount: item.plan_amount,
+          subscription_status: item.subscription_status
+        }))
+      };
+    },
+
+    async uploadLogo(file: File): Promise<{ url: string }> {
+      const response = await fetch(`/api/upload?filename=${encodeURIComponent(file.name)}`, {
+        method: 'POST',
+        body: file,
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to upload logo');
+      }
+
+      return response.json();
     },
 
     // Get user statistics
@@ -196,7 +285,26 @@ export function useSuperAdminService() {
 
     // Get recent tenants
     getRecentTenants: async (limit: number = 5): Promise<RecentTenant[]> => {
-      return apiClient.get<RecentTenant[]>(`/super-admin/dashboard/recent-tenants?limit=${limit}`);
+      const response = await apiClient.get<any[]>(`/super-admin/dashboard/recent-tenants?limit=${limit}`);
+      return response.map(item => ({
+        id: item.id,
+        name: item.name,
+        domain: item.domain,
+        subdomain: item.subdomain,
+        logo: item.logo,
+        isActive: item.is_active ?? item.isActive,
+        createdAt: item.created_at ?? item.createdAt,
+        updatedAt: item.updated_at ?? item.updatedAt,
+        userCount: item.user_count ?? item.userCount ?? 0,
+        plan_type: item.plan_type,
+        plan_amount: item.plan_amount,
+        subscription_status: item.subscription_status
+      }));
+    },
+
+    // Update tenant subscription
+    updateTenantSubscription: async (tenantId: string, subscriptionData: TenantSubscriptionUpdate): Promise<any> => {
+      return apiClient.patch(`/super-admin/tenants/${tenantId}/subscription`, subscriptionData);
     },
 
     // Get system reports
@@ -237,7 +345,7 @@ export function useSuperAdminService() {
       if (params?.start_date) queryParams.append('start_date', params.start_date);
       if (params?.end_date) queryParams.append('end_date', params.end_date);
 
-      const url = `/v1/logging/super-admin/audit-logs${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+      const url = `/logging/super-admin/audit-logs${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
       return apiClient.get<AuditLog[]>(url);
     },
 
@@ -265,7 +373,7 @@ export function useSuperAdminService() {
       if (params?.end_date) queryParams.append('end_date', params.end_date);
       if (params?.log_type) queryParams.append('log_type', params.log_type);
 
-      const url = `/v1/logging/super-admin/audit-logs/all${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+      const url = `/logging/super-admin/audit-logs/all${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
       return apiClient.get<AuditLog[]>(url);
     },
 
@@ -283,22 +391,24 @@ export function useSuperAdminService() {
       tenant_id?: string;
       sort_by?: string;
       sort_order?: 'asc' | 'desc';
-    }): Promise<UserWithRoles[]> => {
+    }): Promise<PaginatedResponse<UserWithRoles>> => {
       const queryParams = new URLSearchParams();
       if (params?.skip !== undefined) queryParams.append('skip', params.skip.toString());
       if (params?.limit !== undefined) queryParams.append('limit', params.limit.toString());
       if (params?.email) queryParams.append('email', params.email);
       if (params?.is_active !== undefined) queryParams.append('is_active', params.is_active.toString());
+      if (params?.tenant_id) queryParams.append('tenant_id', params.tenant_id);
       if (params?.sort_by) queryParams.append('sort_by', params.sort_by);
       if (params?.sort_order) queryParams.append('sort_order', params.sort_order);
 
       const url = `/super-admin/users${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-      return apiClient.get<UserWithRoles[]>(url);
+      return apiClient.get<PaginatedResponse<UserWithRoles>>(url);
     },
 
     // Calculate role statistics from user data
     getRoleStatistics: async (): Promise<RoleStats[]> => {
-      const users = await apiClient.get<UserWithRoles[]>('/super-admin/users?limit=1000');
+      const response = await apiClient.get<PaginatedResponse<UserWithRoles>>('/super-admin/users?limit=1000');
+      const users = response.items || [];
       const roleStats: { [key: string]: number } = {};
 
       users.forEach(user => {
@@ -349,6 +459,21 @@ export function useSuperAdminService() {
     // Deactivate tenant
     deactivateTenant: async (tenantId: string): Promise<void> => {
       return apiClient.post<void>(`/super-admin/tenants/${tenantId}/deactivate`, {});
+    },
+
+    // Get revenue by tenant breakdown
+    getRevenueByTenant: async (): Promise<TenantRevenueBreakdown[]> => {
+      return apiClient.get<TenantRevenueBreakdown[]>('/super-admin/dashboard/revenue-by-tenant');
+    },
+
+    // Get tenant settings
+    getTenantSettings: async (tenantId: string): Promise<TenantSettings> => {
+      return apiClient.get<TenantSettings>(`/super-admin/tenants/${tenantId}/settings`);
+    },
+
+    // Update tenant settings
+    updateTenantSettings: async (tenantId: string, settings: TenantSettingsUpdate): Promise<TenantSettings> => {
+      return apiClient.put<TenantSettings>(`/super-admin/tenants/${tenantId}/settings`, settings);
     },
   }), [apiClient]);
 }

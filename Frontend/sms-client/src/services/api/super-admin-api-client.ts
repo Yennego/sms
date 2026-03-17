@@ -13,7 +13,7 @@ export class SuperAdminApiClient {
   constructor(baseUrl = API_BASE_URL, accessToken: string | null = null, tenantId: string | null = null) {
     this.accessToken = accessToken;
     this.tenantId = tenantId;
-    
+
     // Create axios instance with base configuration
     this.axiosInstance = axios.create({
       baseURL: baseUrl,
@@ -45,7 +45,7 @@ export class SuperAdminApiClient {
         if (error.code === 'ERR_CANCELED' || error.message === 'canceled') {
           return Promise.reject(error);
         }
-        
+
         if (error.response) {
           const { status, data } = error.response;
           let errorMessage: string;
@@ -56,7 +56,7 @@ export class SuperAdminApiClient {
             errorMessage = data;
           } else if (data && typeof data === 'object') {
             const errorData = data as unknown;
-            
+
             // Handle FastAPI validation errors
             if ((errorData as { detail?: unknown }).detail) {
               if (typeof (errorData as { detail?: unknown }).detail === 'string') {
@@ -151,6 +151,14 @@ export class SuperAdminApiClient {
     });
   }
 
+  patch<T>(endpoint: string, data?: unknown, config: AxiosRequestConfig = {}): Promise<T> {
+    return this.request<T>(endpoint, {
+      ...config,
+      method: 'PATCH',
+      data,
+    });
+  }
+
   put<T>(endpoint: string, data?: unknown, config: AxiosRequestConfig = {}): Promise<T> {
     return this.request<T>(endpoint, {
       ...config,
@@ -177,22 +185,22 @@ export class SuperAdminApiClient {
 // Hook to use the Super Admin API client with current auth context - MEMOIZED
 export function useSuperAdminApiClient(tenantId?: string) {
   const { accessToken, validateTokenBeforeRequest } = useAuth();
-  
+
   return useMemo(() => {
     const client = new SuperAdminApiClient(API_BASE_URL, accessToken, tenantId);
-    
+
     // Override the request method to validate token before each request
     const originalRequest = client.request.bind(client);
-    client.request = async function<T>(endpoint: string, config: AxiosRequestConfig = {}): Promise<T> {
+    client.request = async function <T>(endpoint: string, config: AxiosRequestConfig = {}): Promise<T> {
       // Validate token before making the request
       const isTokenValid = await validateTokenBeforeRequest();
       if (!isTokenValid) {
         throw new AppError('Authentication required', ErrorType.AUTHENTICATION, 401);
       }
-      
+
       return originalRequest(endpoint, config);
     };
-    
+
     return client;
   }, [accessToken, validateTokenBeforeRequest, tenantId]);
 }

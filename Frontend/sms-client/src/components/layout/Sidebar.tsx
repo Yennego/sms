@@ -11,6 +11,7 @@ import { useState } from 'react';
 import type { ComponentType } from 'react';
 import Image from 'next/image';
 import { extractTenantSubdomain } from '@/utils/tenant-utils';
+import { useTenantFeatures } from '@/hooks/use-tenant-features';
 // import icons
 import {
   Users,
@@ -31,7 +32,8 @@ import {
   Calendar,
   Award,
   Shield,
-  ListChecks
+  ListChecks,
+  BarChart3
 } from 'lucide-react';
 
 // Helper function to extract tenant domain from current path
@@ -52,6 +54,7 @@ interface MenuItem {
   icon: ComponentType<{ className?: string }>;
   children?: MenuItem[];
   requiredPermissions?: string[];
+  featureFlag?: string;
 }
 
 function getNavigation(rawRole: string, tenantDomain?: string): MenuItem[] {
@@ -62,6 +65,7 @@ function getNavigation(rawRole: string, tenantDomain?: string): MenuItem[] {
     return [
       { name: 'Dashboard', href: '/super-admin/dashboard', icon: Home },
       { name: 'Tenant Management', href: '/super-admin/tenants', icon: Building },
+      { name: 'AI Analytics', href: '/super-admin/analytics', icon: BarChart3 },
       { name: 'System Settings', href: '/super-admin/settings', icon: Wrench },
     ];
   }
@@ -141,6 +145,46 @@ function getNavigation(rawRole: string, tenantDomain?: string): MenuItem[] {
       },
 
       { name: 'Communication', href: tenantDomain ? `/${tenantDomain}/communication` : '/communication', icon: MessageSquare },
+
+      // --- Premium Modules (controlled by Super Admin feature flags) ---
+      {
+        name: 'Finance',
+        icon: Award,
+        featureFlag: 'enable_finance',
+        children: [
+          { name: 'Fee Collection', href: tenantDomain ? `/${tenantDomain}/finance/fees` : '/finance/fees', icon: ClipboardList },
+          { name: 'Installments', href: tenantDomain ? `/${tenantDomain}/finance/installments` : '/finance/installments', icon: FileText },
+          { name: 'Revenue', href: tenantDomain ? `/${tenantDomain}/finance/revenue` : '/finance/revenue', icon: Award },
+          { name: 'Expenditure', href: tenantDomain ? `/${tenantDomain}/finance/expenditure` : '/finance/expenditure', icon: FileText },
+        ]
+      },
+      {
+        name: 'Transportation',
+        icon: School,
+        featureFlag: 'enable_transportation',
+        children: [
+          { name: 'Routes', href: tenantDomain ? `/${tenantDomain}/transport/routes` : '/transport/routes', icon: School },
+          { name: 'Vehicles', href: tenantDomain ? `/${tenantDomain}/transport/vehicles` : '/transport/vehicles', icon: School },
+        ]
+      },
+      {
+        name: 'Cafeteria',
+        icon: BookOpen,
+        featureFlag: 'enable_cafeteria',
+        children: [
+          { name: 'Meal Plans', href: tenantDomain ? `/${tenantDomain}/cafeteria/meals` : '/cafeteria/meals', icon: BookOpen },
+          { name: 'Menu', href: tenantDomain ? `/${tenantDomain}/cafeteria/menu` : '/cafeteria/menu', icon: BookOpen },
+        ]
+      },
+      {
+        name: 'Health & Clinic',
+        icon: Shield,
+        featureFlag: 'enable_health',
+        children: [
+          { name: 'Health Records', href: tenantDomain ? `/${tenantDomain}/health/records` : '/health/records', icon: FileText },
+          { name: 'Clinic Visits', href: tenantDomain ? `/${tenantDomain}/health/visits` : '/health/visits', icon: ClipboardList },
+        ]
+      },
     ];
   }
 
@@ -213,6 +257,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const { tenant } = useTenant();
+  const { isFeatureEnabled } = useTenantFeatures();
 
   // Helper function to check if user has required permissions
   const hasPermissions = (requiredPermissions?: string[]): boolean => {
@@ -255,6 +300,26 @@ export default function Sidebar() {
       }
     }).filter((item): item is MenuItem => item !== null);
   };
+
+  // Filter navigation items based on feature flags
+  const filterNavigationByFeatures = (items: MenuItem[]): MenuItem[] => {
+    return items.map(item => {
+      // Check if this item requires a feature flag
+      if (item.featureFlag && !isFeatureEnabled(item.featureFlag)) {
+        return null;
+      }
+      if (item.children) {
+        const filteredChildren = item.children.filter(child =>
+          !child.featureFlag || isFeatureEnabled(child.featureFlag)
+        );
+        if (filteredChildren.length > 0) {
+          return { ...item, children: filteredChildren };
+        }
+        return null;
+      }
+      return item;
+    }).filter((item): item is MenuItem => item !== null);
+  };
   // Initialize open sections based on user role
   const getInitialOpenSections = (role: string): string[] => {
     switch (role) {
@@ -274,7 +339,8 @@ export default function Sidebar() {
   // Extract tenant domain from current path instead of relying on tenant.domain
   const tenantDomain = getTenantDomainFromPath(pathname) || tenant?.domain;
   const rawNavigation = getNavigation(user?.role || '', tenantDomain || undefined);
-  const navigation = filterNavigationByPermissions(rawNavigation);
+  const permFiltered = filterNavigationByPermissions(rawNavigation);
+  const navigation = filterNavigationByFeatures(permFiltered);
 
   const toggleSection = (sectionName: string) => {
     setOpenSections(prev =>
@@ -330,11 +396,22 @@ export default function Sidebar() {
                   }
                 }}
               >
-                <div className="flex items-center">
+                <div 
+                  className={cn(
+                    "absolute inset-0 rounded-md transition-colors", 
+                    isActive ? "opacity-100" : "opacity-0"
+                  )} 
+                  style={{ backgroundColor: tenant?.primaryColor || undefined }} 
+                />
+                <div 
+                  className={cn("flex items-center relative z-10", isActive && tenant?.primaryColor ? "text-white" : "")}
+                >
                   <Icon className="mr-2 h-4 w-4" />
                   {item.name}
                 </div>
-                {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                <div className={cn("relative z-10", isActive && tenant?.primaryColor ? "text-white" : "")}>
+                  {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                </div>
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent className="space-y-1 relative">
@@ -366,8 +443,17 @@ export default function Sidebar() {
                           }
                         }}
                       >
-                        <ChildIcon className="mr-2 h-4 w-4" />
-                        {child.name}
+                        <div 
+                          className={cn(
+                            "absolute inset-0 rounded-md transition-colors", 
+                            isChildActive ? "opacity-100" : "opacity-0"
+                          )} 
+                          style={{ backgroundColor: tenant?.primaryColor || undefined }} 
+                        />
+                        <div className={cn("flex items-center relative z-10", isChildActive && tenant?.primaryColor ? "text-white" : "")}>
+                          <ChildIcon className="mr-2 h-4 w-4" />
+                          {child.name}
+                        </div>
                       </Button>
                     </Link>
                   </div>
@@ -404,8 +490,17 @@ export default function Sidebar() {
               }
             }}
           >
-            <Icon className="mr-2 h-4 w-4" />
-            {item.name}
+            <div 
+              className={cn(
+                "absolute inset-0 rounded-md transition-colors", 
+                isActive ? "opacity-100" : "opacity-0"
+              )} 
+              style={{ backgroundColor: tenant?.primaryColor || undefined }} 
+            />
+            <div className={cn("flex items-center relative z-10", isActive && tenant?.primaryColor ? "text-white" : "")}>
+              <Icon className="mr-2 h-4 w-4" />
+              {item.name}
+            </div>
           </Button>
         </Link>
       </div>
@@ -414,53 +509,55 @@ export default function Sidebar() {
 
   return (
     <div className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0">
-      <div className="h-full flex flex-col bg-sidebar border-r border-sidebar-border">
-        <div className="flex items-center h-16 flex-shrink-0 px-4 border-b border-sidebar-border">
+      <div className="h-full flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden">
+        <div 
+          className="flex items-center h-16 flex-shrink-0 px-4 border-b border-sidebar-border transition-colors duration-200"
+          style={{ backgroundColor: tenant?.primaryColor || undefined }}
+        >
           {tenant?.logo ? (
-            <div className="flex items-center gap-2">
-              <Image
-                src={tenant.logo}
-                alt={tenant?.name || 'School Logo'}
-                width={32}
-                height={32}
-                className="h-8 w-8 rounded object-contain"
-              />
-              <span className="text-lg font-semibold truncate">
+            <div className="flex items-center gap-2 w-full overflow-hidden">
+              <div className="p-1 rounded-md bg-white/10 backdrop-blur-sm flex-shrink-0">
+                <Image
+                  src={tenant.logo}
+                  alt={tenant?.name || 'School Logo'}
+                  width={32}
+                  height={32}
+                  className="h-8 w-8 rounded object-contain"
+                />
+              </div>
+              <span className="text-lg font-semibold truncate flex-1 text-white" title={tenant.name || 'School Portal'}>
                 {tenant.name || 'School Portal'}
               </span>
             </div>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 w-full overflow-hidden">
               <div
-                className="p-1.5 rounded-md"
-                style={{ backgroundColor: tenant?.primaryColor ? `${tenant.primaryColor}1A` : undefined }}
+                className="p-1.5 rounded-md flex-shrink-0 bg-white/20 backdrop-blur-sm"
               >
                 <School
-                  className="h-5 w-5"
-                  style={{ color: tenant?.primaryColor || undefined }}
+                  className="h-5 w-5 text-white"
                 />
               </div>
-              <span className="text-lg font-semibold truncate text-black">
+              <span className="text-lg font-semibold truncate flex-1 text-white" title={tenant?.name || 'School Portal'}>
                 {(() => {
                   // 1. Try tenant name directly
                   if (tenant?.name && tenant.name.trim() && tenant.name.toLowerCase() !== 'loading...') {
                     return tenant.name;
                   }
-
+                  
                   // 2. Try extraction from domain/subdomain/path
-                  const sub = tenant?.domain ||
-                    tenant?.subdomain ||
-                    getTenantDomainFromPath(pathname) ||
-                    extractTenantSubdomain() ||
-                    (typeof window !== 'undefined' ? localStorage.getItem('currentTenantSubdomain') : '');
-
+                  const sub = tenant?.domain || 
+                    tenant?.subdomain || 
+                    getTenantDomainFromPath(pathname) || 
+                    extractTenantSubdomain();
+                  
                   // 3. Validate and format fallback
                   const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
                   if (sub && !uuidRe.test(sub) && sub.toLowerCase() !== 'unknown') {
                     const formatted = sub.replace(/[._-]+/g, ' ').trim();
                     return formatted.charAt(0).toUpperCase() + formatted.slice(1);
                   }
-
+                  
                   // 4. Final fallback
                   return 'School Portal';
                 })()}

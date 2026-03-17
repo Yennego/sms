@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/use-auth';
 import SuperAdminSidebar from '@/components/layout/SuperAdminSidebar';
 import SuperAdminHeader from '@/components/layout/SuperAdminHeader';
 import ErrorBoundary from '@/components/common/ErrorBoundary';
+import { NuqsAdapter } from 'nuqs/adapters/next/app';
 
 export default function SuperAdminLayout({
   children,
@@ -94,24 +95,26 @@ export default function SuperAdminLayout({
 
   return (
     <ErrorBoundary>
-      <div className="h-screen flex overflow-hidden bg-gray-100">
-        <SuperAdminSidebar
-          isOpen={isSidebarOpen}
-          onToggle={toggleSidebar}
-          isCollapsed={isSidebarCollapsed}
-          onCollapse={handleSidebarCollapse}
-        />
+      <NuqsAdapter>
+        <div className="h-screen flex overflow-hidden bg-gray-100">
+          <SuperAdminSidebar
+            isOpen={isSidebarOpen}
+            onToggle={toggleSidebar}
+            isCollapsed={isSidebarCollapsed}
+            onCollapse={handleSidebarCollapse}
+          />
 
-        {/* Main content area - no margin needed now */}
-        <div className="flex flex-col flex-1 overflow-hidden">
-          <SuperAdminHeader onMenuToggle={toggleSidebar} />
-          <main className="flex-1 relative overflow-y-auto focus:outline-none">
-            <ErrorBoundary>
-              {children}
-            </ErrorBoundary>
-          </main>
+          {/* Main content area - no margin needed now */}
+          <div className="flex flex-col flex-1 overflow-hidden">
+            <SuperAdminHeader onMenuToggle={toggleSidebar} />
+            <main className="flex-1 relative overflow-y-auto focus:outline-none">
+              <ErrorBoundary>
+                {children}
+              </ErrorBoundary>
+            </main>
+          </div>
         </div>
-      </div>
+      </NuqsAdapter>
     </ErrorBoundary>
   );
 }

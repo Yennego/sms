@@ -3,11 +3,11 @@ import { cookies } from 'next/headers';
 import '@/app/api/_lib/undici';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
 
-type RouteParams = { params: { id: string } };
+type RouteParams = { params: Promise<{ id: string }> };
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
     try {
-        const { id } = params;
+        const { id } = await params;
         const cookieStore = await cookies();
         const accessToken = cookieStore.get('accessToken')?.value || cookieStore.get('tn_accessToken')?.value;
         const tenantId = cookieStore.get('tenantId')?.value || cookieStore.get('tn_tenantId')?.value;
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
     try {
-        const { id } = params;
+        const { id } = await params;
         const body = await request.json();
         const cookieStore = await cookies();
         const accessToken = cookieStore.get('accessToken')?.value || cookieStore.get('tn_accessToken')?.value;
@@ -73,7 +73,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
     try {
-        const { id } = params;
+        const { id } = await params;
         const cookieStore = await cookies();
         const accessToken = cookieStore.get('accessToken')?.value || cookieStore.get('tn_accessToken')?.value;
         const tenantId = cookieStore.get('tenantId')?.value || cookieStore.get('tn_tenantId')?.value;

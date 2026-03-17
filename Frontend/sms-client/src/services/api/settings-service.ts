@@ -60,11 +60,11 @@ export function useSettingsService() {
 
   return useMemo(() => ({
     // Get tenant settings
-    getTenantSettings: async (): Promise<TenantSettings> => {
+    getTenantSettings: async (): Promise<TenantSettings | null> => {
       if (!tenant?.id) {
         throw new Error('No tenant ID available');
       }
-      return apiClient.get<TenantSettings>(`/tenants/${tenant.id}/settings`);
+      return await apiClient.get<TenantSettings | null>(`/tenants/${tenant.id}/settings`);
     },
 
     // Create tenant settings

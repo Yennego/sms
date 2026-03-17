@@ -11,7 +11,11 @@ import {
     PaginatedResponse,
     AuditLog,
     UserCreateCrossTenant,
-    UserUpdate
+    UserUpdate,
+    RevenueStats,
+    TenantSubscriptionUpdate,
+    TenantSettings,
+    TenantSettingsUpdate
 } from '@/services/api/super-admin-service';
 
 export const superAdminKeys = {
@@ -25,7 +29,9 @@ export const superAdminKeys = {
     users: (params?: any) => [...superAdminKeys.all, 'users', params].filter(Boolean) as string[],
     roles: () => [...superAdminKeys.all, 'roles'] as string[],
     roleStats: () => [...superAdminKeys.all, 'role-stats'] as string[],
+    revenueByTenant: () => [...superAdminKeys.all, 'revenue-by-tenant'] as string[],
     auditLogs: (params?: any) => [...superAdminKeys.all, 'audit-logs', params].filter(Boolean) as string[],
+    settings: (tenantId: string) => [...superAdminKeys.all, 'tenant-settings', tenantId] as const,
 };
 
 // --- Queries ---
@@ -103,6 +109,23 @@ export function useSuperAdminRoleStatistics() {
     });
 }
 
+export function useSuperAdminRevenueByTenant() {
+    const service = useSuperAdminService();
+    return useQuery({
+        queryKey: superAdminKeys.revenueByTenant(),
+        queryFn: () => service.getRevenueByTenant(),
+    });
+}
+
+export function useSuperAdminTenantSettings(tenantId: string) {
+    const service = useSuperAdminService();
+    return useQuery({
+        queryKey: superAdminKeys.settings(tenantId),
+        queryFn: () => service.getTenantSettings(tenantId),
+        enabled: !!tenantId,
+    });
+}
+
 export function useSuperAdminAuditLogs(params?: {
     skip?: number;
     limit?: number;
@@ -157,11 +180,6 @@ export function useSuperAdminActivateTenant() {
 
     return useMutation({
         mutationFn: (tenantId: string) => {
-            // Since superAdminService might not have activateTenant yet, 
-            // We'll use a placeholder or check if it exists in the future.
-            // But looking at implementation_plan, we need it. 
-            // I'll assume I should use the tenantService pattern or add it to superAdminService if missing.
-            // Actually, let's use the hook to get tenantService if needed, but centralized is better.
             return service.activateTenant ? service.activateTenant(tenantId) : Promise.resolve();
         },
         onSuccess: () => {
@@ -182,6 +200,34 @@ export function useSuperAdminDeactivateTenant() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: superAdminKeys.tenants() });
             queryClient.invalidateQueries({ queryKey: superAdminKeys.tenantStats() });
+        },
+    });
+}
+
+export function useSuperAdminUpdateSubscription() {
+    const service = useSuperAdminService();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: ({ tenantId, subscriptionData }: { tenantId: string; subscriptionData: TenantSubscriptionUpdate }) =>
+            service.updateTenantSubscription(tenantId, subscriptionData),
+        onSuccess: (_data, variables) => {
+            queryClient.invalidateQueries({ queryKey: superAdminKeys.tenants() });
+            queryClient.invalidateQueries({ queryKey: superAdminKeys.tenantStats() });
+            queryClient.invalidateQueries({ queryKey: superAdminKeys.systemMetrics() });
+        },
+    });
+}
+
+export function useSuperAdminUpdateTenantSettings() {
+    const service = useSuperAdminService();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: ({ tenantId, settings }: { tenantId: string; settings: TenantSettingsUpdate }) =>
+            service.updateTenantSettings(tenantId, settings),
+        onSuccess: (_data, variables) => {
+            queryClient.invalidateQueries({ queryKey: superAdminKeys.settings(variables.tenantId) });
         },
     });
 }

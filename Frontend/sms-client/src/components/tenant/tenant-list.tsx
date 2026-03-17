@@ -12,14 +12,16 @@ interface TenantListProps {
   onRefresh: () => void;
   onActivate?: (id: string) => Promise<void>;
   onDeactivate?: (id: string) => Promise<void>;
+  onManageFeatures?: (tenant: Tenant) => void;
 }
 
-export default function TenantList({ 
+export default function TenantList({
   tenants = [], // Default to empty array
-  onEdit, 
-  onRefresh, 
-  onActivate, 
-  onDeactivate 
+  onEdit,
+  onRefresh,
+  onActivate,
+  onDeactivate,
+  onManageFeatures
 }: TenantListProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,18 +29,18 @@ export default function TenantList({
   const [modalAction, setModalAction] = useState<'activate' | 'deactivate' | 'delete' | null>(null);
 
   console.log("received Tenants:", tenants);
-  
+
   const tenantService = useTenantService();
-  
+
   // Modal state helpers
   const isModalOpen = modalAction !== null && selectedTenantId !== null;
   const selectedTenant = tenants.find(t => t.id === selectedTenantId);
-  
+
   const closeModal = () => {
     setModalAction(null);
     setSelectedTenantId(null);
   };
-  
+
   // Get modal props based on action
   const getModalProps = () => {
     if (!selectedTenant) {
@@ -50,7 +52,7 @@ export default function TenantList({
         confirmButtonColor: 'blue',
       };
     }
-    
+
     switch (modalAction) {
       case 'activate':
         return {
@@ -82,14 +84,14 @@ export default function TenantList({
         };
     }
   };
-  
+
   // Handle modal confirmation
   const handleModalConfirm = async () => {
     if (!selectedTenantId) return;
-    
+
     setIsLoading(true);
     setError(null);
-    
+
     try {
       switch (modalAction) {
         case 'activate':
@@ -112,27 +114,27 @@ export default function TenantList({
       setIsLoading(false);
     }
   };
-  
+
   // Show modal for actions
   const showActivateModal = (id: string) => {
     setSelectedTenantId(id);
     setModalAction('activate');
   };
-  
+
   const showDeactivateModal = (id: string) => {
     setSelectedTenantId(id);
     setModalAction('deactivate');
   };
-  
+
   const showDeleteModal = (id: string) => {
     setSelectedTenantId(id);
     setModalAction('delete');
   };
-  
+
   const handleActivate = async (id: string) => {
     console.log(`Starting activation for tenant ${id}`);
     setError(null);
-    
+
     try {
       if (onActivate) {
         // Let the parent component handle activation
@@ -151,10 +153,10 @@ export default function TenantList({
     }
     console.log(`Activation process completed`);
   };
-  
+
   const handleDeactivate = async (id: string) => {
     setError(null);
-    
+
     try {
       if (onDeactivate) {
         // Let the parent component handle deactivation
@@ -171,11 +173,11 @@ export default function TenantList({
       throw err; // Rethrow to let handleModalConfirm handle it
     }
   };
-  
+
   const handleDelete = async (id: string) => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
       await tenantService.deleteTenant(id);
       await onRefresh();
@@ -185,16 +187,16 @@ export default function TenantList({
       setIsLoading(false);
     }
   };
-  
+
   return (
-    <div className="bg-white shadow-md rounded-lg overflow-hidden">
+    <div className="bg-white shadow-md rounded-lg overflow-x-auto border border-gray-100">
       {error && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3">
           {error}
         </div>
       )}
-      
-      <table className="min-w-full divide-y divide-gray-200">
+
+      <table className="min-w-[1200px] w-full divide-y divide-gray-200">
         <thead className="bg-gray-50">
           <tr>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -207,9 +209,15 @@ export default function TenantList({
               Status
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Plan
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Amount
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               Created At
             </th>
-            <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+            <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider sticky right-0 bg-gray-50 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.05)]">
               Actions
             </th>
           </tr>
@@ -217,25 +225,25 @@ export default function TenantList({
         <tbody className="bg-white divide-y divide-gray-200">
           {!tenants || tenants.length === 0 ? (
             <tr>
-              <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">
+              <td colSpan={7} className="px-6 py-4 text-center text-sm text-gray-500">
                 No tenants found
               </td>
             </tr>
           ) : (
             tenants.map((tenant) => (
-              <tr key={tenant.id}>
+              <tr key={tenant.id} className="hover:bg-gray-50 transition-colors duration-150">
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center">
                     {tenant.logo ? (
                       <Image
-                        className="h-10 w-10 rounded-full mr-3"
+                        className="h-10 w-10 rounded-full mr-3 border border-gray-100 shadow-sm"
                         src={tenant.logo}
                         alt={tenant.name}
                         width={40}
                         height={40}
                       />
                     ) : (
-                      <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center mr-3">
+                      <div className="h-10 w-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mr-3 font-semibold border border-indigo-100 shadow-sm">
                         {tenant.name.charAt(0)}
                       </div>
                     )}
@@ -247,53 +255,72 @@ export default function TenantList({
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span
-                    className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${tenant.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}
+                    className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${(tenant.isActive ?? (tenant as any).is_active) ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}
                   >
-                    {tenant.isActive ? 'Active' : 'Inactive'}
+                    {(tenant.isActive ?? (tenant as any).is_active) ? 'Active' : 'Inactive'}
                   </span>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {new Date(tenant.createdAt).toLocaleDateString()}
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">
+                  {tenant.plan_type?.replace('_', ' ') || 'Flat Rate'}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  <button
-                    onClick={() => onEdit(tenant)}
-                    className="text-indigo-600 hover:text-indigo-900 mr-3"
-                    disabled={isLoading}
-                  >
-                    Edit
-                  </button>
-                  {tenant.isActive ? (
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-medium">
+                  ${tenant.plan_amount?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                  {tenant.plan_type === 'per_user' && <span className="text-[10px] text-gray-400 ml-1">/user</span>}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  {(() => {
+                    const dateStr = tenant.createdAt ?? (tenant as any).created_at;
+                    return dateStr ? new Date(dateStr).toLocaleDateString() : 'N/A';
+                  })()}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium sticky right-0 bg-white/95 backdrop-blur-sm shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.05)]">
+                  <div className="flex justify-end gap-3">
                     <button
-                      onClick={() => showDeactivateModal(tenant.id)}
-                      className="text-yellow-600 hover:text-yellow-900 mr-3"
+                      onClick={() => onEdit(tenant)}
+                      className="text-indigo-600 hover:text-indigo-900 transition-colors duration-200"
                       disabled={isLoading}
                     >
-                      Deactivate
+                      Edit
                     </button>
-                  ) : (
                     <button
-                      onClick={() => showActivateModal(tenant.id)}
-                      className="text-green-600 hover:text-green-900 mr-3"
+                      onClick={() => onManageFeatures?.(tenant)}
+                      className="text-blue-600 hover:text-blue-900 transition-colors duration-200"
                       disabled={isLoading}
                     >
-                      Activate
+                      Modules
                     </button>
-                  )}
-                  <button
-                    onClick={() => showDeleteModal(tenant.id)}
-                    className="text-red-600 hover:text-red-900"
-                    disabled={isLoading}
-                  >
-                    Delete
-                  </button>
+                    {tenant.isActive ? (
+                      <button
+                        onClick={() => showDeactivateModal(tenant.id)}
+                        className="text-amber-600 hover:text-amber-900 transition-colors duration-200"
+                        disabled={isLoading}
+                      >
+                        Deactivate
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => showActivateModal(tenant.id)}
+                        className="text-emerald-600 hover:text-emerald-900 transition-colors duration-200"
+                        disabled={isLoading}
+                      >
+                        Activate
+                      </button>
+                    )}
+                    <button
+                      onClick={() => showDeleteModal(tenant.id)}
+                      className="text-rose-600 hover:text-rose-900 transition-colors duration-200"
+                      disabled={isLoading}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))
           )}
         </tbody>
       </table>
-      
+
       {/* Confirmation Modal */}
       {isModalOpen && selectedTenant && modalAction && (
         <ConfirmationModal
