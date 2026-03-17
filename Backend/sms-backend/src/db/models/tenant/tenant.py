@@ -1,5 +1,6 @@
 from uuid import uuid4
-from sqlalchemy import Column, String, Boolean
+from sqlalchemy import Column, String, Boolean, Numeric
+import sqlalchemy as sa
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 from src.db.models.base import TimestampMixin, UUIDMixin, Base
@@ -36,6 +37,11 @@ class Tenant(Base, TimestampMixin, UUIDMixin):
     primary_color = Column(String(7), nullable=True, comment="Primary color for branding (hex)")
     secondary_color = Column(String(7), nullable=True, comment="Secondary color for branding (hex)")
     
+    # Subscription & Billing Fields (Phase 2)
+    plan_type = Column(String(20), nullable=False, default="flat_rate", server_default="flat_rate", comment="'flat_rate' or 'per_user'")
+    plan_amount = sa.Column(sa.Numeric(10, 2), nullable=False, default=0.0, server_default="0.0", comment="Monthly amount based on plan_type")
+    subscription_status = Column(String(20), nullable=False, default="active", server_default="active", comment="'active', 'past_due', 'canceled'")
+
     # Relationships
     settings = relationship("TenantSettings", back_populates="tenant", uselist=False, cascade="all, delete-orphan")
     notification_config = relationship("TenantNotificationConfig", back_populates="tenant", uselist=False, cascade="all, delete-orphan")

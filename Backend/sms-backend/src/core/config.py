@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     SENDER_PASSWORD: str = os.getenv("SENDER_PASSWORD", "your-outlook-password")
     SMTP_USE_TLS: bool = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
     
+    # Logfire settings
+    LOGFIRE_TOKEN: Optional[str] = os.getenv("LOGFIRE_TOKEN")
+    LOGFIRE_PROJECT_NAME: str = os.getenv("LOGFIRE_PROJECT_NAME", "smsproject")
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

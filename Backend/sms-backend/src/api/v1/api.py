@@ -3,7 +3,7 @@ from fastapi import APIRouter
 # Endpoint imports (core service endpoint etc)
 # from src.api.v1.endpoints import auth
 # from src.api.v1.endpoints.tenant import router as tenant_router
-from src.api.v1.endpoints import tenant, auth, people, super_admin, academics, communication, logging, resources
+from src.api.v1.endpoints import tenant, auth, people, super_admin, academics, communication, logging, resources, finance
 from src.api.v1.endpoints.specialized import financial_academic
 
 # Update the router includes
@@ -21,3 +21,4 @@ api_router.include_router(logging.router, prefix="/logging", tags=["logging"])
 api_router.include_router(resources.router, prefix="/resources", tags=["resources"])
 api_router.include_router(super_admin.router, prefix="/super-admin", tags=["super-admin"])
 api_router.include_router(financial_academic.router, prefix="/specialized", tags=["specialized"])
+api_router.include_router(finance.router, prefix="/finance", tags=["finance"])

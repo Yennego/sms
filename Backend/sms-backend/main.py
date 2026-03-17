@@ -1,4 +1,5 @@
-from fastapi import FastAPI # trigger reload 4
+import logfire
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from fastapi.staticfiles import StaticFiles
@@ -8,8 +9,22 @@ from src.api.v1.api import api_router
 from src.core.config import settings
 from src.core.logging import setup_logging
 from src.core.middleware.audit_middleware import AuditLoggingMiddleware
-from src.core.middleware.tenant import tenant_middleware  # Add this import
+from src.core.middleware.tenant import tenant_middleware  
 from src.core.middleware.idle_activity import IdleActivityMiddleware
+
+# Initialize Logfire
+try:
+    if settings.LOGFIRE_TOKEN:
+        logfire.configure(
+            token=settings.LOGFIRE_TOKEN,
+            project_name=settings.LOGFIRE_PROJECT_NAME,
+            send_to_logfire=True
+        )
+    else:
+        logfire.configure(send_to_logfire=False)
+except Exception as e:
+    print(f"⚠️ Logfire configuration failed, falling back to console only: {e}")
+    logfire.configure(send_to_logfire=False)
 
 setup_logging()
 
@@ -33,13 +48,14 @@ app = FastAPI(
     redirect_slashes=False,      
 )
 
+# Instrument FastAPI with Logfire
+# logfire.instrument_fastapi(app, capture_headers=True)
+
 @app.exception_handler(Exception)
 async def debug_exception_handler(request, exc):
     from fastapi.responses import JSONResponse
     import traceback
     
-    # Extract root cause from ExceptionGroup (Python 3.11+)
-    # This is common in async applications using anyio/starlette
     actual_exc = exc
     type_name = type(exc).__name__
     
@@ -140,7 +156,6 @@ def custom_openapi():
         }
     }
     
-    # Robustly add the parameter only to operation objects
     for path_item in openapi_schema["paths"].values():
         for method in ("get", "put", "post", "delete", "options", "head", "patch"):
             op = path_item.get(method)
@@ -164,6 +179,5 @@ app.openapi = custom_openapi
 async def test_cors():
     return {"message": "CORS is working!"}
 
-# Add this after creating the FastAPI app
 app.add_middleware(IdleActivityMiddleware)
 app.add_middleware(AuditLoggingMiddleware)

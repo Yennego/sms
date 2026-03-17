@@ -180,7 +180,7 @@ def create_tenant_settings(*, db: Session = Depends(get_db), tenant_id: UUID = D
     
     return tenant_settings_crud.create(db, tenant_id=tenant_id, obj_in=settings_in)
 
-@router.get("/{tenant_id}/settings", response_model=TenantSettings)
+@router.get("/{tenant_id}/settings", response_model=Optional[TenantSettings])
 def get_tenant_settings(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request)) -> Any:
     """Get settings for a tenant."""
     tenant_obj = tenant_crud.get(db, id=tenant_id)
@@ -191,12 +191,7 @@ def get_tenant_settings(*, db: Session = Depends(get_db), tenant_id: UUID = Depe
         )
     
     settings = tenant_settings_crud.get_by_tenant_id(db, tenant_id=tenant_id)
-    if not settings:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Settings not found for this tenant"
-        )
-    
+    # Return None if not found, instead of raising 404 to reduce log noise
     return settings
 
 @router.put("/{tenant_id}/settings", response_model=TenantSettings)

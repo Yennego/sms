@@ -1,3 +1,4 @@
+import logfire
 from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from typing import Optional, Union
@@ -263,7 +264,8 @@ async def tenant_middleware(request: Request, call_next):
         db.close() # CRITICAL: Release connection BEFORE calling next
 
     if t_id:
-        return await call_next(request)
+        with logfire.span("tenant_request", tenant_id=str(t_id)):
+            return await call_next(request)
     
     return JSONResponse(
         status_code=status.HTTP_404_NOT_FOUND,

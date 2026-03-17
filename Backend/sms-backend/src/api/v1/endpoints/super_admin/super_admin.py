@@ -456,23 +456,21 @@ def update_tenant_settings(
     tenant_id: UUID,
     settings_in: TenantSettingsUpdate
 ) -> Any:
-    """Update settings for a tenant (super-admin only)."""
+    """Update settings for a tenant (super-admin only). Auto-creates if not found."""
     settings = tenant_settings_crud.get_by_tenant_id(db, tenant_id=tenant_id)
     if not settings:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Settings not found for this tenant"
-        )
-    return tenant_settings_crud.update(db, db_obj=settings, obj_in=settings_in)
+        # Auto-create settings if they don't exist yet
+        return tenant_settings_crud.create_or_update(db, tenant_id=tenant_id, obj_in=settings_in)
+    return tenant_settings_crud.update(db, tenant_id=tenant_id, db_obj=settings, obj_in=settings_in)
 
 # Enhanced user listing with filtering and sorting
-@router.get("/users", response_model=List[UserWithRoles])
+@router.get("/users", response_model=PaginatedResponse[UserWithRoles])
 async def get_all_users(
     *,
     db: Session = Depends(get_super_admin_db),
-    _: User = Depends(require_super_admin()),
-    skip: int = 0,
-    limit: int = 100,
+    _: UserSchema = Depends(require_super_admin()),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1),
     email: Optional[str] = None,
     is_active: Optional[bool] = None,
     tenant_id: Optional[UUID] = None,
@@ -482,7 +480,8 @@ async def get_all_users(
     """Get all users across all tenants with filtering and sorting (super-admin only)."""
     # Use joinedload to eagerly load roles and their permissions
     query = db.query(User).options(
-        joinedload(User.roles).joinedload(UserRoleModel.permissions)
+        joinedload(User.roles).joinedload(UserRoleModel.permissions),
+        joinedload(User.tenant)
     )
     
     # Apply filters
@@ -491,17 +490,11 @@ async def get_all_users(
     if is_active is not None:
         query = query.filter(User.is_active == is_active)
     
-    # Add this helper function at the top of the file if not already present
-    def _ensure_uuid(value: Any) -> UUID:
-        """Ensure the value is a UUID object."""
-        if isinstance(value, str):
-            return UUID(value)
-        return value
-    
-    # Then use it before any tenant_id filter
     if tenant_id:
-        tenant_id = _ensure_uuid(tenant_id)
         query = query.filter(User.tenant_id == tenant_id)
+    
+    # Get total count before pagination
+    total = query.count()
     
     # Apply sorting
     if hasattr(User, sort_by):
@@ -511,8 +504,17 @@ async def get_all_users(
         else:
             query = query.order_by(sort_field.asc())
     
-    # Apply pagination and return results
-    return query.offset(skip).limit(limit).all()
+    # Apply pagination
+    users = query.offset(skip).limit(limit).all()
+    
+    return PaginatedResponse(
+        items=users,
+        total=total,
+        skip=skip,
+        limit=limit,
+        has_next=skip + limit < total,
+        has_prev=skip > 0
+    )
 
 # Enhanced reports implementation
 @router.get("/reports")
@@ -613,22 +615,21 @@ def create_user_cross_tenant(
     *,
     db: Session = Depends(get_db),
     user_in: UserCreateCrossTenant,
-    tenant_id: UUID = Query(..., description="Target tenant ID for user creation"),  # Add this parameter
-    role_id: Optional[UUID] = Query(None, description="Optional role ID to assign"),  # Add this parameter
     _: UserSchema = Depends(require_super_admin()),
 ) -> Any:
     """Create a new user in any tenant (super-admin only)."""
     
     # Check if tenant exists
-    tenant = tenant_crud.get(db, id=tenant_id)
+    tenant = tenant_crud.get(db, id=user_in.tenant_id)
     if not tenant:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Tenant not found"
         )
     
-    # Override the tenant_id in user_in with the one from query parameter
-    user_create_data = user_in.model_copy(update={"tenant_id": tenant_id})
+    # Use the tenant_id from the request body
+    tenant_id = user_in.tenant_id
+    user_create_data = user_in
     
     # Check if user with this email already exists globally
     existing_user = user_crud.get_by_email_any_tenant(db, email=user_in.email)
@@ -678,9 +679,8 @@ def create_user_cross_tenant(
         )
     
     # **ENHANCED: Automatic role assignment logic**
-    if role_id or user_in.role_id:
-        # Use provided role_id (query param takes precedence)
-        target_role_id = role_id or user_in.role_id
+    if user_in.role_id:
+        target_role_id = user_in.role_id
         try:
             db.execute(
                 text("INSERT INTO user_role_association (user_id, role_id) VALUES (:user_id, :role_id)"),
@@ -721,143 +721,6 @@ def create_user_cross_tenant(
     
     return response
 
-# Add this import at the top of the file with other imports
-from src.services.tenant.dashboard import DashboardMetricsService
-from sqlalchemy.orm import joinedload
-
-# Add these new endpoints after the existing endpoints
-
-@router.get("/dashboard/tenant-stats")
-def get_tenant_stats(
-    *,
-    db: Session = Depends(get_super_admin_db),
-    _: User = Depends(require_super_admin())
-) -> Any:
-    """Get tenant statistics for the super-admin dashboard."""
-    print(f"[SUPER-ADMIN] Calling get_tenant_stats")
-    try:
-        dashboard_service = DashboardMetricsService(db)
-        tenant_metrics = dashboard_service.get_tenant_growth_metrics()
-        
-        return {
-            "total": tenant_metrics["total_tenants"],
-            "active": tenant_metrics["active_tenants"],
-            "inactive": tenant_metrics["inactive_tenants"],
-            "newThisMonth": tenant_metrics["new_tenants"],
-            "growthRate": tenant_metrics["growth_rate"]
-        }
-    except Exception as e:
-        print(f"[SUPER-ADMIN] ERROR in get_tenant_stats: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
-
-@router.get("/dashboard/user-stats")
-def get_user_stats(
-    *,
-    db: Session = Depends(get_super_admin_db),
-    _: User = Depends(require_super_admin())
-) -> Any:
-    """Get user statistics for the super-admin dashboard."""
-    print(f"[SUPER-ADMIN] Calling get_user_stats")
-    try:
-        dashboard_service = DashboardMetricsService(db)
-        user_metrics = dashboard_service.get_user_metrics()
-        
-        return {
-            "total": user_metrics["total_users"],
-            "active": user_metrics["active_users"],
-            "inactive": user_metrics["inactive_users"],
-            "avgPerTenant": user_metrics["average_users_per_tenant"],
-            "recentLogins": user_metrics["recent_logins"]
-        }
-    except Exception as e:
-        print(f"[SUPER-ADMIN] ERROR in get_user_stats: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
-
-@router.get("/dashboard/system-metrics")
-def get_system_metrics(
-    *,
-    db: Session = Depends(get_super_admin_db),
-    _: User = Depends(require_super_admin())
-) -> Any:
-    """Get system metrics for the super-admin dashboard."""
-    dashboard_service = DashboardMetricsService(db)
-    system_overview = dashboard_service.get_system_overview()
-    
-    # Mock data for CPU, memory, disk usage and active connections
-    # In a real implementation, these would come from system monitoring
-    cpu_usage = 45.5  # percentage
-    memory_usage = 62.3  # percentage
-    disk_usage = 38.7  # percentage
-    active_connections = 128  # count
-    
-    # Generate some mock tenant growth data
-    # In a real implementation, this would be calculated from the database
-    current_month = datetime.now(timezone.utc).month
-    tenant_growth = []
-    for i in range(6):
-        month = (current_month - i) % 12
-        if month == 0:
-            month = 12
-        month_name = datetime(2000, month, 1).strftime('%b')
-        tenant_growth.append({
-            "month": month_name,
-            "tenants": system_overview["tenant_metrics"]["total_tenants"] - i * 5  # Mock decreasing count
-        })
-    tenant_growth.reverse()  # Show oldest to newest
-    
-    # Generate some mock system alerts
-    alerts = [
-        {"message": "System update scheduled for next weekend", "level": "info"},
-        {"message": "Database approaching 80% capacity", "level": "warning"}
-    ]
-    
-    return {
-        "cpuUsage": cpu_usage,
-        "memoryUsage": memory_usage,
-        "diskUsage": disk_usage,
-        "activeConnections": active_connections,
-        "alerts": alerts,
-        "tenantGrowth": tenant_growth
-    }
-
-@router.get("/dashboard/recent-tenants")
-def get_recent_tenants(
-    *,
-    db: Session = Depends(get_super_admin_db),
-    _: User = Depends(require_super_admin()),
-    limit: int = Query(5, description="Maximum number of recent tenants to return")
-) -> Any:
-    """Get list of recently created tenants for the super-admin dashboard."""
-    print(f"[SUPER-ADMIN] Calling get_recent_tenants with limit={limit}")
-    try:
-        # Get the most recently created tenants
-        recent_tenants = db.query(TenantModel).order_by(TenantModel.created_at.desc()).limit(limit).all()
-        
-        result = []
-        for tenant in recent_tenants:
-            # Count users for this tenant
-            user_count = db.query(func.count(User.id)).filter(User.tenant_id == tenant.id).scalar() or 0
-            
-            result.append({
-                "id": str(tenant.id),
-                "name": tenant.name,
-                "domain": tenant.domain if hasattr(tenant, 'domain') else None,
-                "isActive": tenant.is_active,
-                "createdAt": tenant.created_at.isoformat(),
-                "updatedAt": tenant.updated_at.isoformat() if tenant.updated_at else None,
-                "userCount": user_count
-            })
-        
-        return result
-    except Exception as e:
-        # Log the error
-        print(f"Error in get_recent_tenants: {e}")
-        # Return an empty list instead of failing
-        return []
 
 @router.put("/tenants/{tenant_id}/activate", response_model=Tenant)
 def activate_tenant(
@@ -1076,3 +939,70 @@ def assign_roles_to_user(
     db.refresh(user)
     
     return {"message": "Roles assigned successfully"}
+
+@router.patch("/tenants/{tenant_id}/subscription", response_model=Tenant)
+def update_tenant_subscription(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+    tenant_id: UUID,
+    subscription_in: TenantUpdate
+) -> Any:
+    """Update tenant subscription details (super-admin only)."""
+    tenant = tenant_crud.get(db, id=tenant_id)
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenant not found"
+        )
+    
+    update_data = subscription_in.model_dump(exclude_unset=True)
+    
+    # Validate plan type if provided
+    if "plan_type" in update_data and update_data["plan_type"] not in ["flat_rate", "per_user"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid plan type. Must be 'flat_rate' or 'per_user'"
+        )
+
+    return tenant_crud.update(db, db_obj=tenant, obj_in=update_data)
+
+
+# ─── AI & Predictive Analytics Endpoints ─────────────────────────
+
+@router.get("/analytics/growth-forecast")
+def get_growth_forecast(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+    history_months: int = Query(12, ge=3, le=24),
+    forecast_months: int = Query(3, ge=1, le=6)
+) -> Any:
+    """Get growth forecast for tenants, users, and revenue."""
+    from src.services.tenant.analytics_service import PredictiveAnalyticsService
+    analytics = PredictiveAnalyticsService(db)
+    return analytics.get_growth_forecast(history_months=history_months, forecast_months=forecast_months)
+
+
+@router.get("/analytics/anomalies")
+def get_anomaly_alerts(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+) -> Any:
+    """Get current anomaly alerts across all tenants."""
+    from src.services.tenant.analytics_service import PredictiveAnalyticsService
+    analytics = PredictiveAnalyticsService(db)
+    return analytics.get_anomaly_alerts()
+
+
+@router.get("/analytics/churn-risk")
+def get_churn_risk(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    _: User = Depends(require_super_admin()),
+) -> Any:
+    """Get churn risk scores for all active tenants."""
+    from src.services.tenant.analytics_service import PredictiveAnalyticsService
+    analytics = PredictiveAnalyticsService(db)
+    return analytics.get_churn_risk_tenants()

@@ -80,6 +80,8 @@ class User(Base, TimestampMixin, UUIDMixin):
     # In the relationships section
     notifications = relationship("Notification", back_populates="user")
     password_expiry_date = Column(DateTime, nullable=True, comment="Date when the password expires")
+    
+    tenant = relationship("src.db.models.tenant.tenant.Tenant", foreign_keys=[tenant_id], primaryjoin="User.tenant_id == Tenant.id", viewonly=True)
 
     def __init__(self, **kwargs):
         """Initialize a user with validation.
@@ -130,6 +132,16 @@ class User(Base, TimestampMixin, UUIDMixin):
     def role(self) -> str:
         """Get the user's primary role (polymorphic type)."""
         return self.type
+
+    @property
+    def tenant_name(self) -> Optional[str]:
+        """Get the name of the tenant the user belongs to."""
+        return self.tenant.name if self.tenant else None
+
+    @property
+    def tenant_domain(self) -> Optional[str]:
+        """Get the domain of the tenant the user belongs to."""
+        return self.tenant.domain if self.tenant else None
 
     def __repr__(self):
         return f"<User {self.email}>"

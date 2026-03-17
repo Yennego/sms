@@ -154,6 +154,12 @@ class TenantCRUDBase(Generic[TenantModelType, CreateSchemaType, UpdateSchemaType
         
         return query.offset(skip).limit(limit).all()
 
+    def get_multi(
+        self, db: Session, tenant_id: Any, *, skip: int = 0, limit: int = 100, **kwargs
+    ) -> List[TenantModelType]:
+        """Get multiple records (compatibility alias for list)."""
+        return self.list(db, tenant_id=tenant_id, skip=skip, limit=limit, **kwargs)
+
     def list_with_count(self, db: Session, *, tenant_id: Any = None, skip: int = 0, limit: int = 100, options: Optional[List[Any]] = None, **kwargs) -> tuple[List[TenantModelType], int]:
         """List records with total count, tenant filtering, and pagination."""
         tenant_id_uuid = ensure_uuid(tenant_id)

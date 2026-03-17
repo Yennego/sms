@@ -7,6 +7,8 @@ from src.db.models.resources.resource import Resource
 from src.schemas.resources.resource import ResourceCreate, ResourceUpdate
 from src.services.base.base import TenantBaseService, SuperAdminBaseService
 from src.core.exceptions.business import EntityNotFoundError
+from src.utils.image_utils import process_profile_image, generate_safe_filename
+from fastapi import UploadFile
 
 
 class ResourceService(TenantBaseService[Resource, ResourceCreate, ResourceUpdate]):
@@ -39,6 +41,38 @@ class ResourceService(TenantBaseService[Resource, ResourceCreate, ResourceUpdate
             self.db, tenant_id=self.tenant_id
         )
     
+    async def upload_image(self, file: UploadFile, uploader_id: UUID, **kwargs) -> Resource:
+        """Process and upload an image resource."""
+        # Process image
+        processed_bytes = await process_profile_image(file)
+        
+        # Generate safe filename
+        safe_name = generate_safe_filename(file.filename)
+        
+        # For now, we'll simulate saving to a path. In a real scenario, 
+        # this would go to S3 or a local persistent volume.
+        upload_dir = Path("uploads") / str(self.tenant_id) / "resources"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        file_path = upload_dir / safe_name
+        
+        with open(file_path, "wb") as f:
+            f.write(processed_bytes)
+            
+        # Create database record
+        resource_in = ResourceCreate(
+            title=kwargs.get("title", file.filename),
+            description=kwargs.get("description"),
+            resource_type="image",
+            file_path=str(file_path),
+            file_size=len(processed_bytes),
+            file_extension=Path(safe_name).suffix,
+            uploader_id=uploader_id,
+            upload_date=datetime.now(),
+            **kwargs
+        )
+        
+        return await self.create(obj_in=resource_in)
+
     async def access_resource(self, id: UUID) -> Optional[Resource]:
         """Access a resource and update its access statistics."""
         resource = await self.get(id=id)

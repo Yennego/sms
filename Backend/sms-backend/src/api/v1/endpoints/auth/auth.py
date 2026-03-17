@@ -321,19 +321,31 @@ async def login_for_access_token(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Inactive user"
         )
+    
+    # Cache super-admin status before commit (which expires the object)
+    is_super_admin = getattr(user, "is_super_admin", False)
+    user_id = user.id
+
+    # Update last login timestamp
+    user.last_login = datetime.now(timezone.utc)
+    db.add(user)
+    db.commit()
+    # Skipping db.refresh(user) as it can cause InvalidRequestError with polymorphic models
+    # and we have the necessary data cached.
+
     final_tenant_id = tenant_id if tenant_id is not None else user.tenant_id
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        subject=user.id,
+        subject=user_id,
         tenant_id=final_tenant_id,
-        is_super_admin=getattr(user, "is_super_admin", False),
+        is_super_admin=is_super_admin,
         expires_delta=access_token_expires
     )
     # Fix the create_refresh_token call around line 291
     refresh_token = create_refresh_token(
-        subject=str(user.id),
+        subject=str(user_id),
         tenant_id=str(final_tenant_id),
-        is_super_admin=getattr(user, "is_super_admin", False)
+        is_super_admin=is_super_admin
     )
     # Initialize last activity for the new access token
     issued_payload = await verify_token(access_token)

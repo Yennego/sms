@@ -1,7 +1,7 @@
-from typing import Optional, Dict, Any
+from decimal import Decimal
+from typing import Optional, Dict, Any, Union
 from datetime import datetime
 from uuid import UUID
-from typing import Optional
 from pydantic import BaseModel, Field, field_validator
 
 from src.schemas.base.base import BaseSchema, TimestampSchema
@@ -20,6 +20,11 @@ class TenantBase(BaseModel):
     logo: Optional[str] = None
     primary_color: Optional[str] = None  
     secondary_color: Optional[str] = None  
+    
+    # Subscription & Billing Fields
+    plan_type: str = "flat_rate"
+    plan_amount: Decimal = Decimal("0.0")
+    subscription_status: str = "active"
     
     @field_validator('code')
     def code_to_uppercase(cls, v):
@@ -62,6 +67,11 @@ class TenantUpdate(BaseModel):
     primary_color: Optional[str] = None  
     secondary_color: Optional[str] = None  
     
+    # Subscription & Billing Fields
+    plan_type: Optional[str] = None
+    plan_amount: Optional[Decimal] = None
+    subscription_status: Optional[str] = None
+    
     @field_validator('code')
     def code_to_uppercase(cls, v):
         return v.upper() if v else v
@@ -89,6 +99,3 @@ class Tenant(TenantBase, TimestampSchema):
     class Config:
         from_attributes = True
         populate_by_name = True
-
-
-        

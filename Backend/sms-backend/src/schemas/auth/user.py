@@ -50,6 +50,8 @@ class UserInDBBase(UserBase, TenantSchema):
     id: UUID
     last_login: Optional[datetime] = None
     type: str
+    tenant_name: Optional[str] = None
+    tenant_domain: Optional[str] = None
 
     class Config:
         from_attributes = True

@@ -45,7 +45,11 @@ class TenantSettings(Base, TimestampMixin, UUIDMixin):
         },
         "features": {
             "enable_parent_portal": True,
-            "enable_sms_notifications": False
+            "enable_sms_notifications": False,
+            "enable_finance": False,
+            "enable_transportation": False,
+            "enable_cafeteria": False,
+            "enable_health": False
         },
         "system": {
             "timezone": "UTC"
