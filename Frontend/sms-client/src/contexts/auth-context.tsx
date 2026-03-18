@@ -152,7 +152,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const loadAuthData = async () => {
       if (isFetchingUser.current || user || isLoggingOut) {
-        if (!user && !isLoggingOut) setIsLoading(false);
+        // If we are already fetching, don't set loading to false!
+        // The active fetch will handle it in its finally block.
         return;
       }
       isFetchingUser.current = true;
@@ -231,6 +232,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } catch (error) {
             console.error('Failed fetching user, trying to refresh token', error);
             clearAuthState();
+          }
+        } else {
+          // No client-side tokens found - but they may exist as httpOnly cookies
+          // Try calling /api/auth/me without auth header; the server route reads cookies directly
+          console.log('[Auth] No client-side tokens found, trying server-side cookie fallback...');
+          try {
+            const res = await fetch('/api/auth/me', { 
+              // Important: specify credits to include cookies if different origin (though usually same-origin here)
+              credentials: 'include',
+              headers: { 'Accept': 'application/json' }
+            });
+            
+            if (res.ok) {
+              const userData = await res.json();
+              console.log('[Auth] Server-side cookie fallback succeeded, user authenticated:', userData.email);
+              setUser(userData as User);
+            } else if (res.status === 401) {
+              console.log('[Auth] Server-side fallback: User not authenticated (401)');
+              // Definitely not authenticated
+            } else {
+              console.log('[Auth] Server-side fallback returned non-OK status:', res.status);
+            }
+          } catch (err) {
+            console.warn('[Auth] Server-side cookie fallback error:', err);
           }
         }
       } catch (e) {
@@ -465,6 +490,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [router, clearAuthState, accessToken]);
 
   const validateTokenBeforeRequest = async () => {
+    // If we have a user, we are nominally authenticated
+    if (user && !accessToken) return true;
     if (!accessToken) return false;
     if (isValidating.current) return true;
     isValidating.current = true;
@@ -493,9 +520,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const isValid = await validateTokenBeforeRequest();
     if (!isValid) return null;
 
-    const headers: Record<string, string> = {
-      'Authorization': `Bearer ${accessToken}`,
-    };
+    const headers: Record<string, string> = {};
+    
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
 
     const currentContext = getCurrentContext();
     const tenantId = contextualCookies.get('tenantId', currentContext);
@@ -566,7 +595,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       accessToken,
       refreshToken,
-      isAuthenticated: !!user && !!accessToken,
+      isAuthenticated: !!user,
       isLoading,
       requiresPasswordChange,
       selectedTenantId: selectedTenantIdState,

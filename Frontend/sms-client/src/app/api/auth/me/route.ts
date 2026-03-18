@@ -16,8 +16,21 @@ export async function GET(request: NextRequest) {
     const sanitizedTenantId = tenantId === 'undefined' ? '00000000-0000-0000-0000-000000000001' : tenantId;
     console.log('Sanitized Tenant ID:', sanitizedTenantId);
 
-    // Get authorization header
-    const authHeader = request.headers.get('Authorization');
+    // Get authorization header - with cookie fallback for httpOnly cookies
+    let authHeader = request.headers.get('Authorization');
+    
+    // If no auth header, try to get token from cookies (they may be httpOnly)
+    if (!authHeader) {
+      const cookieHeader = request.headers.get('cookie') || '';
+      const tokenMatch = cookieHeader.match(/(?:^|; )tn_accessToken=([^;]+)/) ||
+                        cookieHeader.match(/(?:^|; )sa_accessToken=([^;]+)/) ||
+                        cookieHeader.match(/(?:^|; )accessToken=([^;]+)/);
+      if (tokenMatch) {
+        authHeader = `Bearer ${decodeURIComponent(tokenMatch[1])}`;
+        console.log('[/api/auth/me] Using token from cookies (httpOnly fallback)');
+      }
+    }
+    
     if (!authHeader) {
       return NextResponse.json(
         { message: 'Authorization header required' },

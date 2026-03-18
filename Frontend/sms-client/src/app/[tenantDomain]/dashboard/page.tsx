@@ -33,7 +33,16 @@ export default function TenantDashboardPage() {
 
   useEffect(() => {
     // Wait for everything to initialize
-    if (!hasInitialized || tenantLoading) return;
+    if (!hasInitialized || tenantLoading) {
+      console.log("[Dashboard Status] Initializing...", { hasInitialized, tenantLoading, authLoading });
+      return;
+    }
+
+    console.log("[Dashboard Status] Initialization complete.", { 
+      isAuthenticated, 
+      userEmail: user?.email, 
+      tenantDomain 
+    });
 
     if (!isAuthenticated) {
       console.log("[Dashboard] Not authenticated after initialization. Redirecting to login...");
@@ -48,7 +57,7 @@ export default function TenantDashboardPage() {
       setIsRedirecting(true);
       router.push('/super-admin/dashboard');
     }
-  }, [isAuthenticated, hasInitialized, tenantLoading, isSuperAdmin, router, tenantDomain]);
+  }, [isAuthenticated, hasInitialized, tenantLoading, isSuperAdmin, router, tenantDomain, user, authLoading]);
 
   if (tenantLoading || authLoading || isRedirecting) {
     return (

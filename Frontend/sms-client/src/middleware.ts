@@ -153,8 +153,21 @@ function resolveTenantId(request: NextRequest, context: CookieNamespace): string
     return tenantFromSubdomain;
   }
 
-  // 5. Try extract from JWT token
-  const jwtAccessToken = getNamespacedCookie(request, 'accessToken', context);
+  // 5. If still no tenantId and this is an API route, try checking TENANT context explicitly
+  if (!tenantId && pathname.startsWith('/api/')) {
+    tenantId = getNamespacedCookie(request, 'tenantId', 'TENANT') || null;
+    if (tenantId) {
+      console.log(`[Middleware] Found tenantId in TENANT fallback for API route: ${tenantId}`);
+      return tenantId;
+    }
+  }
+
+  // 6. Try extract from JWT token - check both current and TENANT namespace for API calls
+  let jwtAccessToken = getNamespacedCookie(request, 'accessToken', context);
+  if (!jwtAccessToken && pathname.startsWith('/api/') && context !== 'TENANT') {
+    jwtAccessToken = getNamespacedCookie(request, 'accessToken', 'TENANT');
+  }
+
   if (jwtAccessToken) {
     const fromToken = extractTenantFromToken(jwtAccessToken);
     if (fromToken) return fromToken;
