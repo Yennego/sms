@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 from uuid import uuid4
 from src.db.models.auth.user import User
 
@@ -58,5 +58,3 @@ def test_user_is_active_explicit():
         tenant_id=uuid4()
     )
     assert user.is_active is False 
-
-    

@@ -1,4 +1,4 @@
-﻿# Parent Business Rules
+# Parent Business Rules
 
 ## Parent-Student Relationships
 

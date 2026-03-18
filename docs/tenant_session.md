@@ -1,4 +1,4 @@
-﻿# Tenant-Aware Database Session
+# Tenant-Aware Database Session
 
 This document explains how the multi-tenant database session is implemented in the School Management System.
 

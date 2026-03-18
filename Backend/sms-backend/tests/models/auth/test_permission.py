@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 from uuid import uuid4
 
 # Import all auth models to ensure they're registered with SQLAlchemy
@@ -49,5 +49,3 @@ def test_permission_roles_relationship(db_session):
     assert len(permission.roles) == 1
     assert permission.roles[0] == role
     assert permission in role.permissions
-
-    

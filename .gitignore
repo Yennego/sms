@@ -25,16 +25,51 @@ htmlcov/
 Thumbs.db
 
 # Debug scripts
-# Only ignore actual temporary debug files, not source code
 debug_*.py
-_debug_*.py
-tmp_*.py
-temp_*.py
+check_*.py
+inspect_*.py
+diag_*.py
+dump_*.py
+verify_*.py
+find_*.py
+fix_*.py
+list_*.py
+backfill_*.py
+cleanup*.py
+patch_*.py
+raw_*.py
+test_*.py
+migrate_*.py
+compare_*.py
+compact_*.py
+exhaustive_*.py
+ultimate_*.py
+wipe_*.py
+deep_*.py
+search_*.py
+profile_*.py
+apply_*.py
+audit_*.py
+reset_*.py
+map_*.py
+read_*.py
+clear_*.py
+seed_*.py
+simple_*.py
+detailed_*.py
+final_*.py
+create_school_*.py
+create_submissions_*.py
+run_migration.py
+export_indexes.py
+add_age_range_*.py
+add_capacity_*.py
+add_grade_publication_*.py
+update_schedules_*.py
 
 # Output files
 *.txt
 !requirements.txt
-!README.md
 !README.txt
 *.csv
 *.log

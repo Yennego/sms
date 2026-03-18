@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 from uuid import uuid4
 from src.db.models.tenant import Tenant, TenantSettings
 
@@ -56,5 +56,3 @@ def test_tenant_cascade_delete(db_session, tenant, tenant_settings):
     # Verify settings are deleted
     settings = db_session.query(TenantSettings).filter_by(id=settings_id).first()
     assert settings is None 
-
-    

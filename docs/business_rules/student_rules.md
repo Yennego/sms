@@ -1,4 +1,4 @@
-﻿# Student Business Rules
+# Student Business Rules
 
 ## Status Transitions
 

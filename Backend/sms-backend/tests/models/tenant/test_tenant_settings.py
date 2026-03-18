@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 from uuid import uuid4
 from src.db.models.tenant.tenant import Tenant
 from src.db.models.tenant.tenant_settings import TenantSettings
@@ -52,5 +52,3 @@ def test_tenant_settings_relationship(db_session, tenant, tenant_settings):
     """Test the relationship between TenantSettings and Tenant."""
     assert tenant_settings.tenant == tenant
     assert tenant.settings == tenant_settings 
-
-    
