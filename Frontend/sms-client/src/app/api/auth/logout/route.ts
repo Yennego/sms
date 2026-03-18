@@ -28,7 +28,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const fullUrl = `${backendUrl}/auth/logout`;
+    // Normalize base to include /api/v1
+    const { normalizeBaseUrl } = await import('@/app/api/_lib/http');
+    let baseUrl = normalizeBaseUrl(backendUrl);
+    const fullUrl = `${baseUrl}/auth/logout`;
     console.log('Calling backend logout URL:', fullUrl);
 
     try {

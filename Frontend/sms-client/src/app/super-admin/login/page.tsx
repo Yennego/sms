@@ -10,7 +10,9 @@ import { Label } from "@/components/ui/label";
 import { Shield, Loader2, LogIn, Mail, Lock, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
-export default function SuperAdminLoginPage() {
+import { Suspense } from 'react';
+
+function LoginPageContent() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -153,5 +155,13 @@ export default function SuperAdminLoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SuperAdminLoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500">Loading authenticaton...</div>}>
+      <LoginPageContent />
+    </Suspense>
   );
 }

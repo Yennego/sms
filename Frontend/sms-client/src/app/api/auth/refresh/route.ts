@@ -29,8 +29,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // FIX: Add /api/v1 prefix
-    const fullUrl = `${backendUrl}/auth/refresh`;
+    // FIX: Use normalizeBaseUrl to include /api/v1
+    const { normalizeBaseUrl } = await import('@/app/api/_lib/http');
+    let baseUrl = normalizeBaseUrl(backendUrl);
+    const fullUrl = `${baseUrl}/auth/refresh`;
     console.log('Calling refresh URL:', fullUrl);
     
     // Call backend API with token in Authorization header

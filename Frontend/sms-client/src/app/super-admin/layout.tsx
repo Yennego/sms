@@ -34,6 +34,11 @@ export default function SuperAdminLayout({
   }, [isSidebarCollapsed]);
 
   useEffect(() => {
+    // Bypass auth checks for login page
+    if (pathname === '/super-admin/login') {
+      return;
+    }
+
     if (!isLoading && !hasRedirected.current) {
       if (!isAuthenticated || !accessToken) {
         hasRedirected.current = true;
@@ -58,7 +63,7 @@ export default function SuperAdminLayout({
         return;
       }
     }
-  }, [isAuthenticated, isLoading, user, accessToken, router]);
+  }, [isAuthenticated, isLoading, user, accessToken, router, pathname]);
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
@@ -88,6 +93,11 @@ export default function SuperAdminLayout({
         ? (role === 'superadmin' || role === 'super-admin')
         : (role.name === 'superadmin' || role.name === 'super-admin')
     ));
+
+  // Bypass render check for login page
+  if (pathname === '/super-admin/login') {
+    return <>{children}</>;
+  }
 
   if (!isAuthenticated || !isSuperAdmin) {
     return null;
