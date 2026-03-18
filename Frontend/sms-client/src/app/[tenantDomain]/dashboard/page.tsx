@@ -16,7 +16,7 @@ export default function TenantDashboardPage() {
   const tenantDomain = (params?.tenantDomain as string) || "";
   
   const { tenant, isLoading: tenantLoading } = useTenant();
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, hasInitialized } = useAuth();
   const [isRedirecting, setIsRedirecting] = useState(false);
 
   // Derive role
@@ -32,11 +32,11 @@ export default function TenantDashboardPage() {
   const isSuperAdmin = userRole === 'super_admin' || userRole === 'superadmin';
 
   useEffect(() => {
-    // Wait for both to finish loading
-    if (authLoading || tenantLoading) return;
+    // Wait for everything to initialize
+    if (!hasInitialized || tenantLoading) return;
 
     if (!isAuthenticated) {
-      console.log("[Dashboard] Not authenticated. Redirecting to login...");
+      console.log("[Dashboard] Not authenticated after initialization. Redirecting to login...");
       setIsRedirecting(true);
       const loginPath = tenantDomain ? `/${tenantDomain}/login` : "/login";
       router.push(loginPath);
@@ -48,7 +48,7 @@ export default function TenantDashboardPage() {
       setIsRedirecting(true);
       router.push('/super-admin/dashboard');
     }
-  }, [isAuthenticated, authLoading, tenantLoading, isSuperAdmin, router, tenantDomain]);
+  }, [isAuthenticated, hasInitialized, tenantLoading, isSuperAdmin, router, tenantDomain]);
 
   if (tenantLoading || authLoading || isRedirecting) {
     return (

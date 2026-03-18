@@ -1,7 +1,7 @@
 'use client';
 
 import { ReactNode, useEffect } from 'react';
-import { usePathname } from 'next/navigation';
+import { useRouter, usePathname, useParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useTenant } from '@/hooks/use-tenant';
 import Sidebar from '@/components/layout/Sidebar';
@@ -9,8 +9,14 @@ import Header from '@/components/layout/Header';
 import { Loader2 } from "lucide-react";
 
 export default function TenantLayout({ children }: { children: ReactNode }) {
-  const { isAuthenticated, isLoading: authLoading, isLoggingOut } = useAuth();
+  const { 
+    isAuthenticated, 
+    isLoading: authLoading, 
+    hasInitialized, 
+    isLoggingOut 
+  } = useAuth();
   const { tenant, isLoading: tenantLoading } = useTenant();
+  const params = useParams();
   const pathname = usePathname();
 
   useEffect(() => {
@@ -19,16 +25,15 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
     }
   }, [tenant?.name]);
 
-  const isLoginPage = pathname?.includes('/login');
+  const isLoginPage = pathname.endsWith('/login') || /\/login(\/|$)/.test(pathname);
 
-  // Show loading while auth OR tenant is resolving, unless it's the login page
-  if ((authLoading || tenantLoading || isLoggingOut) && !isLoginPage) {
+  // Show a full-screen loader while either auth or tenant context is initializing
+  // BUT only on protected routes.
+  if ((!hasInitialized || tenantLoading || isLoggingOut) && !isLoginPage) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
-        <div className="text-center space-y-4">
-          <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto opacity-70" />
-          <p className="text-slate-500 font-medium animate-pulse">Initializing school portal...</p>
-        </div>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 space-y-4">
+        <Loader2 className="h-10 w-10 animate-spin text-primary opacity-50" />
+        <p className="text-slate-500 font-medium animate-pulse">Initializing...</p>
       </div>
     );
   }
@@ -41,12 +46,7 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
       return <main className="min-h-screen">{children}</main>;
     }
     
-    // If not authenticated and NOT loading, but we are on a protected route, 
-    // we still show the loader if we are in the middle of a potential refresh
-    if (authLoading) {
-      return null; // Or return the loader again
-    }
-
+    // If we get here, it means initialization is DONE and we are NOT authenticated
     return (
       <main className="min-h-screen">
         {children}

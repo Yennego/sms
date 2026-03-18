@@ -25,6 +25,7 @@ type AuthContextType = {
   refetchUser: () => Promise<void>;
   updateUser: (userId: string, data: any) => Promise<void>;
   isLoggingOut: boolean;
+  hasInitialized: boolean;
 };
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -38,6 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [requiresPasswordChange, setRequiresPasswordChange] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasInitialized, setHasInitialized] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const refreshPromise = useRef<Promise<string | null> | null>(null);
   
@@ -229,12 +231,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearAuthState();
       } finally {
         setIsLoading(false);
+        setHasInitialized(true);
         isFetchingUser.current = false;
       }
     };
 
     loadAuthData();
-  }, [refreshAccessToken, clearAuthState, user, isLoggingOut]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshAccessToken, clearAuthState, isLoggingOut]);
 
   // Handle global refresh requests from ApiClient
   useEffect(() => {
@@ -549,7 +553,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       validateTokenBeforeRequest,
       refetchUser,
       updateUser,
-      isLoggingOut
+      isLoggingOut,
+      hasInitialized,
     }}>
       {children}
     </AuthContext.Provider>

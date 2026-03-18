@@ -13,7 +13,7 @@ export default function SuperAdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { user, isAuthenticated, isLoading, accessToken, isLoggingOut } = useAuth();
+  const { user, isAuthenticated, isLoading, accessToken, isLoggingOut, hasInitialized } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const hasRedirected = useRef(false);
@@ -39,7 +39,7 @@ export default function SuperAdminLayout({
       return;
     }
 
-    if (!isLoading && !hasRedirected.current) {
+    if (hasInitialized && !hasRedirected.current) {
       if (!isAuthenticated || !accessToken) {
         hasRedirected.current = true;
         router.push('/login');
@@ -63,7 +63,7 @@ export default function SuperAdminLayout({
         return;
       }
     }
-  }, [isAuthenticated, isLoading, user, accessToken, router, pathname]);
+  }, [isAuthenticated, hasInitialized, user, accessToken, router, pathname]);
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
@@ -73,13 +73,13 @@ export default function SuperAdminLayout({
     setIsSidebarCollapsed(collapsed);
   };
 
-  if (isLoading || isLoggingOut) {
+  if (!hasInitialized || isLoggingOut) {
     // If we are redirecting to login, don't spin
     if (pathname?.includes('/login')) return null;
 
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-lg">Loading...</div>
+        <div className="text-lg font-medium animate-pulse">Initializing...</div>
       </div>
     );
   }

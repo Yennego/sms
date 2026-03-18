@@ -16,16 +16,26 @@ export function getCurrentContext(): CookieNamespace {
   const pathname = window.location.pathname;
   const hostname = window.location.hostname;
 
+  // List of reserved top-level paths that are NOT tenant specific
+  const reservedPaths = ['super-admin', 'api', '_next', 'static', 'public', 'favicon.ico'];
+  
+  const pathSegments = pathname.split('/').filter(Boolean);
+  const firstSegment = pathSegments[0]?.toLowerCase();
 
-  if (pathname.startsWith('/super-admin')) {
-    return 'SUPER_ADMIN';
+  if (firstSegment && reservedPaths.includes(firstSegment)) {
+    // Check for super-admin specifically
+    if (firstSegment === 'super-admin') return 'SUPER_ADMIN';
+    return 'DEFAULT';
   }
 
-  // Check if we're in a tenant context (subdomain or tenant path)
-  const hasSubdomain = hostname.split('.').length > 2 && !hostname.includes('localhost');
-  const hasTenantPath = pathname.match(/^\/[a-zA-Z0-9-]+\/(dashboard|login)/);
+  // Check if we're in a tenant context (subdomain or has initial segment that isn't reserved)
+  const hasSubdomain = hostname.split('.').length > 2 && !hostname.includes('localhost') && !hostname.includes('vercel.app');
+  
+  // If we have at least one segment and it's not reserved, and it's not a top-level public page like /login
+  const publicTopLevel = ['login', 'register', 'session-expired', 'forgot-password'];
+  const isTenantPath = firstSegment && !publicTopLevel.includes(firstSegment);
 
-  if (hasSubdomain || hasTenantPath) {
+  if (hasSubdomain || isTenantPath) {
     return 'TENANT';
   }
 
