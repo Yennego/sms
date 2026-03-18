@@ -91,22 +91,30 @@ export class ApiClient {
           return m ? decodeURIComponent(m[1]) : null;
         };
         const candidateTenant = (() => {
+          // Priority 1: Use the tenantId provided to the constructor (most reliable)
           if (this.tenantId) return this.tenantId as string;
-          const c1 = parseCookie('tn_tenantId') || parseCookie('tenantId');
-          if (c1) return c1;
+          
+          // Priority 2: Use the URL path segment (very reliable for tenant routes)
           const seg = typeof window !== 'undefined' ? window.location.pathname.split('/')[1] || null : null;
-          // Allow any segment that isn't a reserved word
           const reserved = [
-            'api', '_next', 'static', 'super-admin', 'login',
-            'students', 'teachers', 'parents', 'academics',
-            'communication', 'resources', 'logging', 'settings',
-            'dashboard', 'profile'
+            'api', '_next', 'static', 'super-admin', 'login', 'session-expired', 'favicon.ico',
+            'students', 'teachers', 'parents', 'academics', 'communication', 'resources', 
+            'logging', 'settings', 'dashboard', 'profile'
           ];
-          if (seg && !reserved.includes(seg.toLowerCase())) return seg;
-          return null;
+          if (seg && !reserved.includes(seg.toLowerCase())) {
+            return seg;
+          }
+
+          // Priority 3: Fallback to cookies (least reliable, keep for non-tenant routes)
+          return parseCookie('tn_tenantId') || parseCookie('tenantId');
         })();
+
         if (candidateTenant) {
-          config.headers['X-Tenant-ID'] = candidateTenant;
+          if (isValidUUID(candidateTenant)) {
+            config.headers['X-Tenant-ID'] = candidateTenant;
+          } else {
+            config.headers['X-Tenant-Domain'] = candidateTenant;
+          }
         } else if ((config.headers as Record<string, unknown>)['X-Tenant-ID']) {
           const hdrs = (config.headers as Record<string, unknown>);
           delete hdrs['X-Tenant-ID'];
@@ -298,10 +306,13 @@ export class ApiClient {
   async request<T>(endpoint: string, config: AxiosRequestConfig = {}): Promise<T> {
     // For GET requests, check cache first
     if (!config.method || config.method.toLowerCase() === 'get') {
-      const cacheKey = `${endpoint}-${this.tenantId || 'no-tenant'}`;
+      // USE BOTH tenantId AND current domain to ensure isolation
+      const domainKey = typeof window !== 'undefined' ? window.location.hostname : 'no-host';
+      const tenantKey = this.tenantId || 'no-tenant';
+      const cacheKey = `${endpoint}-${domainKey}-${tenantKey}`;
+      
       const cachedItem = globalCache.get(cacheKey);
       if (cachedItem && (Date.now() - cachedItem.timestamp < CACHE_TTL)) {
-        console.log(`Using cached data for: ${endpoint}`);
         return cachedItem.data as T;
       }
     }

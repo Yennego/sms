@@ -20,17 +20,43 @@ export const TenantContext = createContext<TenantContextType | undefined>(undefi
 export function TenantProvider({ children }: { children: ReactNode }) {
   const [tenant, setTenant] = useState<Tenant | null>(() => {
     if (typeof window === 'undefined') return null;
-    const currentContext = getCurrentContext();
-    const storedId = contextualCookies.get('tenantId', currentContext) || 
-                   localStorage.getItem('tenantId') || 
-                   cookies.get('tn_tenantId') || 
-                   cookies.get('tenantId');
     
-    // Return a minimal tenant object if an ID is found to prevent null -> ID jump
-    if (storedId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(storedId)) {
-      return { id: storedId, name: 'Loading...', domain: null as any } as Tenant;
+    // PRIORITY 1: URL Path (Internal routing)
+    const pathname = window.location.pathname;
+    const pathSegments = pathname.split('/');
+    let urlIdentifier = null;
+    
+    if (pathSegments.length >= 2 && pathSegments[1]) {
+      const firstSegment = pathSegments[1];
+      const isReserved = ['api', '_next', 'static', 'super-admin', 'login', 'session-expired'].includes(firstSegment);
+      if (!isReserved) {
+        urlIdentifier = firstSegment;
+      }
     }
-    return null;
+
+    // PRIORITY 2: Hostname (Subdomains)
+    let subdomainIdentifier = null;
+    const hostname = window.location.hostname;
+    const subdomain = hostname.split('.')[0];
+    if (subdomain !== 'localhost' && subdomain !== 'www' && !hostname.endsWith('.vercel.app') && !hostname.endsWith('.onrender.com')) {
+      subdomainIdentifier = subdomain;
+    }
+
+    const currentContext = getCurrentContext();
+    const identifier = urlIdentifier || subdomainIdentifier || 
+                      contextualCookies.get('tenantId', currentContext) || 
+                      cookies.get('tn_tenantId') || 
+                      cookies.get('tenantId');
+    
+    if (!identifier) return null;
+
+    // If it's a UUID, return a minimal tenant object
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier)) {
+      return { id: identifier, name: 'Loading...', domain: null as any } as Tenant;
+    }
+    
+    // If it's a domain/slug, return a minimal tenant with that domain
+    return { id: null as any, name: 'Loading...', domain: identifier } as Tenant;
   });
   const [isLoading, setIsLoading] = useState(true);
   const pathname = usePathname();
