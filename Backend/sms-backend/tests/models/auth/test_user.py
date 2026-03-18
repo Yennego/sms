@@ -1,4 +1,4 @@
-import pytest
+﻿import pytest
 from uuid import uuid4
 from src.db.models.auth.user import User
 

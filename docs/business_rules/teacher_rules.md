@@ -1,4 +1,4 @@
-# Teacher Business Rules
+﻿# Teacher Business Rules
 
 ## Teacher Status
 
