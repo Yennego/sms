@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import { handleError, createError, ErrorType, AppError } from '@/utils/error-utils';
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from 'axios';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
 
 export class SuperAdminApiClient {
   private axiosInstance: AxiosInstance;
