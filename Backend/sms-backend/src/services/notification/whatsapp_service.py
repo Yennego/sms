@@ -1,4 +1,4 @@
-import pywhatkit as kit
+# import pywhatkit as kit
 import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
@@ -163,12 +163,13 @@ Welcome to our school family! 🎉
             formatted_number = self._format_phone_number(phone_number)
             
             # Send message immediately
-            kit.sendwhatmsg_instantly(
-                phone_no=formatted_number,
-                message=message,
-                wait_time=15,
-                tab_close=True
-            )
+            # kit.sendwhatmsg_instantly(
+            #     phone_no=formatted_number,
+            #     message=message,
+            #     wait_time=15,
+            #     tab_close=True
+            # )
+            print(f"[WHATSAPP] Simulated send to {formatted_number}: {message[:50]}...")
             return True
         except Exception as e:
             print(f"WhatsApp sending failed: {e}")
