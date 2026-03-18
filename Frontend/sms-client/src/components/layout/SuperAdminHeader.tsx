@@ -30,11 +30,11 @@ export default function SuperAdminHeader({ onMenuToggle }: SuperAdminHeaderProps
             >
               <Menu className="h-5 w-5" />
             </Button>
-            
+
             <div className="flex-shrink-0 flex items-center">
               <Shield className="h-8 w-8 text-primary mr-3" />
               <span className="text-xl font-semibold text-primary hidden sm:block">
-                Global Admin Console
+                Admin Console
               </span>
               <span className="text-lg font-semibold text-primary sm:hidden">
                 Admin
@@ -74,8 +74,8 @@ export default function SuperAdminHeader({ onMenuToggle }: SuperAdminHeaderProps
               {isProfileMenuOpen && (
                 <>
                   {/* Mobile backdrop */}
-                  <div 
-                    className="fixed inset-0 z-10" 
+                  <div
+                    className="fixed inset-0 z-10"
                     onClick={() => setIsProfileMenuOpen(false)}
                   />
                   <div
@@ -107,7 +107,7 @@ export default function SuperAdminHeader({ onMenuToggle }: SuperAdminHeaderProps
                     <Button
                       variant="ghost"
                       className="flex w-full justify-start px-4 py-2 text-sm text-destructive hover:text-destructive"
-                      onClick={logout}
+                      onClick={() => logout()}
                     >
                       <LogOut className="mr-2 h-4 w-4" />
                       Sign out
