@@ -331,19 +331,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userData = userResponse.data;
       setUser(userData);
 
-      const isSuperAdmin = userData.roles && userData.roles.some((r: { name: string }) =>
-        r.name === 'superadmin' || r.name === 'super-admin'
-      );
-
-      const tokenStorageContext = isSuperAdmin ? 'SUPER_ADMIN' : 'DEFAULT';
-
-      contextualCookies.set('accessToken', data.access_token, { expires: 1 }, tokenStorageContext);
+      // Use current context for saving tokens to ensure correct namespacing (tn_ vs sa_)
+      contextualCookies.set('accessToken', data.access_token, { expires: 1 }, currentContext);
       if (data.refresh_token) {
-        contextualCookies.set('refreshToken', data.refresh_token, { expires: 7 }, tokenStorageContext);
+        contextualCookies.set('refreshToken', data.refresh_token, { expires: 7 }, currentContext);
       }
 
-      if (!isSuperAdmin && userData.tenant_id && userData.tenant_id !== 'None') {
-        contextualCookies.set('tenantId', userData.tenant_id, { expires: 7 }, 'DEFAULT');
+      // Always save tenantId in context if available
+      if (userData.tenant_id && userData.tenant_id !== 'None' && userData.tenant_id !== 'null') {
+        contextualCookies.set('tenantId', userData.tenant_id, { expires: 7 }, currentContext);
       }
 
       setAccessToken(data.access_token);

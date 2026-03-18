@@ -53,7 +53,8 @@ export function getNamespacedKey(key: string, namespace?: CookieNamespace): stri
 export const contextualCookies = {
   set: (key: string, value: string, options?: Cookies.CookieAttributes, namespace?: CookieNamespace) => {
     const namespacedKey = getNamespacedKey(key, namespace);
-    Cookies.set(namespacedKey, value, options);
+    const cookieOptions = { path: '/', ...options };
+    Cookies.set(namespacedKey, value, cookieOptions);
   },
 
   get: (key: string, namespace?: CookieNamespace): string | undefined => {
