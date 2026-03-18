@@ -7,7 +7,7 @@ export const COOKIE_NAMESPACES = {
   DEFAULT: ''
 } as const;
 
-type CookieNamespace = keyof typeof COOKIE_NAMESPACES;
+export type CookieNamespace = keyof typeof COOKIE_NAMESPACES;
 
 // Determine context based on current URL
 export function getCurrentContext(): CookieNamespace {

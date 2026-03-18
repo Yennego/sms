@@ -18,18 +18,34 @@ type TenantContextType = {
 export const TenantContext = createContext<TenantContextType | undefined>(undefined);
 
 export function TenantProvider({ children }: { children: ReactNode }) {
-  const [tenant, setTenant] = useState<Tenant | null>(null);
+  const [tenant, setTenant] = useState<Tenant | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const currentContext = getCurrentContext();
+    const storedId = contextualCookies.get('tenantId', currentContext) || 
+                   localStorage.getItem('tenantId') || 
+                   cookies.get('tn_tenantId') || 
+                   cookies.get('tenantId');
+    
+    // Return a minimal tenant object if an ID is found to prevent null -> ID jump
+    if (storedId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(storedId)) {
+      return { id: storedId, name: 'Loading...', domain: null as any } as Tenant;
+    }
+    return null;
+  });
   const [isLoading, setIsLoading] = useState(true);
   const pathname = usePathname();
   const lastPathnameRef = useRef<string | null>(null);
+  const prevTenantIdRef = useRef<string | null>(tenant?.id || null);
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
-  // Prevent data bleed: clear all TanStack Query caches whenever the tenant context changes
+  // Prevent data bleed: clear all TanStack Query caches whenever the tenant context actually CHANGES
   useEffect(() => {
-    if (tenant?.id) {
-      console.log('[Tenant Context] Tenant changed to', tenant.id, '- Clearing query cache');
+    const currentId = tenant?.id || null;
+    if (currentId && prevTenantIdRef.current && currentId !== prevTenantIdRef.current) {
+      console.log('[Tenant Context] Tenant ID changed from', prevTenantIdRef.current, 'to', currentId, '- Clearing query cache');
       queryClient.clear();
     }
+    prevTenantIdRef.current = currentId;
   }, [tenant?.id]);
 
   useEffect(() => {

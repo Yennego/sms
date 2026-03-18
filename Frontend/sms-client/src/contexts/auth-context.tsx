@@ -4,7 +4,7 @@ import { createContext, useContext, useState, useEffect, ReactNode, useCallback,
 import { useRouter, usePathname } from 'next/navigation';
 import cookies from 'js-cookie';
 import { User } from '@/types/auth';
-import { contextualCookies, getCurrentContext } from '@/utils/cookie-manager';
+import { contextualCookies, getCurrentContext, type CookieNamespace } from '@/utils/cookie-manager';
 import axios from 'axios';
 
 type AuthContextType = {
@@ -164,10 +164,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         let storedRefreshToken = contextualCookies.get('refreshToken', currentContext);
 
         if (!storedAccessToken) {
-          const saToken = contextualCookies.get('accessToken', 'SUPER_ADMIN');
-          if (saToken) {
-            storedAccessToken = saToken;
-            storedRefreshToken = contextualCookies.get('refreshToken', 'SUPER_ADMIN');
+          // Fallback sequence: TENANT -> SUPER_ADMIN -> DEFAULT
+          const contextsToTry: CookieNamespace[] = ['TENANT', 'SUPER_ADMIN', 'DEFAULT'];
+          for (const ctx of contextsToTry) {
+            if (ctx === currentContext) continue; // Already tried
+            const token = contextualCookies.get('accessToken', ctx);
+            if (token) {
+              storedAccessToken = token;
+              storedRefreshToken = contextualCookies.get('refreshToken', ctx);
+              console.log(`[Auth] Found token in fallback context: ${ctx}`);
+              break;
+            }
           }
         }
 
