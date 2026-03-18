@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import '@/app/api/_lib/undici';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
+import { getAccessToken } from '@/lib/cookies';
 
 export async function GET(
   req: NextRequest,
@@ -10,9 +11,8 @@ export async function GET(
   try {
     const cookieStore = await cookies();
     const accessToken =
-      cookieStore.get('accessToken')?.value ||
-      cookieStore.get('sa_accessToken')?.value ||
-      cookieStore.get('tn_accessToken')?.value;
+      getAccessToken(cookieStore) ||
+      getAccessToken(cookieStore);
 
     const tenantId =
       cookieStore.get('tenantId')?.value ||

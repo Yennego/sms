@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import '@/app/api/_lib/undici';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
+import { getAccessToken } from '@/lib/cookies';
 
 export async function PUT(request: NextRequest, { params }: { params: { permissionId: string } }) {
   try {
     const body = await request.json();
     const { permissionId } = params;
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get('accessToken')?.value;
+    const accessToken = getAccessToken(cookieStore);
     if (!accessToken) return NextResponse.json({ message: 'Authentication required' }, { status: 401 });
 
     const baseUrl = normalizeBaseUrl(process.env.BACKEND_API_URL);
@@ -41,7 +42,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: { perm
   try {
     const { permissionId } = params;
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get('accessToken')?.value;
+    const accessToken = getAccessToken(cookieStore);
     if (!accessToken) return NextResponse.json({ message: 'Authentication required' }, { status: 401 });
 
     const baseUrl2 = normalizeBaseUrl(process.env.BACKEND_API_URL);

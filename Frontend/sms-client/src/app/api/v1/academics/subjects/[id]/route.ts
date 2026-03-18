@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import '@/app/api/_lib/undici';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
+import { getAccessToken } from '@/lib/cookies';
 
 // Use shared normalizeBaseUrl from http lib
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const cookieStore = await cookies();
-  const accessToken = cookieStore.get('accessToken')?.value || cookieStore.get('tn_accessToken')?.value;
+  const accessToken = getAccessToken(cookieStore);
   const tenantId = cookieStore.get('tenantId')?.value || cookieStore.get('tn_tenantId')?.value;
   if (!accessToken) return NextResponse.json({ message: 'Authentication required' }, { status: 401 });
   if (!tenantId) return NextResponse.json({ message: 'Tenant context required' }, { status: 400 });
@@ -38,7 +39,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const cookieStore = await cookies();
-  const accessToken = cookieStore.get('accessToken')?.value || cookieStore.get('tn_accessToken')?.value;
+  const accessToken = getAccessToken(cookieStore);
   const tenantId = cookieStore.get('tenantId')?.value || cookieStore.get('tn_tenantId')?.value;
   if (!accessToken) return NextResponse.json({ message: 'Authentication required' }, { status: 401 });
   if (!tenantId) return NextResponse.json({ message: 'Tenant context required' }, { status: 400 });
@@ -70,7 +71,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const cookieStore = await cookies();
-  const accessToken = cookieStore.get('accessToken')?.value || cookieStore.get('tn_accessToken')?.value;
+  const accessToken = getAccessToken(cookieStore);
   const tenantId = cookieStore.get('tenantId')?.value || cookieStore.get('tn_tenantId')?.value;
   if (!accessToken) return NextResponse.json({ message: 'Authentication required' }, { status: 401 });
   if (!tenantId) return NextResponse.json({ message: 'Tenant context required' }, { status: 400 });

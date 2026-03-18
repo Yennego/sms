@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getAccessToken } from '@/lib/cookies';
 
 export async function GET(request: NextRequest) {
   try {
     const cookieStore = cookies();
-    const accessToken = cookieStore.get('accessToken')?.value;
+    const accessToken = getAccessToken(cookieStore);
     const tenantId = cookieStore.get('tenantId')?.value;
     
     if (!accessToken) {

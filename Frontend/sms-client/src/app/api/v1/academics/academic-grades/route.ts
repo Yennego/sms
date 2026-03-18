@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { getNamespacedCookieAsync } from '@/lib/cookies';
+import { getNamespacedCookieAsync , getAccessToken } from '@/lib/cookies';
 import '@/app/api/_lib/undici';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
 
@@ -11,8 +11,7 @@ export async function GET(request: NextRequest) {
   try {
     const cookieStore = await cookies();
     const accessToken =
-      cookieStore.get('accessToken')?.value ||
-      cookieStore.get('tn_accessToken')?.value;
+      getAccessToken(cookieStore);
     const tenantId =
       (await getNamespacedCookieAsync('tenantId', 'tn_')) ||
       cookieStore.get('tn_tenantId')?.value ||
@@ -77,8 +76,7 @@ export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies();
     const accessToken =
-      cookieStore.get('accessToken')?.value ||
-      cookieStore.get('tn_accessToken')?.value;
+      getAccessToken(cookieStore);
     const tenantId =
       (await getNamespacedCookieAsync('tenantId', 'tn_')) ||
       cookieStore.get('tn_tenantId')?.value ||

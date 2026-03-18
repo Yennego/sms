@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import '@/app/api/_lib/undici';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
+import { getAccessToken } from '@/lib/cookies';
 
 export async function GET(request: NextRequest) {
   try {
     const cookieStore = await cookies();
     const tenantIdCookie = cookieStore.get('tn_tenantId')?.value;
-    const accessTokenCookie = cookieStore.get('tn_accessToken')?.value || cookieStore.get('accessToken')?.value;
+    const accessTokenCookie = getAccessToken(cookieStore);
 
     const baseUrl = normalizeBaseUrl(process.env.BACKEND_API_URL);
     const url = new URL(request.url);
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies();
     const tenantIdCookie = cookieStore.get('tn_tenantId')?.value;
-    const accessTokenCookie = cookieStore.get('tn_accessToken')?.value || cookieStore.get('accessToken')?.value;
+    const accessTokenCookie = getAccessToken(cookieStore);
 
     const body = await request.json();
     const baseUrl = normalizeBaseUrl(process.env.BACKEND_API_URL);

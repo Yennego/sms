@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getAccessToken } from '@/lib/cookies';
 
 // Helper function to get namespaced cookies
 function getNamespacedCookie(cookieStore: any, key: string, namespace: string = 'tn_'): string | undefined {
@@ -38,7 +39,7 @@ async function getTenantUUIDByDomain(domain: string): Promise<string | null> {
 export async function GET(request: NextRequest) {
   try {
     const cookieStore = await cookies();
-    const accessToken = getNamespacedCookie(cookieStore, 'accessToken') || cookieStore.get('accessToken')?.value;
+    const accessToken = getNamespacedCookie(cookieStore, 'accessToken') || getAccessToken(cookieStore);
     let tenantId = getNamespacedCookie(cookieStore, 'tenantId') || cookieStore.get('tenantId')?.value;
     
     if (!accessToken) {

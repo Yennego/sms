@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getAccessToken } from '@/lib/cookies';
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
     }
 
     const authHeader = request.headers.get('authorization') || request.headers.get('Authorization');
-    const cookieAccessToken = cookieStore.get('tn_accessToken')?.value || cookieStore.get('accessToken')?.value;
+    const cookieAccessToken = getAccessToken(cookieStore);
     const accessToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader ?? cookieAccessToken;
 
     if (!accessToken) {

@@ -514,20 +514,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   useEffect(() => {
-    const minutesVal = Number(process.env.NEXT_PUBLIC_IDLE_TIMEOUT_MINUTES) || 15;
+    const minutesVal = Number(process.env.NEXT_PUBLIC_IDLE_TIMEOUT_MINUTES) || 60;
     const idleTimeoutMs = minutesVal * 60 * 1000;
     const lastActiveRef = { current: Date.now() };
+
     const activityHandler = () => { lastActiveRef.current = Date.now(); };
 
     const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
     events.forEach(e => window.addEventListener(e, activityHandler, { passive: true }));
 
     const interval = setInterval(() => {
-      if (!accessToken) return;
+      // Don't trigger if we don't have a token, or if we're still initializing or logging out
+      if (!accessToken || !hasInitialized || isLoggingOut) return;
+      
+      // If we have a token but NO user object yet, wait (likely still loading /me)
+      if (!user) {
+        console.log('[Auth] Token present but user data still loading. Delaying idle check.');
+        return;
+      }
+
       if (Date.now() - lastActiveRef.current > idleTimeoutMs) {
-        const isSA = user?.roles?.some((r: any) => r.name === 'superadmin' || r.name === 'super-admin');
-        const tid = contextualCookies.get('tenantId', getCurrentContext());
+        // Robust super-admin check
+        const isSA = user?.role === 'superadmin' || 
+                    user?.role === 'super-admin' || 
+                    user?.roles?.some((r: any) => 
+                      typeof r === 'string' 
+                        ? (r === 'superadmin' || r === 'super-admin')
+                        : (r.name === 'superadmin' || r.name === 'super-admin')
+                    );
+        
+        // Prefer domain name for user-friendly redirects
+        const domain = contextualCookies.get('currentTenantDomain', 'TENANT');
+        const uuid = contextualCookies.get('tenantId', 'TENANT');
+        const tid = domain || uuid;
+        
         const target = (tid && !isSA) ? `/${tid}/session-expired` : '/session-expired';
+        
+        console.warn(`[Auth] Idle timeout reached (${minutesVal}m). Redirecting to ${target}`);
         logout({ redirectTo: target });
       }
     }, 30000);

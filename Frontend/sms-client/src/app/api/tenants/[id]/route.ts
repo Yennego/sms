@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
+import { getAccessToken } from '@/lib/cookies';
 
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get('accessToken')?.value || cookieStore.get('tn_accessToken')?.value || null;
+    const accessToken = getAccessToken(cookieStore) || null;
     const base = normalizeBaseUrl(process.env.BACKEND_API_URL);
     const { signal, cancel } = createTimeoutSignal(45_000);
     const resp = await fetch(`${base}/tenants/${id}`, {

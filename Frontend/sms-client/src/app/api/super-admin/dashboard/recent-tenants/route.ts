@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import axios from 'axios';
 import { normalizeBaseUrl } from '@/app/api/_lib/http';
+import { getAccessToken } from '@/lib/cookies';
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,9 +11,8 @@ export async function GET(request: NextRequest) {
 
     const cookieStore = await cookies();
     const accessToken =
-      cookieStore.get('tn_accessToken')?.value ||
-      cookieStore.get('sa_accessToken')?.value ||
-      cookieStore.get('accessToken')?.value;
+      getAccessToken(cookieStore) ||
+      getAccessToken(cookieStore);
 
     if (!accessToken) {
       console.warn('[Recent Tenants API] No access token found');

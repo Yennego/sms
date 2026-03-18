@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import '@/app/api/_lib/undici';
 import { createTimeoutSignal } from '@/app/api/_lib/http';
+import { getAccessToken } from '@/lib/cookies';
 
 function normalizeBaseUrl(url?: string) {
   let baseUrl = (url?.trim() || 'http://localhost:8000/api/v1');
@@ -13,7 +14,7 @@ function normalizeBaseUrl(url?: string) {
 
 async function getAuth() {
   const cookieStore = await cookies();
-  const accessToken = cookieStore.get('accessToken')?.value || cookieStore.get('tn_accessToken')?.value;
+  const accessToken = getAccessToken(cookieStore);
   const tenantId = cookieStore.get('tenantId')?.value || cookieStore.get('tn_tenantId')?.value;
   return { accessToken, tenantId };
 }

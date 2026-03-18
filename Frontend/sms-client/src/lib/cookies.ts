@@ -1,6 +1,8 @@
 import { ReadonlyRequestCookies } from 'next/dist/server/web/spec-extension/adapters/request-cookies';
 import { cookies } from 'next/headers';
 
+const PREFIXES = ['tn_', 'sa_', ''] as const;
+
 /**
  * Helper function to get namespaced cookies from Next.js cookie store
  * @param cookieStore - The Next.js cookie store from cookies()
@@ -9,19 +11,42 @@ import { cookies } from 'next/headers';
  * @returns The cookie value or undefined if not found
  */
 export function getNamespacedCookie(
-  cookieStore: ReadonlyRequestCookies, 
-  key: string, 
+  cookieStore: ReadonlyRequestCookies,
+  key: string,
   namespace: string = 'tn_'
 ): string | undefined {
   return cookieStore.get(`${namespace}${key}`)?.value;
 }
 
 export async function getNamespacedCookieAsync(
-  key: string, 
+  key: string,
   namespace: string = 'tn_'
 ): Promise<string | undefined> {
   const cookieStore = await cookies();
   return cookieStore.get(`${namespace}${key}`)?.value;
+}
+
+/**
+ * Get access token from any namespace (tn_, sa_, or unprefixed).
+ * This is the preferred way to get the access token in API routes.
+ */
+export function getAccessToken(cookieStore: ReadonlyRequestCookies): string | undefined {
+  for (const prefix of PREFIXES) {
+    const val = cookieStore.get(`${prefix}accessToken`)?.value;
+    if (val) return val;
+  }
+  return undefined;
+}
+
+/**
+ * Get tenant ID from any namespace (tn_, sa_, or unprefixed).
+ */
+export function getTenantId(cookieStore: ReadonlyRequestCookies): string | undefined {
+  for (const prefix of PREFIXES) {
+    const val = cookieStore.get(`${prefix}tenantId`)?.value;
+    if (val) return val;
+  }
+  return undefined;
 }
 
 /**

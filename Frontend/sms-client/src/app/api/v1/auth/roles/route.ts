@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { getNamespacedCookie } from '@/lib/cookies';
+import { getNamespacedCookie , getAccessToken } from '@/lib/cookies';
 
 export async function GET(request: NextRequest) {
   try {
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get('accessToken')?.value;
+    const accessToken = getAccessToken(cookieStore);
     if (!accessToken) return NextResponse.json({ message: 'Authentication required' }, { status: 401 });
 
     const response = await fetch(`${process.env.BACKEND_API_URL}/auth/roles`, {
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get('accessToken')?.value;
+    const accessToken = getAccessToken(cookieStore);
     if (!accessToken) return NextResponse.json({ message: 'Authentication required' }, { status: 401 });
 
     const response = await fetch(`${process.env.BACKEND_API_URL}/auth/roles`, {

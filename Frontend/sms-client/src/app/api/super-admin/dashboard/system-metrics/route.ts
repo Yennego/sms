@@ -2,15 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import axios from 'axios';
 import { normalizeBaseUrl } from '@/app/api/_lib/http';
+import { getAccessToken } from '@/lib/cookies';
 
 export async function GET() {
   try {
     const cookieStore = await cookies();
     // Namespaced token check
     const accessToken =
-      cookieStore.get('tn_accessToken')?.value ||
-      cookieStore.get('sa_accessToken')?.value ||
-      cookieStore.get('accessToken')?.value;
+      getAccessToken(cookieStore) ||
+      getAccessToken(cookieStore);
 
     if (!accessToken) {
       console.warn('[System Metrics API] No access token found in cookies');

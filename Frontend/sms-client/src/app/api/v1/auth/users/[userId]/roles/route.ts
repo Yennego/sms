@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import '@/app/api/_lib/undici';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
-import { getNamespacedCookie } from '@/lib/cookies';
+import { getNamespacedCookie , getAccessToken } from '@/lib/cookies';
 
 export async function POST(request: NextRequest, { params }: { params: { userId: string } }) {
   try {
     const body = await request.json(); // expected: { role_ids: UUID[] }
     const { userId } = await params;
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get('accessToken')?.value;
+    const accessToken = getAccessToken(cookieStore);
     const tenantId = await getNamespacedCookie(cookieStore, 'tenantId');
 
     if (!accessToken) return NextResponse.json({ message: 'Authentication required' }, { status: 401 });
@@ -46,7 +46,7 @@ export async function GET(_request: NextRequest, { params }: { params: { userId:
   try {
     const { userId } = await params;
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get('accessToken')?.value;
+    const accessToken = getAccessToken(cookieStore);
     const tenantId = await getNamespacedCookie(cookieStore, 'tenantId');
 
     if (!accessToken) return NextResponse.json({ message: 'Authentication required' }, { status: 401 });

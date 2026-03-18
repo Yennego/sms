@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getAccessToken } from '@/lib/cookies';
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -8,8 +9,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     // Prefer cookies (default and tenant namespace), fallback to request headers
     const accessToken =
-      cookieStore.get('accessToken')?.value ||
-      cookieStore.get('tn_accessToken')?.value ||
+      getAccessToken(cookieStore) ||
       request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') || null;
 
     const tenantId =
@@ -46,8 +46,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     const cookieStore = await cookies();
 
     const accessToken =
-      cookieStore.get('accessToken')?.value ||
-      cookieStore.get('tn_accessToken')?.value ||
+      getAccessToken(cookieStore) ||
       request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') || null;
 
     const tenantId =
@@ -84,8 +83,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     const cookieStore = await cookies();
 
     const accessToken =
-      cookieStore.get('accessToken')?.value ||
-      cookieStore.get('tn_accessToken')?.value ||
+      getAccessToken(cookieStore) ||
       request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') || null;
 
     const tenantId =

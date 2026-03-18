@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { getNamespacedCookie } from '@/lib/cookies';
+import { getNamespacedCookie , getAccessToken } from '@/lib/cookies';
 import '@/app/api/_lib/undici';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
 export const runtime = 'nodejs';
@@ -9,8 +9,7 @@ export async function GET(request: NextRequest) {
   try {
     const cookieStore = await cookies();
     const accessToken =
-      cookieStore.get('accessToken')?.value ||
-      cookieStore.get('tn_accessToken')?.value;
+      getAccessToken(cookieStore);
     let tenantId =
       (await getNamespacedCookie(cookieStore, 'tenantId')) ||
       cookieStore.get('tn_tenantId')?.value ||
@@ -83,7 +82,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: Request) {
   try {
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get('accessToken')?.value || cookieStore.get('tn_accessToken')?.value || null;
+    const accessToken = getAccessToken(cookieStore) || null;
     const tenantId = await getNamespacedCookie(cookieStore, 'tenantId');
 
     if (!accessToken) {

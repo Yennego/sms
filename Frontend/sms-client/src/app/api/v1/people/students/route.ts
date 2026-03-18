@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import '@/app/api/_lib/undici';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
+import { getAccessToken } from '@/lib/cookies';
 
 // Helper function to get namespaced cookies - now async
 async function getNamespacedCookie(key: string, namespace: string = 'tn_'): Promise<string | undefined> {
@@ -55,8 +56,7 @@ export async function GET(request: NextRequest) {
 
     // Get access token - prioritize Authorization header, then namespaced cookies, then plain cookies
     let accessToken = request.headers.get('Authorization')?.replace('Bearer ', '') ||
-      cookieStore.get('tn_accessToken')?.value ||
-      cookieStore.get('accessToken')?.value;
+      getAccessToken(cookieStore);
 
     // Validate tenant ID as UUID
     if (tenantId && !isValidUUID(tenantId)) {
@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
     const cookieStore = await cookies();
     const accessToken =
       (await getNamespacedCookie('accessToken')) ||
-      cookieStore.get('accessToken')?.value ||
+      getAccessToken(cookieStore) ||
       request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') ||
       null;
 

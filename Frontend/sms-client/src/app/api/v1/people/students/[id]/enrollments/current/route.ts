@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getAccessToken } from '@/lib/cookies';
 
 export async function GET(req: NextRequest, context: { params: any }) {
     const { id } = await context.params;
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest, context: { params: any }) {
     }
 
     const authHeader = hdrs.get('authorization') || hdrs.get('Authorization') || undefined;
-    const cookieAccessToken = cookieStore.get('tn_accessToken')?.value || cookieStore.get('accessToken')?.value;
+    const cookieAccessToken = getAccessToken(cookieStore);
     const accessToken =
         authHeader?.startsWith('Bearer ') ? authHeader.slice(7) :
         authHeader ?? cookieAccessToken;

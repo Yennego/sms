@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getAccessToken } from '@/lib/cookies';
 
 // Helper function to get namespaced cookies
 function getNamespacedCookie(cookieStore: any, key: string, namespace: string = 'tn_'): string | undefined {
@@ -22,7 +23,7 @@ export async function GET(
     // Try multiple cookie namespaces
     const accessToken = getNamespacedCookie(cookieStore, 'accessToken', 'tn_') || 
                        getNamespacedCookie(cookieStore, 'accessToken', '') || 
-                       cookieStore.get('accessToken')?.value;
+                       getAccessToken(cookieStore);
     const tenantId = getNamespacedCookie(cookieStore, 'tenantId', 'tn_') || 
                     getNamespacedCookie(cookieStore, 'tenantId', '') || 
                     cookieStore.get('tenantId')?.value;
@@ -79,7 +80,7 @@ export async function PUT(
     // Try multiple cookie namespaces
     const accessToken = getNamespacedCookie(cookieStore, 'accessToken', 'tn_') || 
                        getNamespacedCookie(cookieStore, 'accessToken', '') || 
-                       cookieStore.get('accessToken')?.value;
+                       getAccessToken(cookieStore);
     const tenantId = getNamespacedCookie(cookieStore, 'tenantId', 'tn_') || 
                     getNamespacedCookie(cookieStore, 'tenantId', '') || 
                     cookieStore.get('tenantId')?.value;
@@ -139,7 +140,7 @@ export async function DELETE(
     // Try multiple cookie namespaces
     const accessToken = getNamespacedCookie(cookieStore, 'accessToken', 'tn_') || 
                        getNamespacedCookie(cookieStore, 'accessToken', '') || 
-                       cookieStore.get('accessToken')?.value;
+                       getAccessToken(cookieStore);
     const tenantId = getNamespacedCookie(cookieStore, 'tenantId', 'tn_') || 
                     getNamespacedCookie(cookieStore, 'tenantId', '') || 
                     cookieStore.get('tenantId')?.value;

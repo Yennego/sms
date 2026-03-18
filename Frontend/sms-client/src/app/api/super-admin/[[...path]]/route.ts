@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import axios from 'axios';
 import { normalizeBaseUrl } from '@/app/api/_lib/http';
+import { getAccessToken } from '@/lib/cookies';
 
 /**
  * Global Catch-all Proxy for /api/super-admin/*
@@ -40,9 +41,8 @@ async function proxyRequest(request: NextRequest, paramsArg: any) {
         // Retrieve token from cookies (Next.js 15 pattern)
         const cookieStore = await cookies();
         const accessToken =
-            cookieStore.get('sa_accessToken')?.value ||
-            cookieStore.get('tn_accessToken')?.value ||
-            cookieStore.get('accessToken')?.value;
+            getAccessToken(cookieStore) ||
+            getAccessToken(cookieStore);
 
         const tenantId =
             cookieStore.get('tn_tenantId')?.value ||

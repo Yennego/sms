@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import '@/app/api/_lib/undici';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
+import { getAccessToken } from '@/lib/cookies';
 
 export async function GET(_request: NextRequest) {
   try {
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get('accessToken')?.value;
+    const accessToken = getAccessToken(cookieStore);
     if (!accessToken) return NextResponse.json({ message: 'Authentication required' }, { status: 401 });
 
     const baseUrl = normalizeBaseUrl(process.env.BACKEND_API_URL);
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get('accessToken')?.value;
+    const accessToken = getAccessToken(cookieStore);
     if (!accessToken) return NextResponse.json({ message: 'Authentication required' }, { status: 401 });
 
     const baseUrl2 = normalizeBaseUrl(process.env.BACKEND_API_URL);

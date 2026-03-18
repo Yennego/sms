@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getAccessToken } from '@/lib/cookies';
 
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
   const { id } = await params;
@@ -18,8 +19,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
   const cookieStore = await cookies();
 
   const accessToken =
-    cookieStore.get('accessToken')?.value ||
-    cookieStore.get('tn_accessToken')?.value ||
+    getAccessToken(cookieStore) ||
     request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') || null;
 
   const tenantId =

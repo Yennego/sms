@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import '@/app/api/_lib/undici';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
+import { getAccessToken } from '@/lib/cookies';
 
 // Helper function to get namespaced cookies
 async function getNamespacedCookie(key: string, namespace: string = 'tn_'): Promise<string | undefined> {
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
         const cookieStore = await cookies();
         const accessToken =
             (await getNamespacedCookie('accessToken')) ||
-            cookieStore.get('accessToken')?.value ||
+            getAccessToken(cookieStore) ||
             request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') ||
             null;
 

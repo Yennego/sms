@@ -17,13 +17,26 @@ function getContextFromPath(pathname: string): CookieNamespace {
     return 'SUPER_ADMIN';
   }
   
-  // Check for tenant-specific paths - expand to include all tenant routes
-  if (pathname.match(/^\/[a-zA-Z0-9.-]+\/(dashboard|login|settings|students|teachers|classes|timetable|attendance|exams|grades|communication|users|academics)/)) {
-    return 'TENANT';
+  // These paths are NOT tenant-specific
+  const nonTenantPrefixes = ['/api/', '/_next/', '/static/', '/public/', '/favicon.ico'];
+  const topLevelNonTenant = ['login', 'register', 'session-expired', 'forgot-password', 'reset-password'];
+  
+  // Check if it's a known non-tenant path
+  if (nonTenantPrefixes.some(prefix => pathname.startsWith(prefix))) {
+    return 'DEFAULT';
   }
   
-  // Also check for UUID-based tenant paths (when URL changes to tenant ID)
-  if (pathname.match(/^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\//)) {
+  // Check if it's a top-level public page (e.g. /login, /session-expired)
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments.length === 1 && topLevelNonTenant.includes(segments[0])) {
+    return 'DEFAULT';
+  }
+  
+  // Any path with a first segment that looks like a tenant domain/id is TENANT
+  // e.g. /foundation/dashboard, /34624041-.../finance/fees
+  if (segments.length >= 1 && segments[0] && 
+      !segments[0].startsWith('_') && 
+      !segments[0].startsWith('api')) {
     return 'TENANT';
   }
   
@@ -39,7 +52,14 @@ function getNamespacedCookie(request: NextRequest, key: string, namespace: Cooki
 }
 
 function extractTenantFromSubdomain(hostname: string): string | null {
-  const hostnameWithoutPort = hostname.split(':')[0];
+  const hostnameWithoutPort = hostname.split(':')[0].toLowerCase();
+  
+  // Skip deployment platform domains
+  const ignoreList = ['.vercel.app', '.netlify.app', '.onrender.com', '.github.io', '.azurewebsites.net'];
+  if (ignoreList.some(domain => hostnameWithoutPort.endsWith(domain))) {
+    return null;
+  }
+
   const parts = hostnameWithoutPort.split('.');
   
   // For subdomains like tenant.example.com
@@ -71,13 +91,16 @@ function extractTenantFromPath(pathname: string): string | null {
   }
   
   // Check for tenant domain paths like /tenant-domain/dashboard
-  if (pathSegments.length > 2 && 
-      pathSegments[1] && 
-      !pathSegments[1].startsWith('_') && 
-      !pathSegments[1].startsWith('api') &&
-      !pathSegments[1].startsWith('super-admin') &&
-      !dashboardRoutes.includes(pathSegments[1])) {
-    return pathSegments[1].toLowerCase();
+  const firstSegment = pathSegments[1]?.toLowerCase();
+  
+  if (pathSegments.length >= 2 && 
+      firstSegment && 
+      !firstSegment.startsWith('_') && 
+      !firstSegment.startsWith('api') &&
+      !firstSegment.startsWith('super-admin') &&
+      !dashboardRoutes.includes(firstSegment) &&
+      !['login', 'register', 'session-expired', 'forgot-password', 'reset-password'].includes(firstSegment)) {
+    return firstSegment;
   }
   
   return null;

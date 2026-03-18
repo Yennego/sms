@@ -74,9 +74,16 @@ export class ApiClient {
         console.log('[ApiClient Request] About to send request to:', config.url);
         console.log('[ApiClient Request] Current tenantId:', this.tenantId, 'IsValidUUID:', isValidUUID(this.tenantId));
 
-        // Add auth token if available
-        if (this.accessToken) {
-          config.headers.Authorization = `Bearer ${this.accessToken}`;
+        // Add auth token if available - check instance variable first, then cookies as fallback
+        let effectiveToken = this.accessToken;
+        if (!effectiveToken && typeof document !== 'undefined') {
+          const tokenMatch = document.cookie.match(/(?:^|; )tn_accessToken=([^;]+)/) ||
+                            document.cookie.match(/(?:^|; )sa_accessToken=([^;]+)/) ||
+                            document.cookie.match(/(?:^|; )accessToken=([^;]+)/);
+          effectiveToken = tokenMatch ? decodeURIComponent(tokenMatch[1]) : null;
+        }
+        if (effectiveToken) {
+          config.headers.Authorization = `Bearer ${effectiveToken}`;
         }
 
         const parseCookie = (name: string) => {
@@ -163,8 +170,9 @@ export class ApiClient {
                 });
 
                 // Get the updated token from cookies
-                const m = document.cookie.match(/(?:^|; )accessToken=([^;]+)/) || 
-                          document.cookie.match(/(?:^|; )sa_accessToken=([^;]+)/);
+                const m = document.cookie.match(/(?:^|; )tn_accessToken=([^;]+)/) ||
+                          document.cookie.match(/(?:^|; )sa_accessToken=([^;]+)/) ||
+                          document.cookie.match(/(?:^|; )accessToken=([^;]+)/);
                 const newToken = m ? decodeURIComponent(m[1]) : null;
 
                 if (newToken) {

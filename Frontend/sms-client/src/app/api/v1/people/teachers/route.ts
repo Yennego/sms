@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import '@/app/api/_lib/undici';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
+import { getAccessToken } from '@/lib/cookies';
 
 // Helper function to get namespaced cookies - now async
 async function getNamespacedCookie(key: string, namespace: string = 'tn_'): Promise<string | undefined> {
@@ -41,7 +42,7 @@ async function getTenantUUIDByDomain(domain: string): Promise<string | null> {
 export async function GET(request: NextRequest) {
   try {
     const cookieStore = await cookies();
-    const accessToken = await getNamespacedCookie('accessToken') || cookieStore.get('accessToken')?.value;
+    const accessToken = await getNamespacedCookie('accessToken') || getAccessToken(cookieStore);
     let tenantId = await getNamespacedCookie('tenantId') || cookieStore.get('tenantId')?.value;
     
     // Add debugging
@@ -123,7 +124,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies();
-    const accessToken = await getNamespacedCookie('accessToken') || cookieStore.get('accessToken')?.value;
+    const accessToken = await getNamespacedCookie('accessToken') || getAccessToken(cookieStore);
     let tenantId = await getNamespacedCookie('tenantId') || cookieStore.get('tenantId')?.value;
     
     if (!accessToken) {

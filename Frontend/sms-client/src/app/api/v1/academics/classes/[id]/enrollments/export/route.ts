@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
+import { getAccessToken } from '@/lib/cookies';
 
 export async function GET(
   request: NextRequest,
@@ -10,8 +11,7 @@ export async function GET(
 
     const cookieStore = await cookies();
     const accessToken =
-      cookieStore.get('accessToken')?.value ||
-      cookieStore.get('tn_accessToken')?.value;
+      getAccessToken(cookieStore);
     const tenantId =
       cookieStore.get('tenantId')?.value ||
       cookieStore.get('tn_tenantId')?.value;

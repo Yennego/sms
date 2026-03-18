@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { getAccessToken } from '@/lib/cookies';
 
 function normalizeBaseUrl(url?: string) {
   let baseUrl = url || '';
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
         const { id } = await context.params;
         const cookieStore = await cookies();
         const tenantIdCookie = cookieStore.get('tn_tenantId')?.value;
-        const accessTokenCookie = cookieStore.get('tn_accessToken')?.value || cookieStore.get('accessToken')?.value;
+        const accessTokenCookie = getAccessToken(cookieStore);
 
         const baseUrl = normalizeBaseUrl(process.env.BACKEND_API_URL);
         const url = new URL(request.url);

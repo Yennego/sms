@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import '@/app/api/_lib/undici';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
-import { getNamespacedCookie } from '@/lib/cookies';
+import { getNamespacedCookie , getAccessToken } from '@/lib/cookies';
 
 // method: GET
 export async function GET(
@@ -14,7 +14,7 @@ export async function GET(
     const { id } = await params;
     const cookieStore = await cookies();
     // Fix: Use correct cookie names that match auth context
-    const accessToken = cookieStore.get('accessToken')?.value;
+    const accessToken = getAccessToken(cookieStore);
     const tenantId = await getNamespacedCookie(cookieStore, 'tenantId');
 
     if (!accessToken) {

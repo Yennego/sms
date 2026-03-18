@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { getNamespacedCookie } from '@/lib/cookies';
+import { getNamespacedCookie , getAccessToken } from '@/lib/cookies';
 
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies();
     const accessToken = getNamespacedCookie(cookieStore, 'accessToken', 'tn_') || 
                        getNamespacedCookie(cookieStore, 'accessToken', '') || 
-                       cookieStore.get('accessToken')?.value;
+                       getAccessToken(cookieStore);
     const tenantId = getNamespacedCookie(cookieStore, 'tenantId', 'tn_') || 
                     getNamespacedCookie(cookieStore, 'tenantId', '') || 
                     cookieStore.get('tenantId')?.value;

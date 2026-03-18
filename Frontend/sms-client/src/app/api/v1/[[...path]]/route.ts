@@ -41,8 +41,20 @@ async function proxyRequest(request: NextRequest, paramsArg: any) {
 
         console.log(`[Global Proxy v1] ${request.method} -> ${fullUrl}`);
 
-        // Extract headers
-        const authHeader = request.headers.get('authorization');
+        // Extract headers - with cookie fallback for auth
+        let authHeader = request.headers.get('authorization');
+        
+        // If no auth header from browser, try to get token from cookies
+        if (!authHeader) {
+            const cookieHeader = request.headers.get('cookie') || '';
+            const tokenMatch = cookieHeader.match(/(?:^|; )tn_accessToken=([^;]+)/) ||
+                              cookieHeader.match(/(?:^|; )sa_accessToken=([^;]+)/) ||
+                              cookieHeader.match(/(?:^|; )accessToken=([^;]+)/);
+            if (tokenMatch) {
+                authHeader = `Bearer ${decodeURIComponent(tokenMatch[1])}`;
+            }
+        }
+        
         const tenantHeader = request.headers.get('x-tenant-id');
         const contentType = request.headers.get('content-type');
 

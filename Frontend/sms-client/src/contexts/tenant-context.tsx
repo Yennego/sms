@@ -55,6 +55,14 @@ export function TenantProvider({ children }: { children: ReactNode }) {
 
     const currentContext = getCurrentContext();
 
+    // Isolation: Skip tenant resolution for super-admin and reserved routes
+    if (currentContext === 'SUPER_ADMIN' || pathname.startsWith('/super-admin')) {
+      console.log('[Tenant Context] Skipping resolution for Super Admin context');
+      setTenant(null);
+      setIsLoading(false);
+      return;
+    }
+
     // Extract tenant from subdomain, path, or Cookies
     function extractTenantFromDomain() {
       // First, try to extract tenant ID from URL path (Absolute Priority)
@@ -92,9 +100,8 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       console.log('[Tenant Context] Debug - hostname:', hostname, 'subdomain:', subdomain);
 
       // Skip subdomain extraction for deployment platforms and non-tenant domains
-      const isDeploymentPlatform = hostnameWithoutPort.endsWith('.vercel.app') ||
-        hostnameWithoutPort.endsWith('.netlify.app') ||
-        hostnameWithoutPort.endsWith('.onrender.com');
+      const ignoreList = ['.vercel.app', '.netlify.app', '.onrender.com', '.github.io', '.azurewebsites.net'];
+      const isDeploymentPlatform = ignoreList.some(domain => hostnameWithoutPort.endsWith(domain));
 
       if (!isDeploymentPlatform && subdomain !== 'localhost' && subdomain !== 'www') {
         console.log('[Tenant Context] Using subdomain as tenant:', subdomain);

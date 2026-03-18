@@ -2,15 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import '@/app/api/_lib/undici';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
-import { getNamespacedCookie } from '@/lib/cookies';
+import { getNamespacedCookie , getAccessToken } from '@/lib/cookies';
 
 export async function GET(_request: NextRequest, { params }: { params: { userId: string } }) {
   try {
     const { userId } = params;
     const cookieStore = await cookies();
     const accessToken =
-      cookieStore.get('accessToken')?.value ||
-      cookieStore.get('tn_accessToken')?.value;
+      getAccessToken(cookieStore);
     const tenantId = await getNamespacedCookie(cookieStore, 'tenantId');
 
     if (!accessToken) {
@@ -51,7 +50,7 @@ export async function PUT(request: NextRequest, { params }: { params: { userId: 
     const body = await request.json();
     const { userId } = params;
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get('accessToken')?.value;
+    const accessToken = getAccessToken(cookieStore);
     const tenantId = await getNamespacedCookie(cookieStore, 'tenantId');
 
     if (!accessToken) {
@@ -92,7 +91,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: { user
   try {
     const { userId } = params;
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get('accessToken')?.value;
+    const accessToken = getAccessToken(cookieStore);
     const tenantId = await getNamespacedCookie(cookieStore, 'tenantId');
 
     if (!accessToken) {
