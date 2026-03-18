@@ -33,9 +33,20 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  // If not authenticated and not on login page, we'll let the page level handle redirection
-  // or the middleware will catch it. Here we just render the children (which might be the login page).
+  // Only show the unauthenticated view (no sidebar) if loading is complete and we are DEFINITELY not authenticated.
+  // This prevents the "awkward" no-sidebar state during reload/initialization.
   if (!isAuthenticated || isLoginPage) {
+    // If it's a login page, we never show sidebar
+    if (isLoginPage) {
+      return <main className="min-h-screen">{children}</main>;
+    }
+    
+    // If not authenticated and NOT loading, but we are on a protected route, 
+    // we still show the loader if we are in the middle of a potential refresh
+    if (authLoading) {
+      return null; // Or return the loader again
+    }
+
     return (
       <main className="min-h-screen">
         {children}

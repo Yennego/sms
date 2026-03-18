@@ -39,6 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [requiresPasswordChange, setRequiresPasswordChange] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const refreshPromise = useRef<Promise<string | null> | null>(null);
   
   const [selectedTenantIdState, setSelectedTenantIdState] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
@@ -86,6 +87,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshAccessToken = useCallback(async () => {
+    // Return existing promise if refresh is already in progress
+    if (refreshPromise.current) {
+      console.log('[Auth] Refresh already in progress, returning existing promise');
+      return refreshPromise.current;
+    }
+
     const context = getCurrentContext();
     const storedRefreshToken = contextualCookies.get('refreshToken', context);
 
@@ -93,40 +100,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const tenantId = contextualCookies.get('tenantId', context);
 
-    try {
-      const response = await axios.post('/api/auth/refresh',
-        { refresh_token: storedRefreshToken },
-        {
-          headers: {
-            'Authorization': `Bearer ${storedRefreshToken}`,
-            ...(tenantId && { 'X-Tenant-ID': tenantId }),
-          },
-          timeout: 90000,
+    // Create new refresh promise
+    refreshPromise.current = (async () => {
+      try {
+        console.log('[Auth] Starting token refresh...');
+        const response = await axios.post('/api/auth/refresh',
+          { refresh_token: storedRefreshToken },
+          {
+            headers: {
+              'Authorization': `Bearer ${storedRefreshToken}`,
+              ...(tenantId && { 'X-Tenant-ID': tenantId }),
+            },
+            timeout: 90000,
+          }
+        );
+
+        const data = response.data;
+
+        contextualCookies.set('accessToken', data.access_token, { expires: 1 / 24 }, context);
+        contextualCookies.set('refreshToken', data.refresh_token, { expires: 7 }, context);
+        
+        // Update states
+        setAccessToken(data.access_token);
+        setRefreshToken(data.refresh_token);
+
+        console.log('[Auth] Token refresh successful');
+        return data.access_token;
+      } catch (error) {
+        console.error('Token refresh failed:', error);
+        if (!(error instanceof TypeError && error.message.includes('fetch'))) {
+          if (axios.isAxiosError(error) &&
+            !error.message.includes('timeout') &&
+            !error.message.includes('Network Error')) {
+            clearAuthState();
+          }
         }
-      );
-
-      const data = response.data;
-
-      contextualCookies.set('accessToken', data.access_token, { expires: 1 / 24 }, context);
-      contextualCookies.set('refreshToken', data.refresh_token, { expires: 7 }, context);
-      
-      // Update states
-      setAccessToken(data.access_token);
-      setRefreshToken(data.refresh_token);
-
-      return data.access_token;
-    } catch (error) {
-      console.error('Token refresh failed:', error);
-      if (!(error instanceof TypeError && error.message.includes('fetch'))) {
-        if (axios.isAxiosError(error) &&
-          !error.message.includes('timeout') &&
-          !error.message.includes('Network Error')) {
-          clearAuthState();
-        }
+        return null;
+      } finally {
+        // Clear promise when done
+        refreshPromise.current = null;
       }
-      return null;
-    }
-  }, [clearAuthState]);
+    })();
+
+    return refreshPromise.current;
+  }, [clearAuthState, getCurrentContext]);
 
   useEffect(() => {
     if (isFetchingUser.current || user) return;
@@ -218,6 +235,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     loadAuthData();
   }, [refreshAccessToken, clearAuthState, user, isLoggingOut]);
+
+  // Handle global refresh requests from ApiClient
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleRefreshRequired = async () => {
+      console.log('[Auth] Received global refresh requirement');
+      const newToken = await refreshAccessToken();
+      if (newToken) {
+        window.dispatchEvent(new CustomEvent('auth:refreshed', { detail: { token: newToken } }));
+      } else {
+        window.dispatchEvent(new CustomEvent('auth:refresh-failed'));
+      }
+    };
+
+    window.addEventListener('auth:refresh-required', handleRefreshRequired as any);
+    return () => {
+      window.removeEventListener('auth:refresh-required', handleRefreshRequired as any);
+    };
+  }, [refreshAccessToken]);
 
   useEffect(() => {
     if (!accessToken) return;

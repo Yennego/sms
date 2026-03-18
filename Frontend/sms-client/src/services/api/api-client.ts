@@ -110,17 +110,84 @@ export class ApiClient {
       (error) => Promise.reject(error)
     );
 
-    // Response interceptor for error handling
+    // Response interceptor for error handling and token refresh
     this.axiosInstance.interceptors.response.use(
       (response) => response,
-      (error: AxiosError) => {
+      async (error: AxiosError) => {
+        const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
+
         if (error.response) {
           const { status, data } = error.response;
           let errorMessage: string;
           let errorType: ErrorType;
 
-          const method = error.config?.method?.toUpperCase() || 'UNKNOWN';
-          const url = error.config?.url || 'UNKNOWN_URL';
+          const method = originalRequest?.method?.toUpperCase() || 'UNKNOWN';
+          const url = originalRequest?.url || 'UNKNOWN_URL';
+          
+          // Handle 401 Unauthorized - Transparent Token Refresh
+          if (status === 401 && !originalRequest._retry) {
+            // Check if this is NOT a login/refresh/me request to avoid loops
+            const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/refresh') || url.includes('/auth/me');
+            
+            if (!isAuthEndpoint && typeof window !== 'undefined') {
+              console.log('[ApiClient] 401 detected, attempting transparent refresh for:', url);
+              originalRequest._retry = true;
+
+              try {
+                // Trigger a refresh call and wait for it
+                // We use a custom event or a shared promise to coordinate with AuthContext
+                const refreshEvent = new CustomEvent('auth:refresh-required', { 
+                  detail: { originalUrl: url } 
+                });
+                window.dispatchEvent(refreshEvent);
+
+                // Wait for the token to be refreshed
+                // The AuthContext will update the cookie/state
+                // We'll wait a bit then retry
+                await new Promise(resolve => {
+                  const onRefreshed = () => {
+                    window.removeEventListener('auth:refreshed', onRefreshed);
+                    window.removeEventListener('auth:refresh-failed', onFailed);
+                    resolve(true);
+                  };
+                  const onFailed = () => {
+                    window.removeEventListener('auth:refreshed', onRefreshed);
+                    window.removeEventListener('auth:refresh-failed', onFailed);
+                    resolve(false);
+                  };
+                  window.addEventListener('auth:refreshed', onRefreshed);
+                  window.addEventListener('auth:refresh-failed', onFailed);
+                  
+                  // Timeout after 10s if nothing happens
+                  setTimeout(() => onFailed(), 10000);
+                });
+
+                // Get the updated token from cookies
+                const m = document.cookie.match(/(?:^|; )accessToken=([^;]+)/) || 
+                          document.cookie.match(/(?:^|; )sa_accessToken=([^;]+)/);
+                const newToken = m ? decodeURIComponent(m[1]) : null;
+
+                if (newToken) {
+                  console.log('[ApiClient] Token refreshed successfully, retrying request:', url);
+                  originalRequest.headers = {
+                    ...originalRequest.headers,
+                    Authorization: `Bearer ${newToken}`
+                  };
+                  return this.axiosInstance(originalRequest);
+                }
+              } catch (refreshErr) {
+                console.error('[ApiClient] Error during transparent refresh:', refreshErr);
+              }
+              
+              // If we reached here, refresh failed or skip retry
+              console.warn('[ApiClient] Refresh failed or skipped, redirecting to session-expired');
+              try { sessionStorage.setItem('sessionExpired', '1'); } catch { }
+              const tenantSeg = this.tenantId || 'foundation';
+              window.location.href = `/${tenantSeg}/session-expired`;
+              return Promise.reject(error);
+            }
+          }
+
           const contentType = ((error.response.headers as unknown as Record<string, unknown>)?.['content-type'] as string) || '';
 
           // Always warn (avoid Next overlay from console.error for expected failures)
@@ -165,27 +232,6 @@ export class ApiClient {
               break;
             case 401:
               errorType = ErrorType.AUTHENTICATION;
-              if (typeof window !== 'undefined' &&
-                !error.config?.url?.includes('/auth/login') &&
-                !error.config?.url?.includes('/auth/refresh') &&
-                !error.config?.url?.includes('/auth/me')) {
-                try { sessionStorage.setItem('sessionExpired', '1'); } catch { }
-
-                const currentPath = window.location.pathname;
-                const endsWithSessionExpired = currentPath.endsWith('/session-expired');
-                const onLoginPage = currentPath.endsWith('/login') || /\/login(\/|$)/.test(currentPath);
-
-                if (this.accessToken && !endsWithSessionExpired && !onLoginPage) {
-                  const tenantSeg = (this.tenantId && isValidUUID(this.tenantId))
-                    ? this.tenantId
-                    : (document.cookie.match(/(?:^|; )tn_tenantId=([^;]+)/)?.[1] ||
-                      document.cookie.match(/(?:^|; )tenantId=([^;]+)/)?.[1] ||
-                      null);
-
-                  const target = tenantSeg ? `/${tenantSeg}/session-expired` : '/session-expired';
-                  window.location.href = target;
-                }
-              }
               break;
             case 403:
               errorType = ErrorType.AUTHORIZATION;
@@ -208,7 +254,7 @@ export class ApiClient {
               errorType = ErrorType.UNKNOWN;
           }
 
-          // Friendly duplicate-email mapping (even if server sent 500)
+          // Friendly duplicate-email mapping
           if (typeof errorMessage === 'string') {
             const em = errorMessage.toLowerCase();
             const looksDuplicateEmail =
@@ -218,25 +264,23 @@ export class ApiClient {
 
             if (looksDuplicateEmail) {
               errorType = ErrorType.VALIDATION;
-              errorMessage = 'Email already exists. Please use a different email or select the existing student.';
+              errorMessage = 'Email already exists.';
             }
           }
 
           throw new AppError(errorMessage, errorType, status, error);
         } else if (error.request) {
-          // Distinguish timeouts and cancellations from generic network failures
           if (axios.isAxiosError(error)) {
             const msg = String(error.message || '').toLowerCase();
             if (error.code === 'ERR_CANCELED') {
               throw createError.network('Request canceled', error);
             }
             if (msg.includes('timeout')) {
-              throw createError.network('Request timed out. Please try again.', error);
+              throw createError.network('Request timed out.', error);
             }
           }
-          throw createError.network('Unable to connect to the server. Please check your connection.', error);
+          throw createError.network('Unable to connect to the server.', error);
         } else {
-          // Something else happened
           throw handleError(error, 'Failed to complete request');
         }
       }
