@@ -99,10 +99,10 @@ export async function POST(request: NextRequest) {
 
     const responseObj = NextResponse.json(data);
 
-    // Set accessToken cookie (tn_accessToken)
+    // Set accessToken cookie (tn_accessToken) - NOT httpOnly so client-side JS can read it
     responseObj.cookies.set(getNamespacedKey('accessToken', context), accessToken, {
-      httpOnly: true,
-      secure: true, // Always secure for modern browsers/Next.js 15
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',
       maxAge: 7 * 24 * 60 * 60,
@@ -119,8 +119,8 @@ export async function POST(request: NextRequest) {
 
     if (finalTenantId) {
       responseObj.cookies.set(getNamespacedKey('tenantId', context), finalTenantId, {
-        httpOnly: true,
-        secure: true,
+        httpOnly: false,
+        secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         path: '/',
         maxAge: 30 * 24 * 60 * 60,
