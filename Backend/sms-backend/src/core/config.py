@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     FIRST_SUPERADMIN_PASSWORD: Optional[str] = os.getenv("FIRST_SUPERADMIN_PASSWORD")
     
     # Redis settings for rate limiting
+    REDIS_URL: Optional[str] = os.getenv("REDIS_URL")
     REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
     REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
     REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))

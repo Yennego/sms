@@ -45,13 +45,16 @@ class RedisCache:
             return
         if not self.client:
             try:
-                self.client = redis.Redis(
-                    host=settings.REDIS_HOST,
-                    port=settings.REDIS_PORT,
-                    db=settings.REDIS_DB,
-                    password=settings.REDIS_PASSWORD,
-                    decode_responses=True
-                )
+                if settings.REDIS_URL:
+                    self.client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+                else:
+                    self.client = redis.Redis(
+                        host=settings.REDIS_HOST,
+                        port=settings.REDIS_PORT,
+                        db=settings.REDIS_DB,
+                        password=settings.REDIS_PASSWORD,
+                        decode_responses=True
+                    )
             except Exception as e:
                 print(f"Failed to connect to Redis: {e}")
                 self.client = None
