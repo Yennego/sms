@@ -83,22 +83,9 @@ async def get_tenant_from_request(
         if tenant:
             print(f"[TENANT] Found Foundation tenant by name: {tenant.name}")
 
-    # Strategy 4: Development fallback for localhost
-    if not tenant and host in ["localhost", "127.0.0.1"]:
-        # Try to find Foundation tenant first
-        tenant = db.query(Tenant).filter(
-            Tenant.name == "Foundation",
-            Tenant.is_active == True
-        ).first()
-        if tenant:
-            print(f"[TENANT] Development fallback: Using Foundation tenant for localhost")
-        else:
-            # Fallback to first active tenant
-            tenant = db.query(Tenant).filter(
-                Tenant.is_active == True
-            ).first()
-            if tenant:
-                print(f"[TENANT] Development fallback: Using first active tenant: {tenant.name}")
+    # Strategy 4: Development fallback for localhost (REMOVED: Force global identification)
+    # The previous logic force-defaulted to Foundation on localhost, which caused collisions.
+    # Now we rely on the X-Tenant-ID header or Host mapping.
 
     if not tenant:
         print(f"[TENANT] ERROR: Tenant not found for X-Tenant-ID: {x_tenant_id}, Host: {host}")
@@ -203,6 +190,7 @@ async def tenant_middleware(request: Request, call_next):
         or path.startswith("/api/v1/auth/")
         or path.startswith("/api/v1/super-admin/")
         or "/super-admin/" in path
+        or "/export" in path
     )
     
     if is_bypass:
@@ -230,13 +218,15 @@ async def tenant_middleware(request: Request, call_next):
                 tenant_uuid = UUID(tenant_header)
                 tenant = db.query(Tenant).filter(Tenant.id == tenant_uuid, Tenant.is_active == True).first()
             except ValueError:
+                # If not a UUID, check for code or domain
                 tenant = db.query(Tenant).filter(Tenant.code == tenant_header.upper(), Tenant.is_active == True).first()
+                if not tenant:
+                    tenant = db.query(Tenant).filter(Tenant.domain == tenant_header.lower(), Tenant.is_active == True).first()
 
         # Strategy 2: Get from domain
         if not tenant:
             tenant = db.query(Tenant).filter(Tenant.domain == domain, Tenant.is_active == True).first()
-            if not tenant and domain == "localhost":
-                tenant = db.query(Tenant).filter(Tenant.is_active == True).first()
+            # Removed localhost force-default as it causes cross-tenant collisions in dev
         
         # Strategy 3: Path/Referer fallback (simplified)
         if not tenant:

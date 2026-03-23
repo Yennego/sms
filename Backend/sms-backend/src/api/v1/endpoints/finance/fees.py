@@ -1,5 +1,5 @@
 from typing import Any, List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 from uuid import UUID
 
@@ -153,39 +153,61 @@ def create_student_fee(
     """Create a new student fee assignment."""
     return student_fee.create(db=db, tenant_id=tenant_id, obj_in=fee_in)
 
+from fastapi import Response, HTTPException
+
 @router.get("/student-fees/export/xlsx")
-def export_fees_xlsx(
+async def export_fees_xlsx(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
     tenant_id: UUID = Depends(get_tenant_id_from_request)
-) -> Any:
-    """Export student fees to XLSX."""
+):
+    """Export student fees to XLSX using Base64 for transport stability."""
+    from fastapi.concurrency import run_in_threadpool
+    from fastapi.responses import JSONResponse
+    import base64
     try:
-        data = finance_service.get_fees_export_data(db=db, tenant_id=tenant_id)
-        return generate_xlsx_response(data, filename=f"student_fees_{tenant_id}")
+        data = await run_in_threadpool(finance_service.get_fees_export_data, db=db, tenant_id=tenant_id)
+        raw_response = await run_in_threadpool(generate_xlsx_response, data, filename=f"student_fees_{tenant_id}")
+        
+        # Base64 encode the body to bypass all middleware/router serialization issues
+        base64_content = base64.b64encode(raw_response.body).decode('utf-8')
+        
+        return JSONResponse(
+            content={
+                "file_content": base64_content,
+                "filename": f"student_fees_{tenant_id}.xlsx",
+                "media_type": raw_response.media_type
+            }
+        )
     except Exception as e:
-        with open("export_error.log", "a") as f:
-            f.write(f"XLSX Export Error: {str(e)}\n")
-            import traceback
-            f.write(traceback.format_exc() + "\n")
-        raise
+        raise HTTPException(status_code=500, detail=f"XLSX Export failed: {str(e)}")
 
 @router.get("/student-fees/export/pdf")
-def export_fees_pdf(
+async def export_fees_pdf(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
     tenant_id: UUID = Depends(get_tenant_id_from_request)
-) -> Any:
-    """Export student fees to PDF."""
+):
+    """Export student fees to PDF using Base64 for transport stability."""
+    from fastapi.concurrency import run_in_threadpool
+    from fastapi.responses import JSONResponse
+    import base64
     try:
-        data = finance_service.get_fees_export_data(db=db, tenant_id=tenant_id)
-        return generate_pdf_response(data, filename=f"student_fees_{tenant_id}", title="Student Fees Report")
+        data = await run_in_threadpool(finance_service.get_fees_export_data, db=db, tenant_id=tenant_id)
+        raw_response = await run_in_threadpool(generate_pdf_response, data, filename=f"student_fees_{tenant_id}", title="Student Fees Report")
+        
+        # Base64 encode the body to bypass all middleware/router serialization issues
+        base64_content = base64.b64encode(raw_response.body).decode('utf-8')
+        
+        return JSONResponse(
+            content={
+                "file_content": base64_content,
+                "filename": f"student_fees_{tenant_id}.pdf",
+                "media_type": raw_response.media_type
+            }
+        )
     except Exception as e:
-        with open("export_error.log", "a") as f:
-            f.write(f"PDF Export Error: {str(e)}\n")
-            import traceback
-            f.write(traceback.format_exc() + "\n")
-        raise
+        raise HTTPException(status_code=500, detail=f"PDF Export failed: {str(e)}")
 
 @router.post("/student-fees/bulk")
 def create_bulk_student_fees(

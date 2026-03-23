@@ -111,31 +111,95 @@ export default function FeesCollectionPage() {
             const mutation = format === 'xlsx' ? exportXlsxMutation : exportPdfMutation;
             const blob = await mutation.mutateAsync();
 
-            // Check if it's an error message disguised as a blob
-            if (blob.type === 'application/json') {
-                const text = await blob.text();
-                const errorData = JSON.parse(text);
-                throw new Error(errorData.detail || 'Export failed on server');
+            // 1. Convert blob to ArrayBuffer for analysis
+            const buffer = await blob.arrayBuffer();
+            let bytes = new Uint8Array(buffer);
+            
+            const checkSignatures = (data: Uint8Array) => {
+                const isPdf = data[0] === 0x25 && data[1] === 0x50;
+                const isXlsx = data[0] === 0x50 && data[1] === 0x4B;
+                return { isPdf, isXlsx };
+            };
+
+            let { isPdf, isXlsx } = checkSignatures(bytes);
+
+            // 2. Base64-JSON Awareness: Handle the new "Bulletproof" transport model
+            if (!isPdf && !isXlsx) {
+                const text = new TextDecoder().decode(bytes);
+                try {
+                    const json = JSON.parse(text);
+                    if (json.file_content) {
+                        // Decode Base64 content back to binary
+                        const binaryString = window.atob(json.file_content);
+                        const restoredBytes = new Uint8Array(binaryString.length);
+                        for (let i = 0; i < binaryString.length; i++) {
+                            restoredBytes[i] = binaryString.charCodeAt(i);
+                        }
+                        bytes = restoredBytes;
+                        const check = checkSignatures(bytes);
+                        isPdf = check.isPdf;
+                        isXlsx = check.isXlsx;
+                    }
+                } catch (e) {
+                    // Not a valid JSON or not our special Base64 format, continue to legacy/error checks
+                }
             }
 
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `student_fees_${new Date().toISOString().split('T')[0]}.${format}`);
-            document.body.appendChild(link);
-            link.click();
-            link.parentNode?.removeChild(link);
-            window.URL.revokeObjectURL(url);
+            // 3. Legacy Defensive: Check for raw JSON-wrapped binary (The "Shadow Serializer" Issue)
+            if (!isPdf && !isXlsx) {
+                const text = new TextDecoder().decode(bytes.slice(0, 2000));
+                if (text.trim().startsWith('"')) {
+                    try {
+                        const fullText = new TextDecoder().decode(bytes);
+                        const unquoted = JSON.parse(fullText);
+                        if (typeof unquoted === 'string') {
+                            const restoredBytes = new Uint8Array(unquoted.length);
+                            for (let i = 0; i < unquoted.length; i++) {
+                                restoredBytes[i] = unquoted.charCodeAt(i) & 0xff;
+                            }
+                            const check = checkSignatures(restoredBytes);
+                            if (check.isPdf || check.isXlsx) {
+                                bytes = restoredBytes;
+                                isPdf = check.isPdf;
+                                isXlsx = check.isXlsx;
+                            }
+                        }
+                    } catch (e) { /* Fallback */ }
+                }
+            }
 
-            toast({
-                title: "Export Successful",
-                description: `Student fees exported as ${format.toUpperCase()}`,
-            });
+            // 4. Download Execution
+            if (isPdf || isXlsx) {
+                const finalBlob = new Blob([bytes], { 
+                    type: isPdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+                });
+                const url = window.URL.createObjectURL(finalBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `student_fees_${new Date().getTime()}.${isPdf ? 'pdf' : 'xlsx'}`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+                return;
+            }
+
+            // 5. Error Fallback
+            const errorText = new TextDecoder().decode(bytes.slice(0, 2000));
+            try {
+                const errorData = JSON.parse(errorText);
+                throw new Error(errorData.detail || errorData.message || 'Export failed on server');
+            } catch (jsonErr) {
+                if (errorText.includes('<!DOCTYPE html>') || errorText.includes('<html')) {
+                    throw new Error('Server returned an error page. Please contact support.');
+                }
+                throw new Error('Export failed: Unexpected response format');
+            }
         } catch (error: any) {
-            console.error('Export failed:', error);
+            console.error('Export error:', error);
             toast({
                 title: "Export Failed",
-                description: error.message || "An error occurred while generating the report.",
+                description: error.message || "An error occurred during export.",
                 variant: "destructive",
             });
         }
