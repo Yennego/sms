@@ -85,8 +85,11 @@ def get_users(
     role_id: Optional[UUID] = None,
     sort_by: Optional[str] = "created_at",
     sort_order: str = "asc",
+    current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """Get all users for a tenant with optional server-side filters."""
+    is_super_admin = any(role.name == "super-admin" for role in current_user.roles)
+    
     return user_crud.list_with_filters(
         db,
         tenant_id=tenant_id,
@@ -97,6 +100,7 @@ def get_users(
         sort_order=sort_order,
         skip=skip,
         limit=limit,
+        exclude_super_admin=not is_super_admin
     )
 
 @router.get("/users/active", response_model=List[User])

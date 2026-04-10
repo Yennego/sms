@@ -29,6 +29,7 @@ def generate_xlsx_response(data: List[Dict[str, Any]], filename: str) -> Respons
         
         headers = {
             'Content-Disposition': f'attachment; filename="{filename}.xlsx"',
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Content-Length': str(len(content)),
             'Access-Control-Expose-Headers': 'Content-Disposition'
         }
@@ -104,6 +105,7 @@ def generate_pdf_response(data: List[Dict[str, Any]], filename: str, title: str 
         
         headers = {
             'Content-Disposition': f'attachment; filename="{filename}.pdf"',
+            'Content-Type': 'application/pdf',
             'Content-Length': str(len(content)),
             'Access-Control-Expose-Headers': 'Content-Disposition'
         }

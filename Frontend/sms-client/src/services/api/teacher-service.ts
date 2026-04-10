@@ -90,10 +90,10 @@ export function useTeacherService() {
       await client.delete(`/people/teachers/${id}`);
     },
 
-    createBulkTeachers: async (teachers: TeacherCreate[]): Promise<Teacher[]> => {
+    createBulkTeachers: async (teachers: TeacherCreate[]): Promise<TeacherCreateResponse[]> => {
       const client = await waitForApiClientReady();
       try {
-        const response = await client.post<Teacher[]>('/people/teachers/bulk', teachers);
+        const response = await client.post<TeacherCreateResponse[]>('/people/teachers/bulk', teachers);
         return Array.isArray(response) ? response : [];
       } catch (error) {
         console.error('Error creating bulk teachers:', error);

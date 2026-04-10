@@ -83,3 +83,15 @@ response.json
 error_*.json
 scripts/
 docs/
+
+# agent
+.agents/
+.agent/
+.cursor/
+.gemini/
+antigravity/
+
+# agent
+.agents/
+.agent/
+.cursor/

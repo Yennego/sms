@@ -13,11 +13,10 @@ export const dashboardKeys = {
  */
 export function useAdminDashboardStats(options?: { refetchInterval?: number | false }) {
     const service = useAdminDashboardService();
-    const { tenant } = useTenant();
-    const tenantId = tenant?.id || null;
+    const { tenantKey } = useTenant();
 
     return useQuery({
-        queryKey: dashboardKeys.stats(tenantId),
+        queryKey: dashboardKeys.stats(tenantKey),
         queryFn: () => service.getDashboardStats(),
         ...options,
     });

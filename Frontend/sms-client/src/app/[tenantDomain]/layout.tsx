@@ -27,9 +27,11 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
 
   const isLoginPage = pathname.endsWith('/login') || /\/login(\/|$)/.test(pathname);
 
-  // Show a full-screen loader while either auth or tenant context is initializing
-  // BUT only on protected routes.
-  if ((!hasInitialized || tenantLoading || isLoggingOut) && !isLoginPage) {
+  // Only show full-screen loader if we have NO tenant data at all OR authentication is still initializing. 
+  // If we already have a tenant and are authenticated, don't show the loader just because tenantLoading is true (prevents flash on sub-navigation).
+  const isHardLoading = (!hasInitialized || isLoggingOut || (!tenant && tenantLoading)) && !isLoginPage;
+
+  if (isHardLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 space-y-4">
         <Loader2 className="h-10 w-10 animate-spin text-primary opacity-50" />

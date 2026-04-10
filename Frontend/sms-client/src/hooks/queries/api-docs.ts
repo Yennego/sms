@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useSuperAdminApiClient } from '@/services/api/super-admin-api-client';
+import { useTenant } from '@/hooks/use-tenant';
 
 export interface ApiMetadata {
   path: string;
@@ -25,9 +26,10 @@ export function useApiMetadata(params: {
   search?: string;
 }) {
   const apiClient = useSuperAdminApiClient();
+  const { tenantKey } = useTenant();
 
   return useQuery({
-    queryKey: ['api-metadata', params],
+    queryKey: ['api-metadata', tenantKey, params],
     queryFn: async () => {
       const queryParams = new URLSearchParams();
       if (params.skip !== undefined) queryParams.append('skip', params.skip.toString());

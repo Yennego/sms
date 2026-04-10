@@ -7,7 +7,11 @@ export function useTenant() {
   if (context === undefined) {
     throw new Error('useTenant must be used within a TenantProvider');
   }
-  return context;
+  
+  // Create a robust identifier that is unique even during loading
+  const tenantKey = context.tenant?.id || context.tenant?.domain || null;
+  
+  return { ...context, tenantKey };
 }
 
 export function useTenantNavigation() {

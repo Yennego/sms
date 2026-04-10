@@ -160,7 +160,8 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
         sort_by: Optional[str] = "created_at",
         sort_order: str = "asc",
         skip: int = 0,
-        limit: int = 100
+        limit: int = 100,
+        exclude_super_admin: bool = False
     ) -> List[Any]:
         """List users with flexible server-side filtering."""
         tenant_id_uuid = ensure_uuid(tenant_id)
@@ -183,6 +184,12 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
 
         if role_id:
             query = query.join(User.roles).filter(UserRole.id == ensure_uuid(role_id))
+
+        if exclude_super_admin:
+            # Join roles if not already joined, and filter out super-admin role
+            if not role_id:
+                query = query.join(User.roles)
+            query = query.filter(~User.roles.any(UserRole.name.in_(["super-admin", "superadmin"])))
 
         sort_map = {
             "created_at": User.created_at,

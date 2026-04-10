@@ -1,9 +1,10 @@
 from datetime import date
 from typing import Optional, List
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from src.schemas.auth.user import UserBase, UserCreate, UserUpdate, User
+from src.utils.date_parsing import parse_lenient_date
 
 
 class StudentBase(UserBase):
@@ -48,6 +49,11 @@ class StudentCreate(UserCreate):
     emergency_contact: Optional[str] = None
     photo: Optional[str] = None
     status: str = "active"
+
+    @field_validator("admission_date", "date_of_birth", mode="before")
+    @classmethod
+    def validate_dates(cls, v):
+        return parse_lenient_date(v)
 
 
 class StudentUpdate(UserUpdate):

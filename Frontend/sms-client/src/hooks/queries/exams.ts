@@ -1,20 +1,22 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useExamService, type ExamCreate, type ExamUpdate } from '@/services/api/exam-service';
 import { useEnrollmentService } from '@/services/api/enrollment-service';
+import { useTenant } from '@/hooks/use-tenant';
 
 export const examKeys = {
-    all: ['exams'] as const,
-    lists: () => [...examKeys.all, 'list'] as const,
-    list: (filters: Record<string, any>) => [...examKeys.lists(), filters] as const,
-    detail: (id: string) => [...examKeys.all, 'detail', id] as const,
-    currentAcademicYear: ['currentAcademicYear'] as const,
+    all: (tenantKey: string | null) => ['exams', tenantKey] as const,
+    lists: (tenantKey: string | null) => [...examKeys.all(tenantKey), 'list'] as const,
+    list: (tenantKey: string | null, filters: Record<string, any>) => [...examKeys.lists(tenantKey), filters] as const,
+    detail: (tenantKey: string | null, id: string) => [...examKeys.all(tenantKey), 'detail', id] as const,
+    currentAcademicYear: (tenantKey: string | null) => ['currentAcademicYear', tenantKey] as const,
 };
 
 export function useCurrentAcademicYear() {
     const { getCurrentAcademicYear } = useEnrollmentService();
+    const { tenantKey } = useTenant();
 
     return useQuery({
-        queryKey: examKeys.currentAcademicYear,
+        queryKey: examKeys.currentAcademicYear(tenantKey),
         queryFn: async () => {
             try {
                 return await getCurrentAcademicYear();
@@ -37,9 +39,10 @@ export function useExams(filters: {
     limit?: number;
 } = {}) {
     const service = useExamService();
+    const { tenantKey } = useTenant();
 
     return useQuery({
-        queryKey: examKeys.list(filters),
+        queryKey: examKeys.list(tenantKey, filters),
         queryFn: () => service.getExams({
             limit: filters.limit || 100,
             academic_year_id: filters.academic_year_id,
@@ -55,11 +58,12 @@ export function useExams(filters: {
 export function useCreateExam() {
     const service = useExamService();
     const queryClient = useQueryClient();
+    const { tenantKey } = useTenant();
 
     return useMutation({
         mutationFn: (data: ExamCreate) => service.createExam(data),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: examKeys.all });
+            queryClient.invalidateQueries({ queryKey: examKeys.all(tenantKey) });
         },
     });
 }
@@ -67,11 +71,12 @@ export function useCreateExam() {
 export function useUpdateExam() {
     const service = useExamService();
     const queryClient = useQueryClient();
+    const { tenantKey } = useTenant();
 
     return useMutation({
         mutationFn: ({ id, data }: { id: string; data: ExamUpdate }) => service.updateExam(id, data),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: examKeys.all });
+            queryClient.invalidateQueries({ queryKey: examKeys.all(tenantKey) });
         },
     });
 }
@@ -79,11 +84,12 @@ export function useUpdateExam() {
 export function useDeleteExam() {
     const service = useExamService();
     const queryClient = useQueryClient();
+    const { tenantKey } = useTenant();
 
     return useMutation({
         mutationFn: (id: string) => service.deleteExam(id),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: examKeys.all });
+            queryClient.invalidateQueries({ queryKey: examKeys.all(tenantKey) });
         },
     });
 }
@@ -91,11 +97,12 @@ export function useDeleteExam() {
 export function usePublishExam() {
     const service = useExamService();
     const queryClient = useQueryClient();
+    const { tenantKey } = useTenant();
 
     return useMutation({
         mutationFn: (id: string) => service.publishExam(id),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: examKeys.all });
+            queryClient.invalidateQueries({ queryKey: examKeys.all(tenantKey) });
         },
     });
 }
@@ -103,11 +110,12 @@ export function usePublishExam() {
 export function useUnpublishExam() {
     const service = useExamService();
     const queryClient = useQueryClient();
+    const { tenantKey } = useTenant();
 
     return useMutation({
         mutationFn: (id: string) => service.unpublishExam(id),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: examKeys.all });
+            queryClient.invalidateQueries({ queryKey: examKeys.all(tenantKey) });
         },
     });
 }

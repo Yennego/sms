@@ -6,23 +6,25 @@ import { useEnrollmentService } from '@/services/api/enrollment-service';
 import { useStudentGradeService } from '@/services/api/student-grade-service';
 import { useSemesterService } from '@/services/api/semester-service';
 import { usePeriodService } from '@/services/api/period-service';
+import { useTenant } from '@/hooks/use-tenant';
 
 export const gradingHubKeys = {
-    all: ['grading-hub'] as const,
-    activities: (filters: any) => [...gradingHubKeys.all, 'activities', filters] as const,
-    performance: (classId: string, subjectId: string, academicYearId: string, periodId?: string, semesterId?: string) =>
-        [...gradingHubKeys.all, 'performance', classId, subjectId, academicYearId, periodId, semesterId] as const,
-    semesters: (academicYearId: string) => [...gradingHubKeys.all, 'semesters', academicYearId] as const,
-    periods: (semesterId: string) => [...gradingHubKeys.all, 'periods', semesterId] as const,
+    all: (tenantKey: string | null) => ['grading-hub', tenantKey] as const,
+    activities: (tenantKey: string | null, filters: any) => [...gradingHubKeys.all(tenantKey), 'activities', filters] as const,
+    performance: (tenantKey: string | null, classId: string, subjectId: string, academicYearId: string, periodId?: string, semesterId?: string) =>
+        [...gradingHubKeys.all(tenantKey), 'performance', classId, subjectId, academicYearId, periodId, semesterId] as const,
+    semesters: (tenantKey: string | null, academicYearId: string) => [...gradingHubKeys.all(tenantKey), 'semesters', academicYearId] as const,
+    periods: (tenantKey: string | null, semesterId: string) => [...gradingHubKeys.all(tenantKey), 'periods', semesterId] as const,
 };
 
 export function useGradableActivities(filters: { academic_year_id: string; grade_id?: string; section_id?: string; subject_id?: string; teacher_id?: string; period_id?: string; semester_id?: string }) {
     const examService = useExamService();
     const assignmentService = useAssignmentService();
     const assessmentService = useAssessmentService();
+    const { tenantKey } = useTenant();
 
     return useQuery({
-        queryKey: gradingHubKeys.activities(filters),
+        queryKey: gradingHubKeys.activities(tenantKey, filters),
         queryFn: async () => {
             const apiFilters = {
                 academic_year_id: filters.academic_year_id,
@@ -86,9 +88,10 @@ export function useGradableActivities(filters: { academic_year_id: string; grade
 export function useClassPerformance(classId: string, subjectId: string, academicYearId: string, classes: any[], periodId?: string, semesterId?: string) {
     const enrollmentService = useEnrollmentService();
     const gradeService = useStudentGradeService();
+    const { tenantKey } = useTenant();
 
     return useQuery({
-        queryKey: gradingHubKeys.performance(classId, subjectId, academicYearId, periodId, semesterId),
+        queryKey: gradingHubKeys.performance(tenantKey, classId, subjectId, academicYearId, periodId, semesterId),
         queryFn: async () => {
             const cls = classes.find(c => c.id === classId);
             if (!cls) return [];
@@ -132,8 +135,10 @@ export function useClassPerformance(classId: string, subjectId: string, academic
 
 export function useSemesters(academicYearId: string) {
     const semesterService = useSemesterService();
+    const { tenantKey } = useTenant();
+
     return useQuery({
-        queryKey: gradingHubKeys.semesters(academicYearId),
+        queryKey: gradingHubKeys.semesters(tenantKey, academicYearId),
         queryFn: () => semesterService.getSemesters(academicYearId),
         enabled: !!academicYearId,
     });
@@ -141,8 +146,10 @@ export function useSemesters(academicYearId: string) {
 
 export function usePeriods(semesterId: string) {
     const periodService = usePeriodService();
+    const { tenantKey } = useTenant();
+
     return useQuery({
-        queryKey: gradingHubKeys.periods(semesterId),
+        queryKey: gradingHubKeys.periods(tenantKey, semesterId),
         queryFn: () => periodService.getPeriods(semesterId),
         enabled: !!semesterId && semesterId !== 'all',
     });

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useActivityLogService } from '@/services/api/activity-log-service';
+import { useTenant } from '@/hooks/use-tenant';
 
 export function useActivityLogs(params?: {
     page?: number;
@@ -11,10 +12,11 @@ export function useActivityLogs(params?: {
     end_date?: string;
 }) {
     const activityLogService = useActivityLogService();
+    const { tenantKey } = useTenant();
     const skip = params?.page && params?.limit ? (params.page - 1) * params.limit : 0;
 
     return useQuery({
-        queryKey: ['activity-logs', { ...params, skip }],
+        queryKey: ['activity-logs', tenantKey, { ...params, skip }],
         queryFn: () => activityLogService.getActivityLogs({
             ...params,
             skip,
@@ -34,10 +36,11 @@ export function useSuperAdminActivityLogs(params?: {
     end_date?: string;
 }) {
     const activityLogService = useActivityLogService();
+    const { tenantKey } = useTenant();
     const skip = params?.page && params?.limit ? (params.page - 1) * params.limit : 0;
 
     return useQuery({
-        queryKey: ['activity-logs', 'super-admin', { ...params, skip }],
+        queryKey: ['activity-logs', 'super-admin', tenantKey, { ...params, skip }],
         queryFn: () => activityLogService.getSuperAdminLogs({
             ...params,
             skip,
@@ -48,9 +51,10 @@ export function useSuperAdminActivityLogs(params?: {
 
 export function useUserActivityLogs(userId: string) {
     const activityLogService = useActivityLogService();
+    const { tenantKey } = useTenant();
 
     return useQuery({
-        queryKey: ['activity-logs', 'user', userId],
+        queryKey: ['activity-logs', 'user', tenantKey, userId],
         queryFn: () => activityLogService.getUserLogs(userId),
         enabled: !!userId,
     });
@@ -58,9 +62,10 @@ export function useUserActivityLogs(userId: string) {
 
 export function useEntityActivityLogs(entityType: string, entityId: string) {
     const activityLogService = useActivityLogService();
+    const { tenantKey } = useTenant();
 
     return useQuery({
-        queryKey: ['activity-logs', 'entity', entityType, entityId],
+        queryKey: ['activity-logs', 'entity', tenantKey, entityType, entityId],
         queryFn: () => activityLogService.getEntityLogs(entityType, entityId),
         enabled: !!entityType && !!entityId,
     });

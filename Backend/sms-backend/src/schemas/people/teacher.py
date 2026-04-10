@@ -1,9 +1,10 @@
 from datetime import date
 from typing import Optional, List
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from src.schemas.auth.user import UserBase, UserCreate, UserUpdate, User
+from src.utils.date_parsing import parse_lenient_date
 
 
 class TeacherBase(UserBase):
@@ -36,6 +37,11 @@ class TeacherCreate(UserCreate):
     gender: Optional[str] = None
     whatsapp_number: Optional[str] = None
     status: str = "active"
+
+    @field_validator("joining_date", mode="before")
+    @classmethod
+    def validate_joining_date(cls, v):
+        return parse_lenient_date(v)
 
 
 class TeacherUpdate(UserUpdate):

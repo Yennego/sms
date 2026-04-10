@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAttendanceService } from '@/services/api/attendance-service';
+import { useTenant } from '@/hooks/use-tenant';
 
 export const attendanceKeys = {
     all: ['attendance'] as const,
@@ -14,9 +15,10 @@ export function useAttendanceSummary(filters: {
     end_date?: string;
 }) {
     const service = useAttendanceService();
+    const { tenantKey } = useTenant();
 
     return useQuery({
-        queryKey: attendanceKeys.summary(filters),
+        queryKey: [...attendanceKeys.summary(filters), tenantKey],
         queryFn: () => service.getAttendanceSummary(filters),
         enabled: !!filters,
     });

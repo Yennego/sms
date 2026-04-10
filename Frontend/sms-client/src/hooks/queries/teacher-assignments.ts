@@ -5,21 +5,23 @@ import {
     TeacherSubjectAssignmentUpdate,
     ClassSponsor
 } from '@/types/teacher-subject-assignment';
+import { useTenant } from '@/hooks/use-tenant';
 
 export const teacherAssignmentKeys = {
-    all: ['teacherAssignments'] as const,
-    lists: () => [...teacherAssignmentKeys.all, 'list'] as const,
-    list: (academicYearId: string) => [...teacherAssignmentKeys.lists(), academicYearId] as const,
-    byTeacher: (teacherId: string, academicYearId: string) => [...teacherAssignmentKeys.all, 'teacher', teacherId, academicYearId] as const,
-    workload: (academicYearId: string) => [...teacherAssignmentKeys.all, 'workload', academicYearId] as const,
-    unassigned: (academicYearId: string) => [...teacherAssignmentKeys.all, 'unassigned', academicYearId] as const,
-    sponsors: (academicYearId: string) => [...teacherAssignmentKeys.all, 'sponsors', academicYearId] as const,
+    all: (tenantKey: string | null) => ['teacherAssignments', tenantKey] as const,
+    lists: (tenantKey: string | null) => [...teacherAssignmentKeys.all(tenantKey), 'list'] as const,
+    list: (tenantKey: string | null, academicYearId: string) => [...teacherAssignmentKeys.lists(tenantKey), academicYearId] as const,
+    byTeacher: (tenantKey: string | null, teacherId: string, academicYearId: string) => [...teacherAssignmentKeys.all(tenantKey), 'teacher', teacherId, academicYearId] as const,
+    workload: (tenantKey: string | null, academicYearId: string) => [...teacherAssignmentKeys.all(tenantKey), 'workload', academicYearId] as const,
+    unassigned: (tenantKey: string | null, academicYearId: string) => [...teacherAssignmentKeys.all(tenantKey), 'unassigned', academicYearId] as const,
+    sponsors: (tenantKey: string | null, academicYearId: string) => [...teacherAssignmentKeys.all(tenantKey), 'sponsors', academicYearId] as const,
 };
 
 export function useAllTeacherAssignments(academicYearId: string) {
     const service = useTeacherSubjectAssignmentService();
+    const { tenantKey } = useTenant();
     return useQuery({
-        queryKey: teacherAssignmentKeys.list(academicYearId),
+        queryKey: teacherAssignmentKeys.list(tenantKey, academicYearId),
         queryFn: () => service.getAllAssignments(academicYearId),
         enabled: !!academicYearId,
     });
@@ -27,8 +29,9 @@ export function useAllTeacherAssignments(academicYearId: string) {
 
 export function useTeacherAssignments(teacherId: string, academicYearId: string) {
     const service = useTeacherSubjectAssignmentService();
+    const { tenantKey } = useTenant();
     return useQuery({
-        queryKey: teacherAssignmentKeys.byTeacher(teacherId, academicYearId),
+        queryKey: teacherAssignmentKeys.byTeacher(tenantKey, teacherId, academicYearId),
         queryFn: () => service.getTeacherAssignments(teacherId, academicYearId),
         enabled: !!teacherId && !!academicYearId,
     });
@@ -36,8 +39,9 @@ export function useTeacherAssignments(teacherId: string, academicYearId: string)
 
 export function useTeacherWorkload(academicYearId: string) {
     const service = useTeacherSubjectAssignmentService();
+    const { tenantKey } = useTenant();
     return useQuery({
-        queryKey: teacherAssignmentKeys.workload(academicYearId),
+        queryKey: teacherAssignmentKeys.workload(tenantKey, academicYearId),
         queryFn: () => service.getTeacherWorkload(academicYearId),
         enabled: !!academicYearId,
     });
@@ -45,8 +49,9 @@ export function useTeacherWorkload(academicYearId: string) {
 
 export function useUnassignedSubjects(academicYearId: string) {
     const service = useTeacherSubjectAssignmentService();
+    const { tenantKey } = useTenant();
     return useQuery({
-        queryKey: teacherAssignmentKeys.unassigned(academicYearId),
+        queryKey: teacherAssignmentKeys.unassigned(tenantKey, academicYearId),
         queryFn: () => service.getUnassignedSubjects(academicYearId),
         enabled: !!academicYearId,
     });
@@ -55,11 +60,12 @@ export function useUnassignedSubjects(academicYearId: string) {
 export function useCreateAssignment() {
     const service = useTeacherSubjectAssignmentService();
     const queryClient = useQueryClient();
+    const { tenantKey } = useTenant();
 
     return useMutation({
         mutationFn: (data: TeacherSubjectAssignmentCreate) => service.createAssignment(data),
         onSuccess: (_, variables) => {
-            queryClient.invalidateQueries({ queryKey: teacherAssignmentKeys.all });
+            queryClient.invalidateQueries({ queryKey: teacherAssignmentKeys.all(tenantKey) });
         },
     });
 }
@@ -67,12 +73,13 @@ export function useCreateAssignment() {
 export function useUpdateAssignment() {
     const service = useTeacherSubjectAssignmentService();
     const queryClient = useQueryClient();
+    const { tenantKey } = useTenant();
 
     return useMutation({
         mutationFn: ({ id, data }: { id: string; data: TeacherSubjectAssignmentUpdate }) =>
             service.updateAssignment(id, data),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: teacherAssignmentKeys.all });
+            queryClient.invalidateQueries({ queryKey: teacherAssignmentKeys.all(tenantKey) });
         },
     });
 }
@@ -80,11 +87,12 @@ export function useUpdateAssignment() {
 export function useDeleteAssignment() {
     const service = useTeacherSubjectAssignmentService();
     const queryClient = useQueryClient();
+    const { tenantKey } = useTenant();
 
     return useMutation({
         mutationFn: (id: string) => service.deleteAssignment(id),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: teacherAssignmentKeys.all });
+            queryClient.invalidateQueries({ queryKey: teacherAssignmentKeys.all(tenantKey) });
         },
     });
 }
@@ -92,11 +100,12 @@ export function useDeleteAssignment() {
 export function useBulkDeleteAssignments() {
     const service = useTeacherSubjectAssignmentService();
     const queryClient = useQueryClient();
+    const { tenantKey } = useTenant();
 
     return useMutation({
         mutationFn: (ids: string[]) => service.bulkDeleteAssignments(ids),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: teacherAssignmentKeys.all });
+            queryClient.invalidateQueries({ queryKey: teacherAssignmentKeys.all(tenantKey) });
         },
     });
 }
@@ -104,12 +113,13 @@ export function useBulkDeleteAssignments() {
 export function useBulkReassignAssignments() {
     const service = useTeacherSubjectAssignmentService();
     const queryClient = useQueryClient();
+    const { tenantKey } = useTenant();
 
     return useMutation({
         mutationFn: (data: { ids: string[]; newTeacherId: string; newAcademicYearId?: string }) =>
             service.bulkReassignAssignments(data.ids, data.newTeacherId, data.newAcademicYearId),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: teacherAssignmentKeys.all });
+            queryClient.invalidateQueries({ queryKey: teacherAssignmentKeys.all(tenantKey) });
         },
     });
 }
@@ -117,6 +127,7 @@ export function useBulkReassignAssignments() {
 export function useReassignTeacher() {
     const service = useTeacherSubjectAssignmentService();
     const queryClient = useQueryClient();
+    const { tenantKey } = useTenant();
 
     return useMutation({
         mutationFn: (data: {
@@ -133,15 +144,16 @@ export function useReassignTeacher() {
             data.newTeacherId
         ),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: teacherAssignmentKeys.all });
+            queryClient.invalidateQueries({ queryKey: teacherAssignmentKeys.all(tenantKey) });
         },
     });
 }
 
 export function useClassSponsors(academicYearId: string) {
     const service = useTeacherSubjectAssignmentService();
+    const { tenantKey } = useTenant();
     return useQuery({
-        queryKey: teacherAssignmentKeys.sponsors(academicYearId),
+        queryKey: teacherAssignmentKeys.sponsors(tenantKey, academicYearId),
         queryFn: () => service.getClassSponsors(academicYearId),
         enabled: !!academicYearId,
     });
@@ -150,12 +162,13 @@ export function useClassSponsors(academicYearId: string) {
 export function useAssignSponsor() {
     const service = useTeacherSubjectAssignmentService();
     const queryClient = useQueryClient();
+    const { tenantKey } = useTenant();
 
     return useMutation({
         mutationFn: ({ sectionId, teacherId }: { sectionId: string; teacherId: string }) =>
             service.assignClassSponsor(sectionId, teacherId),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: teacherAssignmentKeys.all });
+            queryClient.invalidateQueries({ queryKey: teacherAssignmentKeys.all(tenantKey) });
         },
     });
 }

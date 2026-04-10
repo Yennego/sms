@@ -49,44 +49,43 @@ export interface ChurnRiskTenant {
 }
 
 // ─── Query Keys ──────────────────────────────────────────────────
-
 export const analyticsKeys = {
-    all: ['analytics'] as const,
-    growthForecast: () => [...analyticsKeys.all, 'growth-forecast'] as const,
-    anomalies: () => [...analyticsKeys.all, 'anomalies'] as const,
-    churnRisk: () => [...analyticsKeys.all, 'churn-risk'] as const,
+    all: (tenantKey: string | null) => ['analytics', tenantKey] as const,
+    growthForecast: (tenantKey: string | null) => [...analyticsKeys.all(tenantKey), 'growth-forecast'] as const,
+    anomalies: (tenantKey: string | null) => [...analyticsKeys.all(tenantKey), 'anomalies'] as const,
+    churnRisk: (tenantKey: string | null) => [...analyticsKeys.all(tenantKey), 'churn-risk'] as const,
 };
 
 // ─── Hooks ───────────────────────────────────────────────────────
 
 export function useGrowthForecast() {
-    const { tenantId } = useTenant();
+    const { tenantId, tenantKey } = useTenant();
     const apiClient = useSuperAdminApiClient(tenantId || undefined);
 
     return useQuery({
-        queryKey: analyticsKeys.growthForecast(),
+        queryKey: analyticsKeys.growthForecast(tenantKey),
         queryFn: () => apiClient.get<GrowthForecast>('/super-admin/analytics/growth-forecast'),
         staleTime: 5 * 60 * 1000, // 5 min cache
     });
 }
 
 export function useAnomalyAlerts() {
-    const { tenantId } = useTenant();
+    const { tenantId, tenantKey } = useTenant();
     const apiClient = useSuperAdminApiClient(tenantId || undefined);
 
     return useQuery({
-        queryKey: analyticsKeys.anomalies(),
+        queryKey: analyticsKeys.anomalies(tenantKey),
         queryFn: () => apiClient.get<AnomalyAlert[]>('/super-admin/analytics/anomalies'),
         staleTime: 2 * 60 * 1000, // 2 min cache
     });
 }
 
 export function useChurnRisk() {
-    const { tenantId } = useTenant();
+    const { tenantId, tenantKey } = useTenant();
     const apiClient = useSuperAdminApiClient(tenantId || undefined);
 
     return useQuery({
-        queryKey: analyticsKeys.churnRisk(),
+        queryKey: analyticsKeys.churnRisk(tenantKey),
         queryFn: () => apiClient.get<ChurnRiskTenant[]>('/super-admin/analytics/churn-risk'),
         staleTime: 5 * 60 * 1000, // 5 min cache
     });

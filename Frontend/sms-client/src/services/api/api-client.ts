@@ -78,8 +78,8 @@ export class ApiClient {
         let effectiveToken = this.accessToken;
         if (!effectiveToken && typeof document !== 'undefined') {
           const tokenMatch = document.cookie.match(/(?:^|; )tn_accessToken=([^;]+)/) ||
-                            document.cookie.match(/(?:^|; )sa_accessToken=([^;]+)/) ||
-                            document.cookie.match(/(?:^|; )accessToken=([^;]+)/);
+            document.cookie.match(/(?:^|; )sa_accessToken=([^;]+)/) ||
+            document.cookie.match(/(?:^|; )accessToken=([^;]+)/);
           effectiveToken = tokenMatch ? decodeURIComponent(tokenMatch[1]) : null;
         }
         if (effectiveToken) {
@@ -93,12 +93,12 @@ export class ApiClient {
         const candidateTenant = (() => {
           // Priority 1: Use the tenantId provided to the constructor (most reliable)
           if (this.tenantId) return this.tenantId as string;
-          
+
           // Priority 2: Use the URL path segment (very reliable for tenant routes)
           const seg = typeof window !== 'undefined' ? window.location.pathname.split('/')[1] || null : null;
           const reserved = [
             'api', '_next', 'static', 'super-admin', 'login', 'session-expired', 'favicon.ico',
-            'students', 'teachers', 'parents', 'academics', 'communication', 'resources', 
+            'students', 'teachers', 'parents', 'academics', 'communication', 'resources',
             'logging', 'settings', 'dashboard', 'profile'
           ];
           if (seg && !reserved.includes(seg.toLowerCase())) {
@@ -110,11 +110,8 @@ export class ApiClient {
         })();
 
         if (candidateTenant) {
-          if (isValidUUID(candidateTenant)) {
-            config.headers['X-Tenant-ID'] = candidateTenant;
-          } else {
-            config.headers['X-Tenant-Domain'] = candidateTenant;
-          }
+          // Always use X-Tenant-ID for backend compatibility (handles UUID, Code, or Domain)
+          config.headers['X-Tenant-ID'] = candidateTenant;
         } else if ((config.headers as Record<string, unknown>)['X-Tenant-ID']) {
           const hdrs = (config.headers as Record<string, unknown>);
           delete hdrs['X-Tenant-ID'];
@@ -138,12 +135,12 @@ export class ApiClient {
 
           const method = originalRequest?.method?.toUpperCase() || 'UNKNOWN';
           const url = originalRequest?.url || 'UNKNOWN_URL';
-          
+
           // Handle 401 Unauthorized - Transparent Token Refresh
           if (status === 401 && !originalRequest._retry) {
             // Check if this is NOT a login/refresh/me request to avoid loops
             const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/refresh') || url.includes('/auth/me');
-            
+
             if (!isAuthEndpoint && typeof window !== 'undefined') {
               console.log('[ApiClient] 401 detected, attempting transparent refresh for:', url);
               originalRequest._retry = true;
@@ -151,8 +148,8 @@ export class ApiClient {
               try {
                 // Trigger a refresh call and wait for it
                 // We use a custom event or a shared promise to coordinate with AuthContext
-                const refreshEvent = new CustomEvent('auth:refresh-required', { 
-                  detail: { originalUrl: url } 
+                const refreshEvent = new CustomEvent('auth:refresh-required', {
+                  detail: { originalUrl: url }
                 });
                 window.dispatchEvent(refreshEvent);
 
@@ -172,15 +169,15 @@ export class ApiClient {
                   };
                   window.addEventListener('auth:refreshed', onRefreshed);
                   window.addEventListener('auth:refresh-failed', onFailed);
-                  
+
                   // Timeout after 10s if nothing happens
                   setTimeout(() => onFailed(), 10000);
                 });
 
                 // Get the updated token from cookies
                 const m = document.cookie.match(/(?:^|; )tn_accessToken=([^;]+)/) ||
-                          document.cookie.match(/(?:^|; )sa_accessToken=([^;]+)/) ||
-                          document.cookie.match(/(?:^|; )accessToken=([^;]+)/);
+                  document.cookie.match(/(?:^|; )sa_accessToken=([^;]+)/) ||
+                  document.cookie.match(/(?:^|; )accessToken=([^;]+)/);
                 const newToken = m ? decodeURIComponent(m[1]) : null;
 
                 if (newToken) {
@@ -194,7 +191,7 @@ export class ApiClient {
               } catch (refreshErr) {
                 console.error('[ApiClient] Error during transparent refresh:', refreshErr);
               }
-              
+
               // If we reached here, refresh failed or skip retry
               console.warn('[ApiClient] Refresh failed or skipped, redirecting to session-expired');
               try { sessionStorage.setItem('sessionExpired', '1'); } catch { }
@@ -302,20 +299,22 @@ export class ApiClient {
       }
     );
   }
-
   async request<T>(endpoint: string, config: AxiosRequestConfig = {}): Promise<T> {
     // For GET requests, check cache first
     if (!config.method || config.method.toLowerCase() === 'get') {
-      // USE BOTH tenantId AND current domain to ensure isolation
-      const domainKey = typeof window !== 'undefined' ? window.location.hostname : 'no-host';
+      // ONLY use cache if we have a definitive tenantId or domain
       const tenantKey = this.tenantId || 'no-tenant';
-      const cacheKey = `${endpoint}-${domainKey}-${tenantKey}`;
-      
+      // Include responseType in cache key to prevent collisions between JSON and Blob
+      const responseType = config.responseType || 'json';
+      const cacheKey = `${endpoint}-${tenantKey}-${responseType}`;
+
       const cachedItem = globalCache.get(cacheKey);
       if (cachedItem && (Date.now() - cachedItem.timestamp < CACHE_TTL)) {
+        console.log(`[ApiClient Cache] Hit for: ${cacheKey}`);
         return cachedItem.data as T;
       }
     }
+    console.log(`[ApiClient Request] Calling ${endpoint}`);
 
     try {
       const response = await this.axiosInstance.request<T>({
@@ -325,11 +324,17 @@ export class ApiClient {
 
       // Cache GET requests
       if (!config.method || config.method.toLowerCase() === 'get') {
-        const cacheKey = `${endpoint}-${this.tenantId || 'no-tenant'}`;
-        globalCache.set(cacheKey, {
-          data: response.data,
-          timestamp: Date.now()
-        });
+        const tenantKey = this.tenantId || 'no-tenant';
+        const responseType = config.responseType || 'json';
+        const cacheKey = `${endpoint}-${tenantKey}-${responseType}`;
+        // Only cache the response if it's NOT a blob to avoid large memory usage 
+        // and because file exports should always be fresh
+        if (responseType !== 'blob') {
+          globalCache.set(cacheKey, {
+            data: response.data,
+            timestamp: Date.now()
+          });
+        }
       }
 
       return response.data;
@@ -339,7 +344,7 @@ export class ApiClient {
       if (isGet && appErr instanceof AppError && appErr.type === ErrorType.NETWORK) {
         const attempt = (config as { __attempt?: number }).__attempt ?? 0;
         const maxRetries = 3;
-        const base = 500; // Increased from 250
+        const base = 500;
         const backoffMs = Math.min(base * Math.pow(2, attempt), 3000); // Max 3s
         const jitterMs = Math.round(backoffMs * (0.5 + Math.random() * 1.0)); // Wider jitter
         console.warn(`[ApiClient] Network/timeout for ${endpoint}. Retrying in ${jitterMs}ms (attempt ${attempt + 1}/${maxRetries})`);

@@ -30,7 +30,7 @@ class AcademicDashboardService:
         self.tenant_id = ensure_uuid(tenant_id)
         self.current_user = current_user
 
-    async def get_stats(self) -> AcademicDashboardStats:
+    def get_stats(self) -> AcademicDashboardStats:
         """Fetch all dashboard stats based on the current user's role."""
         # 1. Base counts (existing logic)
         from sqlalchemy import text
@@ -79,13 +79,35 @@ class AcademicDashboardService:
                 from src.db.models.people.student import Student
                 student = self.db.query(Student).filter(Student.id == self.current_user.id).first()
                 if student:
-                    stats_dict["student_stats"] = await self._get_student_dashboard_stats()
+                    stats_dict["student_stats"] = self._get_student_dashboard_stats()
             elif role == "teacher":
-                stats_dict["teacher_stats"] = await self._get_teacher_dashboard_stats(self.current_user.id)
+                stats_dict["teacher_stats"] = self._get_teacher_dashboard_stats(self.current_user.id)
+
+        # 5. Assignment/Enrollment Completion (Added for completion)
+        # Simplified placeholder calculations (can be refined with more specific business logic)
+        assignment_ratio = 0
+        if stats_dict["total_subjects"] > 0:
+            # Count subjects that have at least one teacher assigned
+            assigned_subjects = self.db.query(func.count(func.distinct(ClassSubject.subject_id))).filter(
+                ClassSubject.tenant_id == self.tenant_id,
+                ClassSubject.teacher_id != None
+            ).scalar() or 0
+            assignment_ratio = int((assigned_subjects / stats_dict["total_subjects"]) * 100)
+        stats_dict["assignment_completion"] = assignment_ratio
+
+        enrollment_ratio = 0
+        if stats_dict["total_students"] > 0:
+            # Count students with at least one active class enrollment
+            enrolled_students = self.db.query(func.count(func.distinct(Enrollment.student_id))).filter(
+                Enrollment.tenant_id == self.tenant_id,
+                Enrollment.status == 'active'
+            ).scalar() or 0
+            enrollment_ratio = int((enrolled_students / stats_dict["total_students"]) * 100)
+        stats_dict["enrollment_completion"] = min(enrollment_ratio, 100)
 
         return AcademicDashboardStats(**stats_dict)
 
-    async def _get_student_dashboard_stats(self) -> Dict[str, Any]:
+    def _get_student_dashboard_stats(self) -> Dict[str, Any]:
         print(f"DEBUG: Calculating stats for Student/User ID: {self.current_user.id} in Tenant: {self.tenant_id}")
         student = self.db.query(Student).filter(Student.id == self.current_user.id).first()
         if not student:
@@ -227,7 +249,7 @@ class AcademicDashboardService:
             "attendance_percentage": round(att_rate, 1)
         }
 
-    async def _get_teacher_dashboard_stats(self, teacher_id: uuid.UUID) -> Dict[str, Any]:
+    def _get_teacher_dashboard_stats(self, teacher_id: uuid.UUID) -> Dict[str, Any]:
         """Calculate dynamic stats for the teacher dashboard."""
         from src.db.models.academics.class_model import Class
         from src.db.models.academics.class_subject import ClassSubject

@@ -35,7 +35,7 @@ async def get_dashboard_stats(
             return cached_stats
     
     service = AcademicDashboardService(db, tenant_id, current_user=current_user)
-    stats = await service.get_stats()
+    stats = await run_in_threadpool(service.get_stats)
     
     if not is_personalized:
         # Cache general stats for 30 seconds

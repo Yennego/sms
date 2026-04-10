@@ -42,7 +42,18 @@ export default function AdminRoleAssignmentPage() {
 
   // Filter out students and super-admin role for non-super-admins
   const users = useMemo(() => {
-    return allUsers.filter((usr) => !isStudentUser(usr));
+    return allUsers.filter((usr) => {
+      // Filter out students
+      if (isStudentUser(usr)) return false;
+      
+      // Filter out super-admins/superadmin for total isolation
+      const roles = Array.isArray(usr.roles) ? usr.roles.map((r: any) => r.name?.toLowerCase()) : [];
+      if (roles.includes('super-admin') || roles.includes('superadmin') || usr.role === 'super-admin') {
+        return false;
+      }
+      
+      return true;
+    });
   }, [allUsers]);
 
   const roles = useMemo(() => {

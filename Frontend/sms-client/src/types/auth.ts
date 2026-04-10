@@ -3,6 +3,8 @@ export interface User {
   email: string;
   firstName: string;
   lastName: string;
+  first_name?: string;
+  last_name?: string;
   role: string;
   roles?: { name: string }[];
   permissions: string[];

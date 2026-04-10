@@ -119,15 +119,27 @@ export default function BulkImportDialog({ isOpen, onClose, onSuccess }: BulkImp
                 employee_id: row.employee_id?.trim(),
                 department: row.department?.trim(),
                 qualification: row.qualification?.trim(),
-                // For CSV parsing section:
                 joining_date: row.joining_date ? (() => {
                   const dateStr = row.joining_date.trim();
-                  // Handle DD/MM/YYYY format
-                  if (dateStr.includes('/')) {
-                    const [day, month, year] = dateStr.split('/');
-                    return new Date(parseInt(year), parseInt(month) - 1, parseInt(day)).toISOString().split('T')[0];
+                  if (!dateStr) return undefined;
+
+                  // Handle DD/MM/YYYY or DD-MM-YYYY
+                  const slashMatch = dateStr.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+                  if (slashMatch) {
+                    const [_, d, m, y] = slashMatch;
+                    const year = y.length === 2 ? 2000 + parseInt(y) : parseInt(y);
+                    const dObj = new Date(year, parseInt(m) - 1, parseInt(d));
+                    if (!isNaN(dObj.getTime())) {
+                      return dObj.toISOString().split('T')[0];
+                    }
                   }
-                  return new Date(dateStr).toISOString().split('T')[0];
+                  
+                  // Fallback to JS Date
+                  const dObj = new Date(dateStr);
+                  if (!isNaN(dObj.getTime())) {
+                    return dObj.toISOString().split('T')[0];
+                  }
+                  return dateStr; // Return as is to let backend handle/fail if invalid
                 })() : undefined,
                 is_class_teacher: row.is_class_teacher === 'true',
                 address: row.address?.trim(),
@@ -140,8 +152,8 @@ export default function BulkImportDialog({ isOpen, onClose, onSuccess }: BulkImp
                 password: '', // Backend will auto-generate if empty
               }));
               resolve(teachers);
-            } catch {
-              reject(new Error('Failed to parse CSV file'));
+            } catch (err) {
+              reject(new Error(`Failed to parse CSV file: ${err instanceof Error ? err.message : 'Unknown error'}`));
             }
           },
           error: (error) => reject(new Error(`CSV parsing error: ${error.message}`))
@@ -151,7 +163,13 @@ export default function BulkImportDialog({ isOpen, onClose, onSuccess }: BulkImp
         reader.onload = (e) => {
           try {
             const data = new Uint8Array(e.target?.result as ArrayBuffer);
-            const workbook = XLSX.read(data, { type: 'array' });
+            // cellDates: true ensures we get JS Date objects for date-formatted cells
+            const workbook = XLSX.read(data, { 
+              type: 'array',
+              cellDates: true,
+              cellNF: false,
+              cellText: false
+            });
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
             const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
@@ -164,15 +182,36 @@ export default function BulkImportDialog({ isOpen, onClose, onSuccess }: BulkImp
               employee_id: String(row.employee_id ?? '').trim(),
               department: String(row.department ?? '').trim(),
               qualification: String(row.qualification ?? '').trim(),
-              // For Excel parsing section:
               joining_date: row.joining_date ? (() => {
-                const dateStr = String(row.joining_date).trim();
-                // Handle DD/MM/YYYY format
-                if (dateStr.includes('/')) {
-                  const [day, month, year] = dateStr.split('/');
-                  return new Date(parseInt(year), parseInt(month) - 1, parseInt(day)).toISOString().split('T')[0];
+                // Handle Date object (from XLSX cellDates: true)
+                if (row.joining_date instanceof Date) {
+                  if (!isNaN(row.joining_date.getTime())) {
+                    return row.joining_date.toISOString().split('T')[0];
+                  }
                 }
-                return new Date(dateStr).toISOString().split('T')[0];
+
+                // Handle string parsing
+                const dateStr = String(row.joining_date).trim();
+                if (!dateStr) return undefined;
+
+                // Handle DD/MM/YYYY or DD-MM-YYYY
+                const slashMatch = dateStr.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+                if (slashMatch) {
+                  const [_, d, m, y] = slashMatch;
+                  const year = y.length === 2 ? 2000 + parseInt(y) : parseInt(y);
+                  const dObj = new Date(year, parseInt(m) - 1, parseInt(d));
+                  if (!isNaN(dObj.getTime())) {
+                    return dObj.toISOString().split('T')[0];
+                  }
+                }
+                
+                // Fallback to JS Date
+                const dObj = new Date(dateStr);
+                if (!isNaN(dObj.getTime())) {
+                  return dObj.toISOString().split('T')[0];
+                }
+                
+                return dateStr; // Send as is to backend for lenient validation
               })() : undefined,
               is_class_teacher: String(row.is_class_teacher ?? '').toLowerCase() === 'true',
               address: String(row.address ?? '').trim(),
@@ -186,8 +225,8 @@ export default function BulkImportDialog({ isOpen, onClose, onSuccess }: BulkImp
               tenant_id: tenantId, // Add tenant_id from context
             }));
             resolve(teachers);
-          } catch {
-            reject(new Error('Failed to parse Excel file'));
+          } catch (err) {
+            reject(new Error(`Failed to parse Excel file: ${err instanceof Error ? err.message : 'Unknown error'}`));
           }
         };
         reader.readAsArrayBuffer(file);

@@ -15,22 +15,26 @@ class CRUDStudentFee(TenantCRUDBase[StudentFee, StudentFeeCreate, StudentFeeUpda
     def get_multi(
         self, db: Session, *, tenant_id: UUID, skip: int = 0, limit: int = 100
     ) -> List[StudentFee]:
+        from sqlalchemy.orm import joinedload
+        
         query = db.query(self.model).filter(self.model.tenant_id == tenant_id)
+        
+        # Use joinedload to fetch relationships in the same query
+        query = query.options(
+            joinedload(StudentFee.student),
+            joinedload(StudentFee.fee_structure).joinedload(FeeStructure.category)
+        )
+        
         results = query.offset(skip).limit(limit).all()
         
         for res in results:
-            # Populate student name
-            if res.student_id:
-                student = db.query(Student).filter(Student.id == res.student_id).first()
-                if student:
-                    res.student_name = f"{student.first_name} {student.last_name}"
-                    
-            # Populate category name via structure
-            if res.fee_structure_id:
-                structure = db.query(FeeStructure).filter(FeeStructure.id == res.fee_structure_id).first()
-                if structure:
-                    category = db.query(FeeCategory).filter(FeeCategory.id == structure.category_id).first()
-                    res.category_name = category.name if category else None
+            # Populate student name if relationship exists
+            if res.student:
+                res.student_name = f"{res.student.first_name} {res.student.last_name}"
+            
+            # Populate category name via structure relationship
+            if res.fee_structure and res.fee_structure.category:
+                res.category_name = res.fee_structure.category.name
                     
         return results
 

@@ -11,6 +11,9 @@ from src.core.logging import setup_logging
 from src.core.middleware.audit_middleware import AuditLoggingMiddleware
 from src.core.middleware.tenant import tenant_middleware  
 from src.core.middleware.idle_activity import IdleActivityMiddleware
+from datetime import datetime
+import traceback
+from fastapi.responses import JSONResponse
 
 # Initialize Logfire
 try:
@@ -52,28 +55,20 @@ app = FastAPI(
 # logfire.instrument_fastapi(app, capture_headers=True)
 
 @app.exception_handler(Exception)
-async def debug_exception_handler(request, exc):
-    from fastapi.responses import JSONResponse
-    import traceback
-    
-    actual_exc = exc
-    type_name = type(exc).__name__
-    
-    if type_name == "ExceptionGroup" or type_name == "BaseExceptionGroup":
-        if hasattr(exc, "exceptions") and exc.exceptions:
-            actual_exc = exc.exceptions[0]
-            type_name = type(actual_exc).__name__
-
-    print(f"ERROR: {type_name}: {repr(actual_exc)}")
-    # Log the full traceback for debugging
-    traceback.print_exc()
+async def debug_exception_handler(request: Request, exc: Exception):
+    # Log to a file as well for retrieval
+    import os
+    os.makedirs("tmp", exist_ok=True)
+    with open("tmp/backend_errors.log", "a") as f:
+        f.write(f"\n\n--- ERROR: {type(exc).__name__} at {datetime.now()} ---\n")
+        f.write(traceback.format_exc())
     
     return JSONResponse(
         status_code=500,
         content={
-            "detail": str(actual_exc), 
-            "type": type_name,
-            "message": "An unexpected server error occurred."
+            "detail": str(exc), 
+            "type": type(exc).__name__,
+            "message": "An unexpected server error occurred. Check backend logs."
         }
     )
 

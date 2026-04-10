@@ -17,45 +17,49 @@ import {
     TenantSettings,
     TenantSettingsUpdate
 } from '@/services/api/super-admin-service';
+import { useTenant } from '@/hooks/use-tenant';
 
 export const superAdminKeys = {
-    all: ['super-admin'] as const,
-    stats: () => [...superAdminKeys.all, 'stats'] as const,
-    tenantStats: () => [...superAdminKeys.stats(), 'tenants'] as const,
-    userStats: () => [...superAdminKeys.stats(), 'users'] as const,
-    systemMetrics: () => [...superAdminKeys.all, 'system-metrics'] as const,
-    tenants: (params?: any) => [...superAdminKeys.all, 'tenants', params].filter(Boolean) as string[],
-    recentTenants: (limit: number) => [...superAdminKeys.all, 'recent-tenants', limit] as string[],
-    users: (params?: any) => [...superAdminKeys.all, 'users', params].filter(Boolean) as string[],
-    roles: () => [...superAdminKeys.all, 'roles'] as string[],
-    roleStats: () => [...superAdminKeys.all, 'role-stats'] as string[],
-    revenueByTenant: () => [...superAdminKeys.all, 'revenue-by-tenant'] as string[],
-    auditLogs: (params?: any) => [...superAdminKeys.all, 'audit-logs', params].filter(Boolean) as string[],
-    settings: (tenantId: string) => [...superAdminKeys.all, 'tenant-settings', tenantId] as const,
+    all: (tenantKey: string | null) => ['super-admin', tenantKey] as const,
+    stats: (tenantKey: string | null) => [...superAdminKeys.all(tenantKey), 'stats'] as const,
+    tenantStats: (tenantKey: string | null) => [...superAdminKeys.stats(tenantKey), 'tenants'] as const,
+    userStats: (tenantKey: string | null) => [...superAdminKeys.stats(tenantKey), 'users'] as const,
+    systemMetrics: (tenantKey: string | null) => [...superAdminKeys.all(tenantKey), 'system-metrics'] as const,
+    tenants: (tenantKey: string | null, params?: any) => [...superAdminKeys.all(tenantKey), 'tenants', params].filter(Boolean) as string[],
+    recentTenants: (tenantKey: string | null, limit: number) => [...superAdminKeys.all(tenantKey), 'recent-tenants', limit] as string[],
+    users: (tenantKey: string | null, params?: any) => [...superAdminKeys.all(tenantKey), 'users', params].filter(Boolean) as string[],
+    roles: (tenantKey: string | null) => [...superAdminKeys.all(tenantKey), 'roles'] as string[],
+    roleStats: (tenantKey: string | null) => [...superAdminKeys.all(tenantKey), 'role-stats'] as string[],
+    revenueByTenant: (tenantKey: string | null) => [...superAdminKeys.all(tenantKey), 'revenue-by-tenant'] as string[],
+    auditLogs: (tenantKey: string | null, params?: any) => [...superAdminKeys.all(tenantKey), 'audit-logs', params].filter(Boolean) as string[],
+    settings: (tenantKey: string | null, tenantId: string) => [...superAdminKeys.all(tenantKey), 'tenant-settings', tenantId] as const,
 };
 
 // --- Queries ---
 
 export function useSuperAdminTenantStats() {
     const service = useSuperAdminService();
+    const { tenantKey } = useTenant();
     return useQuery({
-        queryKey: superAdminKeys.tenantStats(),
+        queryKey: superAdminKeys.tenantStats(tenantKey),
         queryFn: () => service.getTenantStats(),
     });
 }
 
 export function useSuperAdminUserStats() {
     const service = useSuperAdminService();
+    const { tenantKey } = useTenant();
     return useQuery({
-        queryKey: superAdminKeys.userStats(),
+        queryKey: superAdminKeys.userStats(tenantKey),
         queryFn: () => service.getUserStats(),
     });
 }
 
 export function useSuperAdminSystemMetrics(options?: { refetchInterval?: number }) {
     const service = useSuperAdminService();
+    const { tenantKey } = useTenant();
     return useQuery({
-        queryKey: superAdminKeys.systemMetrics(),
+        queryKey: superAdminKeys.systemMetrics(tenantKey),
         queryFn: () => service.getSystemMetrics(),
         refetchInterval: options?.refetchInterval ?? 30000, // Default 30s
     });
@@ -63,16 +67,18 @@ export function useSuperAdminSystemMetrics(options?: { refetchInterval?: number 
 
 export function useSuperAdminRecentTenants(limit: number = 5) {
     const service = useSuperAdminService();
+    const { tenantKey } = useTenant();
     return useQuery({
-        queryKey: superAdminKeys.recentTenants(limit),
+        queryKey: superAdminKeys.recentTenants(tenantKey, limit),
         queryFn: () => service.getRecentTenants(limit),
     });
 }
 
 export function useSuperAdminTenants(params?: { skip?: number; limit?: number }) {
     const service = useSuperAdminService();
+    const { tenantKey } = useTenant();
     return useQuery({
-        queryKey: superAdminKeys.tenants(params),
+        queryKey: superAdminKeys.tenants(tenantKey, params),
         queryFn: () => service.getTenants(params),
     });
 }
@@ -87,40 +93,45 @@ export function useSuperAdminUserList(params?: {
     sort_order?: 'asc' | 'desc';
 }) {
     const service = useSuperAdminService();
+    const { tenantKey } = useTenant();
     return useQuery({
-        queryKey: superAdminKeys.users(params),
+        queryKey: superAdminKeys.users(tenantKey, params),
         queryFn: () => service.getUserList(params),
     });
 }
 
 export function useSuperAdminRoles() {
     const service = useSuperAdminService();
+    const { tenantKey } = useTenant();
     return useQuery({
-        queryKey: superAdminKeys.roles(),
+        queryKey: superAdminKeys.roles(tenantKey),
         queryFn: () => service.getRoles(),
     });
 }
 
 export function useSuperAdminRoleStatistics() {
     const service = useSuperAdminService();
+    const { tenantKey } = useTenant();
     return useQuery({
-        queryKey: superAdminKeys.roleStats(),
+        queryKey: superAdminKeys.roleStats(tenantKey),
         queryFn: () => service.getRoleStatistics(),
     });
 }
 
 export function useSuperAdminRevenueByTenant() {
     const service = useSuperAdminService();
+    const { tenantKey } = useTenant();
     return useQuery({
-        queryKey: superAdminKeys.revenueByTenant(),
+        queryKey: superAdminKeys.revenueByTenant(tenantKey),
         queryFn: () => service.getRevenueByTenant(),
     });
 }
 
 export function useSuperAdminTenantSettings(tenantId: string) {
     const service = useSuperAdminService();
+    const { tenantKey } = useTenant();
     return useQuery({
-        queryKey: superAdminKeys.settings(tenantId),
+        queryKey: superAdminKeys.settings(tenantKey, tenantId),
         queryFn: () => service.getTenantSettings(tenantId),
         enabled: !!tenantId,
     });
@@ -138,8 +149,9 @@ export function useSuperAdminAuditLogs(params?: {
     end_date?: string;
 }) {
     const service = useSuperAdminService();
+    const { tenantKey } = useTenant();
     return useQuery({
-        queryKey: superAdminKeys.auditLogs(params),
+        queryKey: superAdminKeys.auditLogs(tenantKey, params),
         queryFn: () => service.getAuditLogs(params),
     });
 }
@@ -153,9 +165,8 @@ export function useSuperAdminCreateUser() {
     return useMutation({
         mutationFn: (userData: UserCreateCrossTenant) => service.createUserCrossTenant(userData),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: superAdminKeys.users() });
-            queryClient.invalidateQueries({ queryKey: superAdminKeys.userStats() });
-            queryClient.invalidateQueries({ queryKey: superAdminKeys.roleStats() });
+            const tenantKey = null; // We don't have it easily here without a hook, but invalidate all is safer
+            queryClient.invalidateQueries({ queryKey: ['super-admin'] }); // Global invalidate
         },
     });
 }
@@ -168,8 +179,7 @@ export function useSuperAdminUpdateUser() {
         mutationFn: ({ userId, userData, tenantId }: { userId: string; userData: UserUpdate; tenantId?: string }) =>
             service.updateUser(userId, userData, tenantId),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: superAdminKeys.users() });
-            queryClient.invalidateQueries({ queryKey: superAdminKeys.userStats() });
+            queryClient.invalidateQueries({ queryKey: ['super-admin'] });
         },
     });
 }
@@ -183,8 +193,7 @@ export function useSuperAdminActivateTenant() {
             return service.activateTenant ? service.activateTenant(tenantId) : Promise.resolve();
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: superAdminKeys.tenants() });
-            queryClient.invalidateQueries({ queryKey: superAdminKeys.tenantStats() });
+            queryClient.invalidateQueries({ queryKey: ['super-admin'] });
         },
     });
 }
@@ -198,8 +207,7 @@ export function useSuperAdminDeactivateTenant() {
             return service.deactivateTenant ? service.deactivateTenant(tenantId) : Promise.resolve();
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: superAdminKeys.tenants() });
-            queryClient.invalidateQueries({ queryKey: superAdminKeys.tenantStats() });
+            queryClient.invalidateQueries({ queryKey: ['super-admin'] });
         },
     });
 }
@@ -212,9 +220,7 @@ export function useSuperAdminUpdateSubscription() {
         mutationFn: ({ tenantId, subscriptionData }: { tenantId: string; subscriptionData: TenantSubscriptionUpdate }) =>
             service.updateTenantSubscription(tenantId, subscriptionData),
         onSuccess: (_data, variables) => {
-            queryClient.invalidateQueries({ queryKey: superAdminKeys.tenants() });
-            queryClient.invalidateQueries({ queryKey: superAdminKeys.tenantStats() });
-            queryClient.invalidateQueries({ queryKey: superAdminKeys.systemMetrics() });
+            queryClient.invalidateQueries({ queryKey: ['super-admin'] });
         },
     });
 }
@@ -227,7 +233,7 @@ export function useSuperAdminUpdateTenantSettings() {
         mutationFn: ({ tenantId, settings }: { tenantId: string; settings: TenantSettingsUpdate }) =>
             service.updateTenantSettings(tenantId, settings),
         onSuccess: (_data, variables) => {
-            queryClient.invalidateQueries({ queryKey: superAdminKeys.settings(variables.tenantId) });
+            queryClient.invalidateQueries({ queryKey: ['super-admin'] }); // Simplest to invalidate all
         },
     });
 }

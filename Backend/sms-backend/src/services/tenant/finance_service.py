@@ -22,9 +22,9 @@ class FinanceService:
         # Calculate totals from student_fees
         all_fees = student_fee.get_multi(db, tenant_id=tenant_id, limit=10000)
         
-        total_expected = sum(fee.total_amount for fee in all_fees)
-        total_collected = sum(fee.amount_paid for fee in all_fees)
-        total_pending = sum(fee.balance for fee in all_fees)
+        total_expected = sum((fee.total_amount or Decimal('0')) for fee in all_fees)
+        total_collected = sum((fee.amount_paid or Decimal('0')) for fee in all_fees)
+        total_pending = sum((fee.balance or Decimal('0')) for fee in all_fees)
         
         return {
             "total_expected": float(total_expected),
@@ -36,7 +36,7 @@ class FinanceService:
     def get_expenditure_summary(db: Session, tenant_id: UUID) -> Dict[str, Any]:
         """Get summary of total expenditures."""
         all_expenditures = expenditure.get_multi(db, tenant_id=tenant_id, limit=10000)
-        total_spent = sum(exp.amount for exp in all_expenditures)
+        total_spent = sum((exp.amount or Decimal('0')) for exp in all_expenditures)
         
         return {
             "total_spent": float(total_spent)
@@ -69,23 +69,26 @@ class FinanceService:
     @staticmethod
     def get_fees_export_data(db: Session, tenant_id: UUID) -> List[Dict[str, Any]]:
         """Get flattened data for fee export."""
-        print(f"[DEBUG] Fetching export data for tenant: {tenant_id}")
-        fees = student_fee.get_multi(db, tenant_id=tenant_id, limit=1000)
-        print(f"[DEBUG] Found {len(fees)} fee records")
+        # Use a larger limit for export data
+        fees = student_fee.get_multi(db, tenant_id=tenant_id, limit=5000)
         
         export_data = []
         for fee in fees:
+            # Safely handle potential None values
+            total_amount = float(fee.total_amount) if fee.total_amount is not None else 0.0
+            amount_paid = float(fee.amount_paid) if fee.amount_paid is not None else 0.0
+            balance = float(fee.balance) if fee.balance is not None else 0.0
+            
             export_data.append({
                 "Student": getattr(fee, "student_name", "Unknown") or "Unknown",
                 "Category": getattr(fee, "category_name", "N/A") or "N/A",
-                "Total Amount ($)": float(fee.total_amount),
-                "Paid ($)": float(fee.amount_paid),
-                "Balance ($)": float(fee.balance),
-                "Status": fee.status,
+                "Total Amount ($)": total_amount,
+                "Paid ($)": amount_paid,
+                "Balance ($)": balance,
+                "Status": fee.status or "PENDING",
                 "Created At": fee.created_at.strftime("%Y-%m-%d") if getattr(fee, "created_at", None) else "N/A"
             })
             
-        print(f"[DEBUG] Formatted {len(export_data)} records for export")
         return export_data
 
 finance_service = FinanceService()
