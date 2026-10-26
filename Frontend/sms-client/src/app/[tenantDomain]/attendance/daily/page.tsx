@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { errorMessageOf } from '@/utils/error-utils';
 import { useTenant } from '@/hooks/use-tenant';
@@ -23,14 +23,17 @@ const localToday = () => {
 
 export default function DailyAttendancePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { tenant, isLoading: tenantLoading } = useTenant();
   const { user, isLoading: authLoading } = useAuth();
   const classService = useClassService();
   const { getDayInfo, closeDay } = useDailyAttendanceService();
   const [classes, setClasses] = useState<Class[]>([]);
-  const [selectedClassId, setSelectedClassId] = useState<string>('');
+  // ?classId=&date= let the overview link straight to a class's roster
+  const [selectedClassId, setSelectedClassId] = useState<string>(searchParams.get('classId') || '');
   const [isLoadingClasses, setIsLoadingClasses] = useState(false);
-  const [date, setDate] = useState<string>(localToday());
+  const dateFromUrl = searchParams.get('date');
+  const [date, setDate] = useState<string>(dateFromUrl || localToday());
   const [closing, setClosing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -62,8 +65,9 @@ export default function DailyAttendancePage() {
   useEffect(() => { loadClasses(); }, [loadClasses]);
 
   useEffect(() => {
+    if (dateFromUrl) return;
     getDayInfo().then(info => setDate(info.today)).catch(() => { /* keep browser date */ });
-  }, [getDayInfo]);
+  }, [getDayInfo, dateFromUrl]);
 
   const onCloseDay = async () => {
     if (!window.confirm(`Mark every student without attendance on ${date} as absent, across all classes?`)) return;

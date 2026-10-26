@@ -168,6 +168,8 @@ class DailyAttendanceSummary(BaseModel):
 
 class StudentDailyHistory(BaseModel):
     student_id: UUID
+    student_name: Optional[str] = None
+    admission_number: Optional[str] = None
     start_date: DateType
     end_date: DateType
     summary: DailyAttendanceSummary
@@ -250,3 +252,53 @@ class ChildSummary(BaseModel):
     name: str
     admission_number: Optional[str] = None
     class_name: Optional[str] = None
+
+
+# --- Reporting -------------------------------------------------------------------------
+
+class AttendanceCounts(BaseModel):
+    enrolled: int = 0
+    present: int = 0      # includes tardy
+    late: int = 0
+    absent: int = 0
+    excused: int = 0
+    sick: int = 0
+    unmarked: int = 0
+    scanned: int = 0      # checked in by QR card
+    attendance_rate: Optional[float] = None  # None when nothing countable yet
+
+
+class ClassOverview(AttendanceCounts):
+    class_id: UUID
+    class_name: Optional[str] = None
+    sponsor_name: Optional[str] = None
+
+
+class DailyOverview(BaseModel):
+    day: SchoolDayInfo
+    totals: AttendanceCounts
+    classes: List[ClassOverview]
+    pending_excuses: int
+
+
+class StudentReportRow(BaseModel):
+    student_id: UUID
+    student_name: str
+    admission_number: Optional[str] = None
+    present: int
+    late: int
+    absent: int
+    excused: int
+    sick: int
+    unmarked: int
+    attendance_rate: Optional[float] = None
+
+
+class ClassAttendanceReport(BaseModel):
+    class_id: UUID
+    class_name: Optional[str] = None
+    start_date: DateType
+    end_date: DateType
+    school_days: int
+    rows: List[StudentReportRow]
+    totals: AttendanceCounts

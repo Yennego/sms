@@ -2,7 +2,7 @@ from typing import Any, Dict
 import uuid
 from uuid import UUID
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, case
+from sqlalchemy import func, or_
 from datetime import date
 
 from src.db.models.academics.academic_year import AcademicYear
@@ -17,7 +17,6 @@ from src.db.models.academics.class_subject import ClassSubject
 from src.db.models.academics.assignment import Assignment
 from src.db.models.academics.submission import Submission
 from src.db.models.academics.assessment import Assessment
-from src.db.models.academics.attendance import Attendance
 from src.db.models.academics.grade import Grade
 from src.db.models.people.student import Student
 from src.db.models.people.teacher import Teacher
@@ -228,19 +227,19 @@ class AcademicDashboardService:
 
             pending_tasks += len([e for e in all_exams if e.id not in exam_ids_with_grades])
 
-        # 4. Attendance Rate
-        from src.db.models.academics.attendance import AttendanceStatus
-        attendance_stats = self.db.query(
-            func.count(Attendance.id),
-            func.sum(case((Attendance.status == AttendanceStatus.PRESENT, 1), else_=0))
-        ).filter(
-            Attendance.student_id == student_id,
-            Attendance.tenant_id == self.tenant_id
-        ).first()
-        
-        att_total = attendance_stats[0] or 0
-        att_present = attendance_stats[1] or 0
-        att_rate = (att_present / att_total * 100) if att_total > 0 else 0.0
+        # 4. Attendance Rate: school-day records this academic year, same formula as everywhere else
+        from src.db.models.academics.attendance import calculate_attendance_rate
+        from src.db.models.academics.daily_attendance import DailyAttendance
+        from src.services.academics.attendance_access import academic_year_for
+
+        ay = academic_year_for(self.db, self.tenant_id, date.today())
+        status_query = self.db.query(DailyAttendance.status, func.count(DailyAttendance.id)).filter(
+            DailyAttendance.student_id == student_id,
+            DailyAttendance.tenant_id == self.tenant_id
+        )
+        if ay:
+            status_query = status_query.filter(DailyAttendance.academic_year_id == ay.id)
+        att_rate = calculate_attendance_rate(dict(status_query.group_by(DailyAttendance.status).all()))
 
         return {
             "gpa": gpa,

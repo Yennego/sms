@@ -851,7 +851,7 @@ class TenantBaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
 
 ## 6. Attendance Module (`academics/attendance`)
 
-**Status: Phase 1 (fixes) done 2026-10-24, see 6.2.1. Phase 2 (daily attendance) and Phase 3 (QR cards and scanning) done 2026-10-26, see 6.3.6 and 6.4.6. Phase 4 partly done, see 6.5.1.**
+**Status: all four phases done. Phase 1 (fixes) 2026-10-24, see 6.2.1. Phases 2 and 3 (daily attendance, QR cards) 2026-10-26, see 6.3.6 and 6.4.6. Phase 4 (reporting and integration) 2026-10-27, see 6.5.1 and 6.5.2.**
 
 Goal: a student is marked present for a school day by scanning the QR code on their ID card. The manual flow stays: the class sponsor or an admin can mark or correct any student, and record an excuse.
 
@@ -1253,11 +1253,54 @@ New endpoints (all under `/academics/attendance/daily`):
 
 Tests: `tests/test_attendance_excuses.py` (14). The whole attendance suite is 71 tests.
 
-**Still to do in Phase 4:** admin dashboard tiles, switching the sponsor dashboard and the attendance grade sync to `daily_attendances`, the data migration from `attendances`, and parent notifications. The admin pages `attendance/reports` and `attendance/students` still read period attendance (see the TypeScript errors listed in 6.2.1).
+The rest of Phase 4 is in 6.5.2.
 
 **Housekeeping found along the way:**
 - `poetry.lock` was regenerated (`segno`, `tzdata`). It also picked up `pywhatkit` and its dependencies, which `pyproject.toml` already declared but the old lock had never included.
 - `pywhatkit` is imported by `src/services/notification/whatsapp_service.py` but is **not** in `requirements.txt`, which is what Render installs.
+
+
+#### 6.5.2 Phase 4: What Was Done (2026-10-27)
+
+**Everything that computes attendance now reads `daily_attendances`:**
+
+| Consumer | Change |
+|---|---|
+| `AttendanceService.get_student_attendance_percentage` | Daily records + the shared formula (excused/sick left out). This one method feeds **grade calculation, report cards, promotion decisions and the ATTENDANCE assessment sync**, so all of them switched together. |
+| Report card `period_attendance` (`grade_calculation.py`) | Counts school days per grading period. Before, it counted period rows, so a day with several periods was counted several times. |
+| Student dashboard `attendance_percentage` (`dashboard_service.py`) | Was a fourth formula (only `present` counted as attended, so late counted as absent, and it spanned all years). Now daily records for the current academic year, shared formula. |
+| Student/teacher deletion guards (`people.py`) | Also block deletion when school-day attendance or audit events reference the person (`has_daily_attendance_history`). |
+
+The period table (`attendances`) is still written by "Period Attendance", but nothing calculates from it any more.
+
+**Data migration** `a7d2e5c9f413` copies `attendances` into `daily_attendances`:
+- One record per student per date, keeping the best status (present > late > tardy > excused > sick > absent).
+- Each copied record has `source=manual` and an audit event "Imported from period attendance".
+- Days that already have a daily record are skipped, so running it twice adds nothing.
+- Downgrading removes only imported records nobody has changed since.
+
+**Reporting (new):**
+
+| Endpoint | Roles | Purpose |
+|---|---|---|
+| `GET /academics/attendance/daily/overview?date=` | admin | Whole school for a day: totals (enrolled, present, late, absent, excused, sick, not marked, scanned by card, rate), one row per class with its sponsor, and the number of pending excuses. After the cut-off it fills in absences first, like the roster. |
+| `GET /academics/attendance/daily/report?class_id=&start_date=&end_date=` | admin, class sponsor | Per-student totals for a class (default: academic year to date, at most one year). `unmarked` = school days without a record. |
+
+`GET /attendance/daily/student/{id}` now also returns `student_name` and `admission_number`.
+
+**Frontend:**
+- **`/attendance`** is now the admin **Today's Overview**: date picker, tiles, pending-excuse alert, and a per-class table. Clicking a class opens its roster on `/attendance/daily?classId=&date=`. Other roles are redirected to their own page (teacher → `/teacher/attendance`, student → `/student/attendance`, parent → `/parent/attendance`, scanner → `/attendance/scan`).
+- **`/attendance/reports`** is the class report: admins pick any class, sponsors their own. It has an optional date range, per-student rows linking to `/attendance/students/{id}` (school-day history), and CSV export.
+- **Teacher dashboard:** a "My class today" card for sponsors. The "Attendance" quick action now opens the attendance page (it used to open `./classes`).
+- **Parent page:** a red banner lists absences from the last 14 days with no excuse; each date has a "Report a reason" button that fills in the form. This is how parents are notified of absences.
+  - **Why not in-app or push notifications:** the `notifications` table has no tenant column, and the frontend has no notification UI, so a stored notification would never be seen.
+  - Email or WhatsApp alerts can be added later in `fill_unmarked_absences`.
+- **Removed** (superseded, and all reading the old API): `AttendanceCalendar`, `StudentAttendanceHistory`, `AttendanceSummaryCard`, `hooks/queries/attendance.ts`, `enhanced-attendance-service.ts` and `types/enhanced-attendance.ts`. The `attendance/students`, `attendance/calendar` and `attendance/history` pages are now redirects.
+- Removing these cleared every attendance-related TypeScript error (the frontend total went from 54 to 40).
+
+**Tests:** `tests/test_attendance_reports.py` (6). The attendance suite is 77 tests.
+
+**Scheduled auto-absent on Railway:** use the same command, `python -m scripts.close_attendance_days`, as a Railway cron service. Give it the same `DATABASE_URL`, and a schedule such as `*/30 * * * *`. It is idempotent and works out each school's timezone itself. The Render snippet in 6.4.6 is only needed if you stay on Render.
 
 ---
 

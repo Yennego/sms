@@ -146,8 +146,18 @@ def test_attendance_assessment_creates_grades(school, db, monkeypatch):
     from src.db.models.academics.subject import Subject
     from src.db.models.academics.grade import Grade, GradeType
 
+    from datetime import UTC, datetime
+    from src.schemas.academics.daily_attendance import DailyBulkSet
+    from src.services.academics.daily_attendance_service import DailyAttendanceService
+
     s0, s1 = school["students"][:2]
-    run(school["service"].bulk_mark_attendance(_bulk(school, [(s0, "present"), (s1, "absent")])))
+    # Grades follow school-day attendance (Phase 4); period marks no longer count
+    run(school["service"].bulk_mark_attendance(_bulk(school, [(s0, "absent"), (s1, "present")])))
+    daily = DailyAttendanceService(tenant=school["tenant_id"], db=db)
+    daily.now_utc = lambda: datetime(TODAY.year, TODAY.month, TODAY.day, 9, tzinfo=UTC)
+    daily.bulk_set(DailyBulkSet(class_id=school["cls"].id, date=TODAY, entries=[
+        {"student_id": s0.id, "status": "present"}, {"student_id": s1.id, "status": "absent"},
+    ]), school["sponsor"])
 
     subject = Subject(tenant_id=school["tenant_id"], name="Math", code="MTH")
     db.add(subject)

@@ -19,10 +19,11 @@ const EXCUSE_LABELS: Record<ExcuseStatus, { label: string; style: string }> = {
 interface DailyAttendanceHistoryProps {
   studentId: string;
   refreshKey?: number; // bump to reload (e.g. after reporting an absence)
+  showStudentName?: boolean; // for staff viewing someone else's attendance
 }
 
 /** A student's school-day attendance: summary for the period and every recorded day. */
-export function DailyAttendanceHistory({ studentId, refreshKey = 0 }: DailyAttendanceHistoryProps) {
+export function DailyAttendanceHistory({ studentId, refreshKey = 0, showStudentName = false }: DailyAttendanceHistoryProps) {
   const { getStudentHistory, getExcuseDocument } = useDailyAttendanceService();
   const [history, setHistory] = useState<StudentDailyHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +75,12 @@ export function DailyAttendanceHistory({ studentId, refreshKey = 0 }: DailyAtten
 
   return (
     <div className="space-y-6">
+      {showStudentName && history.student_name && (
+        <h2 className="text-2xl font-bold text-slate-900">
+          {history.student_name}
+          {history.admission_number && <span className="ml-2 text-base font-medium text-slate-500">No. {history.admission_number}</span>}
+        </h2>
+      )}
       <p className="text-sm text-slate-500">
         {new Date(`${history.start_date}T00:00:00`).toLocaleDateString()} – {new Date(`${history.end_date}T00:00:00`).toLocaleDateString()}
       </p>

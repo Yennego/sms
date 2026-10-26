@@ -112,3 +112,32 @@ def academic_year_for(db: Session, tenant_id: UUID, on_date: date) -> Optional[A
         AcademicYear.start_date <= on_date,
         AcademicYear.end_date >= on_date
     ).order_by(AcademicYear.is_current.desc()).first()
+
+
+def has_daily_attendance_history(
+    db: Session, tenant_id: UUID, *, student_id: Optional[UUID] = None, user_id: Optional[UUID] = None
+) -> bool:
+    """Whether school-day attendance references a student, or a user as marker/reviewer/actor.
+
+    Used to block deleting people whose attendance history must be preserved
+    (the rows also hold foreign keys to them).
+    """
+    from sqlalchemy import or_
+    from src.db.models.academics.daily_attendance import AttendanceEvent, DailyAttendance
+
+    if student_id is not None:
+        if db.query(DailyAttendance.id).filter(
+            DailyAttendance.tenant_id == tenant_id, DailyAttendance.student_id == student_id
+        ).first() or db.query(AttendanceEvent.id).filter(
+            AttendanceEvent.tenant_id == tenant_id, AttendanceEvent.student_id == student_id
+        ).first():
+            return True
+    if user_id is not None:
+        if db.query(DailyAttendance.id).filter(
+            DailyAttendance.tenant_id == tenant_id,
+            or_(DailyAttendance.marked_by == user_id, DailyAttendance.excuse_reviewed_by == user_id)
+        ).first() or db.query(AttendanceEvent.id).filter(
+            AttendanceEvent.tenant_id == tenant_id, AttendanceEvent.actor_id == user_id
+        ).first():
+            return True
+    return False

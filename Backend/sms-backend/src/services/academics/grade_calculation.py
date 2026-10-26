@@ -485,9 +485,9 @@ class GradeCalculationService(TenantBaseService[Grade, GradeCreate, GradeUpdate]
             data["semester_grades"] = semester_averages
             data["assessment_grades"] = []
 
-        # Period-based Attendance Summary
+        # Attendance per grading period, one record per school day
         period_attendance = {p: {"absent": 0, "late": 0, "total": 0} for p in period_names}
-        att_records = await att_service.get_student_attendance_range(
+        att_records = await att_service.get_student_daily_range(
             student_id=student_id,
             start_date=ay.start_date if ay else None,
             end_date=ay.end_date if ay else None

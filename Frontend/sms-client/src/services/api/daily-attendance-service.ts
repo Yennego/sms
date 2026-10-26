@@ -4,6 +4,8 @@ import {
   AttendanceEvent,
   AttendanceSettings,
   ChildSummary,
+  ClassAttendanceReport,
+  DailyOverview,
   DailyAttendanceRecord,
   DailyBulkInput,
   DailyRoster,
@@ -68,6 +70,19 @@ export function useDailyAttendanceService() {
     listExcuses: async (status: ExcuseStatus = 'pending'): Promise<ExcuseListItem[]> => {
       const client = await waitForApiClientReady();
       return client.get<ExcuseListItem[]>(`${BASE}/daily/excuses${qs({ status })}`);
+    },
+
+    // Reports
+    getOverview: async (date?: string): Promise<DailyOverview> => {
+      const client = await waitForApiClientReady();
+      return client.get<DailyOverview>(`${BASE}/daily/overview${qs({ date })}`);
+    },
+
+    getClassReport: async (classId: string, startDate?: string, endDate?: string): Promise<ClassAttendanceReport> => {
+      const client = await waitForApiClientReady();
+      return client.get<ClassAttendanceReport>(
+        `${BASE}/daily/report${qs({ class_id: classId, start_date: startDate, end_date: endDate })}`
+      );
     },
 
     // Parents

@@ -87,6 +87,8 @@ export interface DailyAttendanceSummary {
 
 export interface StudentDailyHistory {
   student_id: string;
+  student_name?: string | null;
+  admission_number?: string | null;
   start_date: string;
   end_date: string;
   summary: DailyAttendanceSummary;
@@ -178,4 +180,54 @@ export interface ChildSummary {
   name: string;
   admission_number?: string | null;
   class_name?: string | null;
+}
+
+// Reporting
+
+export interface AttendanceCounts {
+  enrolled: number;     // class report totals: student-days
+  present: number;      // includes tardy
+  late: number;
+  absent: number;
+  excused: number;
+  sick: number;
+  unmarked: number;
+  scanned: number;      // checked in by QR card
+  attendance_rate: number | null;
+}
+
+export interface ClassOverview extends AttendanceCounts {
+  class_id: string;
+  class_name?: string | null;
+  sponsor_name?: string | null;
+}
+
+export interface DailyOverview {
+  day: SchoolDayInfo;
+  totals: AttendanceCounts;
+  classes: ClassOverview[];
+  pending_excuses: number;
+}
+
+export interface StudentReportRow {
+  student_id: string;
+  student_name: string;
+  admission_number?: string | null;
+  present: number;
+  late: number;
+  absent: number;
+  excused: number;
+  sick: number;
+  unmarked: number;
+  attendance_rate: number | null;
+}
+
+export interface ClassAttendanceReport {
+  class_id: string;
+  class_name?: string | null;
+  start_date: string;
+  end_date: string;
+  school_days: number;
+  rows: StudentReportRow[];
+  totals: AttendanceCounts;
 }

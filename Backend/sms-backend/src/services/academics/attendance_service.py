@@ -443,13 +443,34 @@ class AttendanceService(TenantBaseService[Attendance, AttendanceCreate, Attendan
         start_date: Optional[date] = None,
         end_date: Optional[date] = None
     ) -> float:
-        """Calculate student's attendance percentage for a period."""
-        summary = await self.get_attendance_summary(
-            student_id=student_id, 
-            start_date=start_date, 
-            end_date=end_date
+        """Student's attendance rate (%) from school-day records (present / (days - excused)).
+
+        Used by grade calculation, promotion and the ATTENDANCE assessment sync, so
+        all of them follow daily attendance (QR scans, sponsor marks, auto-absent).
+        """
+        counts: Dict[AttendanceStatus, int] = {}
+        for record in await self.get_student_daily_range(student_id, start_date, end_date):
+            counts[record.status] = counts.get(record.status, 0) + 1
+        return calculate_attendance_rate(counts)
+
+    async def get_student_daily_range(
+        self,
+        student_id: UUID,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None
+    ) -> List[Any]:
+        """School-day records (DailyAttendance) for a student, oldest first."""
+        from src.db.models.academics.daily_attendance import DailyAttendance
+
+        query = self.db.query(DailyAttendance).filter(
+            DailyAttendance.tenant_id == self.tenant_id,
+            DailyAttendance.student_id == student_id
         )
-        return summary.attendance_percentage
+        if start_date:
+            query = query.filter(DailyAttendance.date >= start_date)
+        if end_date:
+            query = query.filter(DailyAttendance.date <= end_date)
+        return query.order_by(DailyAttendance.date.asc()).all()
     
     async def sync_assessment_attendance(
         self,

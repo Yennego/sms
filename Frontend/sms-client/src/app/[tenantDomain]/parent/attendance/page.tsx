@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { ClipboardList, Loader2, Send } from 'lucide-react';
+import { AlertTriangle, ClipboardList, Loader2, Send } from 'lucide-react';
 
 import { DailyAttendanceHistory } from '@/components/attendance/DailyAttendanceHistory';
 import { Textarea } from '@/components/ui/textarea';
 import { useDailyAttendanceService } from '@/services/api/daily-attendance-service';
-import { ChildSummary } from '@/types/daily-attendance';
+import { ChildSummary, DailyAttendanceRecord } from '@/types/daily-attendance';
 import { errorMessageOf } from '@/utils/error-utils';
 import { EXCUSE_DOCUMENT_ACCEPT, fileToExcuseDocument } from '@/utils/excuse-documents';
 
@@ -21,7 +21,7 @@ const shift = (iso: string, days: number) => {
 };
 
 export default function ParentAttendancePage() {
-  const { getMyChildren, getDayInfo, submitParentExcuse } = useDailyAttendanceService();
+  const { getMyChildren, getDayInfo, submitParentExcuse, getStudentHistory } = useDailyAttendanceService();
 
   const [children, setChildren] = useState<ChildSummary[] | null>(null);
   const [childId, setChildId] = useState('');
@@ -33,6 +33,9 @@ export default function ParentAttendancePage() {
   const [file, setFile] = useState<File | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  // Recent absences with no excuse: shown as an alert so parents can explain them
+  const [unexcused, setUnexcused] = useState<DailyAttendanceRecord[]>([]);
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     getMyChildren()
@@ -46,6 +49,22 @@ export default function ParentAttendancePage() {
       });
     getDayInfo().then(info => setToday(info.today)).catch(() => { /* keep browser date */ });
   }, [getMyChildren, getDayInfo]);
+
+  useEffect(() => {
+    if (!childId) return;
+    let cancelled = false;
+    getStudentHistory(childId, shift(today, -14), today)
+      .then(h => {
+        if (!cancelled) setUnexcused(h.records.filter(r => r.status === 'absent' && !r.excuse_status));
+      })
+      .catch(() => { if (!cancelled) setUnexcused([]); });
+    return () => { cancelled = true; };
+  }, [childId, today, refreshKey, getStudentHistory]);
+
+  const explain = (day: string) => {
+    setDate(day);
+    reasonRef.current?.focus();
+  };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,6 +119,23 @@ export default function ParentAttendancePage() {
         ) : children.length === 0 ? (
           <p className="text-slate-500">No children are linked to your account. Please contact the school office.</p>
         ) : (
+          <>
+          {unexcused.length > 0 && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900 space-y-2">
+              <div className="flex items-center gap-2 font-bold">
+                <AlertTriangle className="h-5 w-5" />
+                {child?.name ?? 'Your child'} was absent without an excuse on {unexcused.length} day{unexcused.length === 1 ? '' : 's'}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {unexcused.map(r => (
+                  <button key={r.id} onClick={() => explain(r.date)}
+                    className="px-3 py-1.5 rounded-lg bg-white border border-rose-200 font-semibold hover:bg-rose-100">
+                    {new Date(`${r.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · Report a reason
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-8 items-start">
             {childId && <DailyAttendanceHistory studentId={childId} refreshKey={refreshKey} />}
 
@@ -122,7 +158,7 @@ export default function ParentAttendancePage() {
               </div>
               <div className="space-y-1">
                 <label htmlFor="absence-reason" className="text-sm font-semibold text-slate-700">Reason</label>
-                <Textarea id="absence-reason" rows={3} value={reason} maxLength={2000}
+                <Textarea ref={reasonRef} id="absence-reason" rows={3} value={reason} maxLength={2000}
                   onChange={e => setReason(e.target.value)} placeholder="e.g. Fever, medical appointment, family emergency" />
               </div>
               <div className="space-y-1">
@@ -147,6 +183,7 @@ export default function ParentAttendancePage() {
               </button>
             </form>
           </div>
+          </>
         )}
       </div>
     </div>

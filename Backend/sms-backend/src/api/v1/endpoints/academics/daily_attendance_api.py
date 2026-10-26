@@ -13,12 +13,14 @@ from src.core.auth.dependencies import has_any_role
 from src.schemas.auth import User
 from src.db.models.academics.daily_attendance import ExcuseStatus
 from src.schemas.academics.daily_attendance import (
-    AttendanceEventRead, AttendanceSettingsRead, AttendanceSettingsUpdate, ChildSummary, CloseDayResult,
+    AttendanceEventRead, AttendanceSettingsRead, AttendanceSettingsUpdate, ChildSummary, ClassAttendanceReport,
+    CloseDayResult, DailyOverview,
     DailyAttendanceRead, DailyBulkSet, DailyRoster, DailyStatusSet, ExcuseDocumentOut, ExcuseListItem,
     ExcuseReview, ExcuseWithDocument, ParentExcuseCreate, SchoolCalendarDayRead, SchoolCalendarDayUpsert,
     SchoolDayInfo, StudentDailyHistory
 )
 from src.services.academics.attendance_excuse_service import AttendanceExcuseService
+from src.services.academics.attendance_report_service import AttendanceReportService
 from src.services.academics.daily_attendance_service import DailyAttendanceService
 
 router = APIRouter()
@@ -129,6 +131,30 @@ def close_day(
     return CloseDayResult(date=day, marked_absent=service.close_day(day, current_user))
 
 
+@router.get("/attendance/daily/overview", response_model=DailyOverview)
+def get_daily_overview(
+    *,
+    service: AttendanceReportService = Depends(),
+    day: Optional[date] = Query(None, alias="date"),
+    current_user: User = Depends(has_any_role(["admin"]))
+) -> Any:
+    """Whole school for one day (default today): totals, per-class counts, pending excuses."""
+    return service.overview(day, current_user)
+
+
+@router.get("/attendance/daily/report", response_model=ClassAttendanceReport)
+def get_class_daily_report(
+    *,
+    service: AttendanceReportService = Depends(),
+    class_id: UUID,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+) -> Any:
+    """Per-student totals for a class over a date range (default: academic year to date)."""
+    return service.class_report(class_id, start_date, end_date, current_user)
+
+
 @router.get("/attendance/daily/my-children", response_model=List[ChildSummary])
 def get_my_children(
     *,
@@ -172,9 +198,14 @@ def get_student_daily_history(
     end_date: Optional[date] = None,
     current_user: User = Depends(has_any_role(["admin", "teacher", "student", "parent"]))
 ) -> Any:
+    from src.db.models.people.student import Student
+
     start, end, summary, records = service.student_history(student_id, start_date, end_date, current_user)
+    student = service.db.get(Student, student_id)  # existence and access checked above
     return StudentDailyHistory(
-        student_id=student_id, start_date=start, end_date=end, summary=summary, records=records
+        student_id=student_id, student_name=f"{student.first_name} {student.last_name}".strip(),
+        admission_number=student.admission_number,
+        start_date=start, end_date=end, summary=summary, records=records
     )
 
 

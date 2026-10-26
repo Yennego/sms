@@ -108,6 +108,7 @@ function getNavigation(rawRole: string, tenantDomain?: string): MenuItem[] {
         name: 'Attendance Hub',
         icon: ClipboardList,
         children: [
+          { name: "Today's Overview", href: tenantDomain ? `/${tenantDomain}/attendance` : '/attendance', icon: BarChart3 },
           { name: 'Mark Attendance', href: tenantDomain ? `/${tenantDomain}/attendance/daily` : '/attendance/daily', icon: ClipboardList },
           { name: 'Scan ID Cards', href: tenantDomain ? `/${tenantDomain}/attendance/scan` : '/attendance/scan', icon: ScanLine },
           { name: 'Student ID Cards', href: tenantDomain ? `/${tenantDomain}/attendance/id-cards` : '/attendance/id-cards', icon: IdCard },

@@ -38,6 +38,7 @@ from src.schemas.academics.enrollment import Enrollment as EnrollmentSchema
 from src.services.academics.enrollment import EnrollmentService
 from src.services.academics.class_enrollment_service import ClassEnrollmentService
 from src.services.academics.attendance_service import AttendanceService
+from src.services.academics.attendance_access import has_daily_attendance_history
 from src.db.models.academics.grade import Grade
 from src.db.models.academics.enrollment import Enrollment as EnrollmentModel
 from src.db.models.academics.class_enrollment import ClassEnrollment as ClassEnrollmentModel
@@ -252,6 +253,10 @@ async def bulk_delete_students(
                 attendance_service = AttendanceService(tenant=tenant_id, db=student_service.db)
                 if len(attendance_service.get_multi(student_id=student_id, limit=1)) > 0:
                     has_human_data = True
+            if not has_human_data and has_daily_attendance_history(
+                student_service.db, attendance_service.tenant_id, student_id=student_id
+            ):
+                has_human_data = True
 
             if has_human_data:
                 errors.append({
@@ -303,7 +308,9 @@ async def delete_student(
 
     # Attendance check
     attendance_service = AttendanceService(tenant=tenant_id, db=db)
-    if len(attendance_service.get_multi(student_id=student_id, limit=1)) > 0:
+    if len(attendance_service.get_multi(student_id=student_id, limit=1)) > 0 or has_daily_attendance_history(
+        db, attendance_service.tenant_id, student_id=student_id
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Cannot delete student: The student has attendance records. These must be preserved; consider archiving instead."
@@ -635,8 +642,8 @@ async def delete_teacher(*, db: Session = Depends(get_db), tenant_id: UUID = Dep
 
     # 6. Check for attendance marked by this teacher
     from src.db.models.academics.attendance import Attendance
-    attendance_marked = db.query(Attendance).filter(Attendance.tenant_id == tenant_id, Attendance.marked_by == teacher_id).all()
-    if attendance_marked:
+    attendance_marked = db.query(Attendance).filter(Attendance.tenant_id == tenant_id, Attendance.marked_by == teacher_id).first()
+    if attendance_marked or has_daily_attendance_history(db, tenant_id, user_id=teacher_id):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Cannot delete teacher. They have marked attendance records. Please deactivate their account instead of deleting it."
