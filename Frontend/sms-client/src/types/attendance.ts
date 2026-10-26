@@ -15,6 +15,8 @@ export interface AttendanceBase {
   check_in_time?: string; // ISO datetime string
   check_out_time?: string; // ISO datetime string
   comments?: string;
+  period?: string | null; // ad-hoc period name when there's no schedule_id
+  notes?: string | null; // what the backend returns (comments are saved here)
 }
 
 export interface AttendanceCreate extends AttendanceBase {

@@ -12,6 +12,10 @@ from src.db.models.academics.section import Section
 from src.db.models.academics.subject import Subject
 from src.db.models.academics.timetable import Timetable
 from .attendance import Attendance, AttendanceStatus
+from .daily_attendance import (
+    DailyAttendance, AttendanceEvent, AttendanceSettings, SchoolCalendarDay, AttendanceDocument,
+    AttendanceSource, ExcuseStatus, AttendanceEventType
+)
 from src.db.models.academics.assessment import Assessment
 from src.db.models.academics.semester import Semester
 from src.db.models.academics.period import Period
@@ -36,6 +40,14 @@ __all__ = [
     "Timetable",
     "Attendance",
     "AttendanceStatus",
+    "DailyAttendance",
+    "AttendanceEvent",
+    "AttendanceSettings",
+    "SchoolCalendarDay",
+    "AttendanceDocument",
+    "AttendanceSource",
+    "ExcuseStatus",
+    "AttendanceEventType",
     "Assessment",
     "Semester",
     "Period",

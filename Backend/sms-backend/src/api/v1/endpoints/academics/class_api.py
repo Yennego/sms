@@ -59,10 +59,11 @@ async def get_classes(
     section_id: Optional[UUID] = None,
     subject_id: Optional[UUID] = None,
     teacher_id: Optional[UUID] = None,
+    class_teacher_id: Optional[UUID] = None,
     is_active: Optional[bool] = None,
     current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
 ) -> Any:
-    """Get all classes for a tenant with optional filtering."""
+    """Get all classes for a tenant with optional filtering (class_teacher_id = sponsor)."""
     filters = {}
     if academic_year_id:
         filters["academic_year_id"] = academic_year_id
@@ -74,6 +75,8 @@ async def get_classes(
         filters["subject_id"] = subject_id
     if teacher_id:
         filters["teacher_id"] = teacher_id
+    if class_teacher_id:
+        filters["class_teacher_id"] = class_teacher_id
     if is_active is not None:
         filters["is_active"] = is_active
     

@@ -75,6 +75,7 @@ export interface ClassFilters {
   section_id?: string;
   subject_id?: string;
   teacher_id?: string;
+  class_teacher_id?: string; // class sponsor
   is_active?: boolean;
   search?: string;
 }

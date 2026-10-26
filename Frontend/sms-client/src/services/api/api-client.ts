@@ -386,6 +386,17 @@ export class ApiClient {
     });
   }
 
+  patch<T>(endpoint: string, data?: unknown, config: AxiosRequestConfig = {}): Promise<T> {
+    return this.request<T>(endpoint, {
+      ...config,
+      method: 'PATCH',
+      data,
+    }).then(res => {
+      clearGlobalCache();
+      return res;
+    });
+  }
+
   delete<T>(endpoint: string, config: AxiosRequestConfig = {}): Promise<T> {
     return this.request<T>(endpoint, { ...config, method: 'DELETE' }).then(res => {
       clearGlobalCache();

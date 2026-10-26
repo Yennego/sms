@@ -1,17 +1,21 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Iterable
 from uuid import UUID
 from datetime import date, datetime, timedelta
 from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from src.db.crud.academics.attendance_crud import attendance_crud
-from src.db.models.academics.attendance import Attendance, AttendanceStatus
+from src.db.models.academics.attendance import (
+    Attendance, AttendanceStatus, PRESENT_STATUSES, calculate_attendance_rate
+)
 from src.schemas.academics.attendance import (
     AttendanceCreate, AttendanceUpdate, AttendanceWithDetails,
     AttendanceSummary, BulkAttendanceCreate, AttendanceReport
 )
 from src.services.base.base import TenantBaseService, SuperAdminBaseService
-from src.core.exceptions.business import EntityNotFoundError, DuplicateEntityError, BusinessRuleViolationError
+from src.core.exceptions.business import (
+    EntityNotFoundError, DuplicateEntityError, BusinessRuleViolationError, PermissionDeniedError
+)
 from src.db.session import get_db, get_super_admin_db
 from src.core.middleware.tenant import get_tenant_from_request
 from src.db.crud.people import student as student_crud
@@ -20,6 +24,20 @@ from src.db.crud.academics.schedule_crud import schedule_crud
 from src.db.crud.academics.academic_year_crud import academic_year_crud
 from src.db.crud.academics.grade import grade as grade_crud
 from src.db.models.academics.grade import Grade, GradeType
+from src.services.academics.attendance_access import (
+    check_class_marking_permission, check_enrollment, resolve_viewable_student_id
+)
+
+
+def _coerce_status(value: Any) -> AttendanceStatus:
+    """Accept enum members, values ('present') or names ('PRESENT')."""
+    if isinstance(value, AttendanceStatus):
+        return value
+    try:
+        return AttendanceStatus(str(value).lower())
+    except ValueError:
+        raise BusinessRuleViolationError(f"Invalid attendance status: {value}")
+
 
 class AttendanceService(TenantBaseService[Attendance, AttendanceCreate, AttendanceUpdate]):
     """Service for managing attendance within a tenant."""
@@ -64,9 +82,83 @@ class AttendanceService(TenantBaseService[Attendance, AttendanceCreate, Attendan
             self.db, self.tenant_id, schedule_id, attendance_date
         )
     
+    # Validation helpers shared by single and bulk marking
+    def _validate_marking_context(
+        self,
+        class_id: UUID,
+        academic_year_id: UUID,
+        marked_by: UUID,
+        schedule_id: Optional[UUID],
+        period: Optional[str]
+    ) -> Any:
+        """Validate class, schedule/period, academic year and marking permission. Returns the class."""
+        if not class_id:
+            raise BusinessRuleViolationError("class_id is required to mark attendance")
+        cls = class_crud.get_by_id(self.db, tenant_id=self.tenant_id, id=class_id)
+        if not cls:
+            raise EntityNotFoundError("Class", class_id)
+        if schedule_id:
+            sch = schedule_crud.get_by_id(self.db, tenant_id=self.tenant_id, id=schedule_id)
+            if not sch:
+                raise EntityNotFoundError("Schedule", schedule_id)
+        elif not period:
+            raise BusinessRuleViolationError("Either schedule_id or period (ad-hoc name) must be provided")
+        ay = academic_year_crud.get_by_id(self.db, tenant_id=self.tenant_id, id=academic_year_id)
+        if not ay:
+            raise EntityNotFoundError("AcademicYear", academic_year_id)
+        self._check_marking_permission(cls, marked_by)
+        return cls
+
+    def _check_marking_permission(self, cls: Any, marked_by: UUID) -> None:
+        check_class_marking_permission(self.db, cls, marked_by)
+
+    def _check_enrollment(self, cls: Any, student_ids: Iterable[UUID]) -> None:
+        check_enrollment(self.db, self.tenant_id, cls, student_ids)
+
+    def _upsert_record(
+        self,
+        *,
+        student_id: UUID,
+        class_id: UUID,
+        academic_year_id: UUID,
+        attendance_date: date,
+        status: AttendanceStatus,
+        marked_by: UUID,
+        schedule_id: Optional[UUID] = None,
+        period: Optional[str] = None,
+        check_in_time: Optional[datetime] = None,
+        check_out_time: Optional[datetime] = None,
+        comments: Optional[str] = None
+    ) -> Attendance:
+        """Insert or update one record in the session. The caller commits."""
+        record = attendance_crud.get_for_period(
+            self.db, self.tenant_id, student_id, class_id, attendance_date, schedule_id, period
+        )
+        if record is None:
+            record = Attendance(
+                tenant_id=self.tenant_id,
+                student_id=student_id,
+                class_id=class_id,
+                academic_year_id=academic_year_id,
+                date=attendance_date,
+                schedule_id=schedule_id,
+                period=period
+            )
+            self.db.add(record)
+        record.status = status
+        record.marked_by = marked_by
+        record.marked_at = datetime.utcnow()
+        if check_in_time is not None:
+            record.check_in_time = check_in_time
+        if check_out_time is not None:
+            record.check_out_time = check_out_time
+        if comments is not None:
+            record.notes = comments
+        return record
+
     # Daily Attendance Management
     async def mark_daily_attendance(
-        self, 
+        self,
         student_id: UUID,
         class_id: UUID,
         academic_year_id: UUID,
@@ -81,109 +173,98 @@ class AttendanceService(TenantBaseService[Attendance, AttendanceCreate, Attendan
     ) -> Attendance:
         if attendance_date is None:
             attendance_date = date.today()
-        # Validate entities
         student = student_crud.get_by_id(self.db, tenant_id=self.tenant_id, id=student_id)
         if not student:
             raise EntityNotFoundError("Student", student_id)
-        cls = class_crud.get_by_id(self.db, tenant_id=self.tenant_id, id=class_id)
-        if not cls:
-            raise EntityNotFoundError("Class", class_id)
-        if schedule_id:
-            sch = schedule_crud.get_by_id(self.db, tenant_id=self.tenant_id, id=schedule_id)
-            if not sch:
-                raise EntityNotFoundError("Schedule", schedule_id)
-        elif not period:
-            raise BusinessRuleViolationError("Either schedule_id or period (ad-hoc name) must be provided")
-        ay = academic_year_crud.get_by_id(self.db, tenant_id=self.tenant_id, id=academic_year_id)
-        if not ay:
-            raise EntityNotFoundError("AcademicYear", academic_year_id)
-        # Permission check: Only admin or the section sponsor can mark attendance
-        # We check if marked_by is an admin separately in the API layer usually, 
-        # but here we can check if it's the sponsor of the class's section.
-        from src.db.models.auth import User as UserModel
-        from src.db.models.academics.section import Section as SectionModel
+        cls = self._validate_marking_context(class_id, academic_year_id, marked_by, schedule_id, period)
+        self._check_enrollment(cls, [student_id])
 
-        is_sponsor = False
-        section_obj = self.db.query(SectionModel).filter(
-            SectionModel.id == cls.section_id,
-            SectionModel.class_teacher_id == marked_by
-        ).first()
-        
-        if section_obj:
-            is_sponsor = True
-            
-        # If not sponsor, check if it's an admin (this is a bit redundant if API handles it, but safe)
-        if not is_sponsor:
-            user = self.db.query(UserModel).filter(UserModel.id == marked_by).first()
-            if user and not any(role.name in ["admin", "super_admin"] for role in getattr(user, "roles", [])):
-                raise BusinessRuleViolationError("Only the section sponsor or an administrator can mark attendance.")
-
-        # Check if attendance already exists
-        existing = await self.get_by_student_and_date(student_id, attendance_date, class_id)
-        if existing:
-            return await self.update_attendance_status(
-                existing.id, status, marked_by, check_in_time, check_out_time, comments
+        try:
+            record = self._upsert_record(
+                student_id=student_id,
+                class_id=class_id,
+                academic_year_id=academic_year_id,
+                attendance_date=attendance_date,
+                status=_coerce_status(status),
+                marked_by=marked_by,
+                schedule_id=schedule_id,
+                period=period,
+                check_in_time=check_in_time,
+                check_out_time=check_out_time,
+                comments=comments
             )
-        # Create new attendance record
-        attendance_data = AttendanceCreate(
-            student_id=student_id,
-            class_id=class_id,
-            schedule_id=schedule_id,
-            academic_year_id=academic_year_id,
-            date=attendance_date,
-            status=status,
-            check_in_time=check_in_time,
-            check_out_time=check_out_time,
-            marked_by=marked_by,
-            marked_at=datetime.utcnow(),
-            notes=comments,
-            period=period
-        )
-        return await self.create(obj_in=attendance_data)
-    
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        self.db.refresh(record)
+        return record
+
     async def bulk_mark_attendance(
-        self, 
+        self,
         attendance_in: BulkAttendanceCreate
     ) -> List[Attendance]:
-        """Bulk mark attendance with upsert logic."""
-        results = []
-        student_ids = set()
-        
+        """Bulk mark attendance with upsert logic, all-or-nothing in one transaction."""
+        attendance_date = attendance_in.date or date.today()
+        cls = self._validate_marking_context(
+            attendance_in.class_id,
+            attendance_in.academic_year_id,
+            attendance_in.marked_by,
+            attendance_in.schedule_id,
+            attendance_in.period
+        )
+
+        entries = []
         for record in attendance_in.attendances:
-            student_id = record['student_id']
-            status = record['status']
-            student_ids.add(student_id)
-            
-            # Use the mark_daily_attendance logic which handles upsert via update_attendance_status
-            att = await self.mark_daily_attendance(
-                student_id=student_id,
-                class_id=attendance_in.class_id,
-                schedule_id=attendance_in.schedule_id,
-                academic_year_id=attendance_in.academic_year_id,
-                status=status,
-                marked_by=attendance_in.marked_by,
-                attendance_date=attendance_in.date,
-                period=attendance_in.period
-            )
-            results.append(att)
-        
-        # Sync attendance to grade model for all affected students
-        for sid in student_ids:
             try:
-                await self.sync_attendance_to_grade(
-                    student_id=sid,
+                student_id = UUID(str(record['student_id']))
+            except (KeyError, ValueError):
+                raise BusinessRuleViolationError(f"Invalid student_id in attendance entry: {record}")
+            if 'status' not in record:
+                raise BusinessRuleViolationError(f"Missing status for student {student_id}")
+            entries.append((student_id, _coerce_status(record['status']), record.get('notes')))
+        self._check_enrollment(cls, [sid for sid, _, _ in entries])
+
+        try:
+            results = [
+                self._upsert_record(
+                    student_id=student_id,
+                    class_id=attendance_in.class_id,
                     academic_year_id=attendance_in.academic_year_id,
-                    marked_by=attendance_in.marked_by
+                    attendance_date=attendance_date,
+                    status=status,
+                    marked_by=attendance_in.marked_by,
+                    schedule_id=attendance_in.schedule_id,
+                    period=attendance_in.period,
+                    comments=notes
                 )
-            except Exception as e:
-                # Log but don't fail the bulk operation if grade sync fails
-                print(f"[WARN] Failed to sync attendance to grade for student {sid}: {e}")
-        
+                for student_id, status, notes in entries
+            ]
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        for record in results:
+            self.db.refresh(record)
+
+        # Attendance grades are produced per subject by sync_assessment_attendance when an
+        # ATTENDANCE assessment is created; a Grade can't exist without subject/enrollment.
         return results
     
+    def resolve_viewable_student_id(self, current_user: Any, student_id: Optional[UUID]) -> Optional[UUID]:
+        """Staff may read anyone; a student only themselves; a parent only their linked children."""
+        return resolve_viewable_student_id(self.db, current_user, student_id)
+
+    def ensure_can_modify(self, attendance: Attendance, user_id: UUID) -> None:
+        """Only the sponsor of the record's class or an administrator may change it."""
+        cls = class_crud.get_by_id(self.db, tenant_id=self.tenant_id, id=attendance.class_id)
+        if not cls:
+            raise EntityNotFoundError("Class", attendance.class_id)
+        self._check_marking_permission(cls, user_id)
+
     async def update_attendance_status(
-        self, 
-        attendance_id: UUID, 
+        self,
+        attendance_id: UUID,
         status: AttendanceStatus,
         marked_by: UUID,
         check_in_time: Optional[datetime] = None,
@@ -191,6 +272,10 @@ class AttendanceService(TenantBaseService[Attendance, AttendanceCreate, Attendan
         comments: Optional[str] = None
     ) -> Optional[Attendance]:
         """Update attendance status and related fields."""
+        attendance = attendance_crud.get_by_id(self.db, self.tenant_id, attendance_id)
+        if not attendance:
+            return None
+        self.ensure_can_modify(attendance, marked_by)
         return attendance_crud.update_attendance_status(
             self.db, self.tenant_id, attendance_id, status, marked_by,
             check_in_time, check_out_time, comments
@@ -257,6 +342,10 @@ class AttendanceService(TenantBaseService[Attendance, AttendanceCreate, Attendan
         end_date: Optional[date] = None,
         status_filter: Optional[Any] = None,
     ) -> List[Attendance]:
+        # The CRUD treats tenant_id=None as "all tenants"; never allow that here
+        if self.tenant_id is None:
+            raise BusinessRuleViolationError("Tenant context is required")
+
         # Normalize status_filter if passed as schema enum or string
         if status_filter is not None:
             try:
@@ -279,7 +368,7 @@ class AttendanceService(TenantBaseService[Attendance, AttendanceCreate, Attendan
             status_filter=status_filter,
         )
 
-    
+
     async def generate_attendance_report(
         self, 
         class_id: Optional[UUID] = None,
@@ -362,86 +451,6 @@ class AttendanceService(TenantBaseService[Attendance, AttendanceCreate, Attendan
         )
         return summary.attendance_percentage
     
-    async def sync_attendance_to_grade(
-        self,
-        student_id: UUID,
-        academic_year_id: UUID,
-        marked_by: UUID,
-        subject_id: Optional[UUID] = None
-    ) -> None:
-        """Sync attendance percentage to Grade model as ATTENDANCE assessment type.
-        
-        This creates or updates a Grade record for the student's cumulative attendance.
-        The attendance score contributes to the student's final weighted grade if
-        the grading schema includes an ATTENDANCE category.
-        """
-        # Get current attendance percentage
-        attendance_pct = await self.get_student_attendance_percentage(student_id)
-        
-        # Use 100 as max score (percentage-based)
-        max_score = 100
-        score = attendance_pct
-        
-        # Calculate letter grade based on percentage
-        def get_letter_grade(pct: float) -> str:
-            if pct >= 90: return 'A'
-            if pct >= 80: return 'B'
-            if pct >= 70: return 'C'
-            if pct >= 60: return 'D'
-            return 'F'
-        
-        letter_grade = get_letter_grade(score)
-        
-        # Build assessment name
-        assessment_name = "Attendance Record"
-        
-        # Check if an ATTENDANCE grade already exists for this student/year
-        existing_grades = grade_crud.list(
-            self.db,
-            tenant_id=self.tenant_id,
-            filters={
-                'student_id': student_id,
-                'academic_year_id': academic_year_id,
-                'assessment_type': GradeType.ATTENDANCE
-            },
-            limit=1
-        )
-        
-        if existing_grades:
-            # Update existing grade
-            existing = existing_grades[0]
-            grade_crud.update(
-                self.db,
-                tenant_id=self.tenant_id,
-                db_obj=existing,
-                obj_in={
-                    'score': score,
-                    'percentage': score,  # Since max is 100
-                    'letter_grade': letter_grade,
-                    'graded_by': marked_by,
-                    'assessment_date': date.today()
-                }
-            )
-        else:
-            # Create new attendance grade
-            from src.schemas.academics.grade import GradeCreate
-            grade_data = GradeCreate(
-                student_id=student_id,
-                subject_id=subject_id,  # May be None for general attendance
-                graded_by=marked_by,
-                academic_year_id=academic_year_id,
-                assessment_type=GradeType.ATTENDANCE,
-                assessment_name=assessment_name,
-                assessment_date=date.today(),
-                score=score,
-                max_score=max_score,
-                percentage=score,
-                letter_grade=letter_grade,
-                period_number=1,
-                comments="Auto-generated from attendance records"
-            )
-            grade_crud.create(self.db, tenant_id=self.tenant_id, obj_in=grade_data)
-
     async def sync_assessment_attendance(
         self,
         assessment: Any,
@@ -543,29 +552,21 @@ class AttendanceService(TenantBaseService[Attendance, AttendanceCreate, Attendan
         
         records = await self.get_class_attendance_range(class_id, start_date, end_date)
         
-        # Group by date and calculate daily attendance rates
-        daily_stats = {}
+        # Group status counts by date
+        daily_counts: Dict[str, Dict[AttendanceStatus, int]] = {}
         for record in records:
-            record_date = record.date.isoformat()
-            if record_date not in daily_stats:
-                daily_stats[record_date] = {'total': 0, 'present': 0, 'late': 0}
-            
-            daily_stats[record_date]['total'] += 1
-            if record.status in [AttendanceStatus.PRESENT, AttendanceStatus.LATE]:
-                daily_stats[record_date]['present'] += 1
-            if record.status == AttendanceStatus.LATE:
-                daily_stats[record_date]['late'] += 1
-        
+            counts = daily_counts.setdefault(record.date.isoformat(), {})
+            counts[record.status] = counts.get(record.status, 0) + 1
+
         # Calculate daily rates
         trends = []
-        for date_str, stats in daily_stats.items():
-            attendance_rate = (stats['present'] / stats['total'] * 100) if stats['total'] > 0 else 0
+        for date_str, counts in daily_counts.items():
             trends.append({
                 'date': date_str,
-                'total_students': stats['total'],
-                'present_students': stats['present'],
-                'late_students': stats['late'],
-                'attendance_rate': attendance_rate
+                'total_students': sum(counts.values()),
+                'present_students': sum(c for s, c in counts.items() if s in PRESENT_STATUSES),
+                'late_students': counts.get(AttendanceStatus.LATE, 0),
+                'attendance_rate': calculate_attendance_rate(counts)
             })
         
         return {
@@ -607,14 +608,12 @@ class SuperAdminAttendanceService(SuperAdminBaseService[Attendance, AttendanceCr
             .all()
         )
         
-        total_records = sum(count for _, count in status_counts)
-        present_count = sum(count for status, count in status_counts 
-                          if status in [AttendanceStatus.PRESENT, AttendanceStatus.LATE])
-        
+        status_breakdown = {status.value: count for status, count in status_counts}
+
         return {
-            'total_records': total_records,
-            'status_breakdown': {status.value: count for status, count in status_counts},
-            'global_attendance_rate': (present_count / total_records * 100) if total_records > 0 else 0,
+            'total_records': sum(status_breakdown.values()),
+            'status_breakdown': status_breakdown,
+            'global_attendance_rate': calculate_attendance_rate(status_breakdown),
             'period_start': start_date.isoformat() if start_date else None,
             'period_end': end_date.isoformat() if end_date else None
         }
@@ -624,6 +623,7 @@ class SuperAdminAttendanceService(SuperAdminBaseService[Attendance, AttendanceCr
         *,
         skip: int = 0,
         limit: int = 100,
+        tenant_id: Optional[UUID] = None,
         student_id: Optional[UUID] = None,
         class_id: Optional[UUID] = None,
         schedule_id: Optional[UUID] = None,
@@ -642,7 +642,7 @@ class SuperAdminAttendanceService(SuperAdminBaseService[Attendance, AttendanceCr
 
         return attendance_crud.get_multi(
             self.db,
-            self.tenant_id,
+            tenant_id,
             skip=skip,
             limit=limit,
             student_id=student_id,

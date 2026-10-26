@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Date, ForeignKey, Integer
+from sqlalchemy import Column, String, Date, DateTime, ForeignKey, Integer
 from sqlalchemy.orm import relationship
 from src.db.models.auth.user import User
 from datetime import date
@@ -34,6 +34,10 @@ class Student(User):
     whatsapp_number = Column(String(20), nullable=True)
     emergency_contact = Column(String(255), nullable=True)
     photo = Column(String(500), nullable=True, comment="URL to student profile photo")
+
+    # ID card QR: reissuing a card bumps the version, which invalidates older cards
+    card_version = Column(Integer, nullable=False, default=1, server_default="1")
+    card_issued_at = Column(DateTime(timezone=True), nullable=True)
 
     status = Column(
         String(20),

@@ -35,6 +35,11 @@ export default function SettingsPage() {
       href: '/settings/timetable'
     },
     {
+      title: 'Attendance Settings',
+      description: 'School days, late and cut-off times, holidays',
+      href: '/settings/attendance'
+    },
+    {
       title: 'Communication Settings',
       description: 'Configure messaging and notification settings',
       href: '/settings/communication'

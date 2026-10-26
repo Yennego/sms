@@ -846,3 +846,420 @@ class TenantBaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
 ---
 
 **With these layers implemented, the project is ready for advanced features such as RBAC, audit logging, file uploads, rate limiting, and more. See the Roadmap for next steps.**
+
+---
+
+## 6. Attendance Module (`academics/attendance`)
+
+**Status: Phase 1 (fixes) done 2026-10-24, see 6.2.1. Phase 2 (daily attendance) and Phase 3 (QR cards and scanning) done 2026-10-26, see 6.3.6 and 6.4.6. Phase 4 partly done, see 6.5.1.**
+
+Goal: a student is marked present for a school day by scanning the QR code on their ID card. The manual flow stays: the class sponsor or an admin can mark or correct any student, and record an excuse.
+
+Work is done in four phases. Phase 1 (fixes) must land first, because the manual flow and the QR flow share the same service code.
+
+---
+
+### 6.1 Current State
+
+| Layer | File |
+|---|---|
+| Model | `src/db/models/academics/attendance.py` |
+| Schemas | `src/schemas/academics/attendance.py` |
+| CRUD | `src/db/crud/academics/attendance_crud.py` |
+| Service | `src/services/academics/attendance_service.py` |
+| API | `src/api/v1/endpoints/academics/attendance_api.py` (mounted under `/academics`) |
+| Frontend services | `Frontend/sms-client/src/services/api/attendance-service.ts`, `enhanced-attendance-service.ts` |
+| Frontend pages | `src/app/[tenantDomain]/attendance/*`, `teacher/attendance`, `student/attendance` |
+| Frontend components | `src/components/attendance/*` (`DailyAttendanceGrid` is the admin marking grid) |
+
+The current `attendances` table holds **one row per student, per class, per date**. Each row also needs a `schedule_id` or a `period`, so the model is period-based. There is no record of a "school day", no QR or ID-card code, no school calendar, and no field showing how a mark was made.
+
+---
+
+### 6.2 Phase 1: Fix Broken Behaviour
+
+Each item lists the location, the symptom, and the fix.
+
+#### Backend API: `attendance_api.py`
+
+| # | Location | Symptom | Fix |
+|---|---|---|---|
+| B1 | `GET /attendance/report` | 500 error: calls `attendance_service.generate_report()`, which does not exist | Call `generate_attendance_report()` |
+| B2 | `GET /attendance/absent`, `GET /attendance/late` | 500 error: passes `date=`, but the service expects `attendance_date=` | Pass `attendance_date=` |
+| B3 | `GET /attendance/global-stats` | 500 error: calls `get_global_stats()`, which does not exist; the method is sync but is awaited. The role `"super_admin"` is not recognised (`has_any_role` checks `superadmin` / `super-admin`) | Call `get_global_attendance_stats()` without `await`; use role `"superadmin"` |
+| B4 | `POST /attendance/mark-daily`, `PATCH /attendance/{id}/status` | Any error path becomes a 500: the parameter `status: AttendanceStatus` hides `fastapi.status`, so `status.HTTP_404_NOT_FOUND` raises `AttributeError` | Rename the parameter to `attendance_status` with `Query(..., alias="status")`, or import `from fastapi import status as http_status` |
+| B5 | `POST /attendance/mark-daily` | `schedule_id` is required, which defeats the service's "schedule **or** period" fallback | Make `schedule_id: Optional[UUID] = None`; add `period: Optional[str] = None` and pass both through |
+| B6 | Every endpoint with `except ValueError` | Service errors (`EntityNotFoundError`, `BusinessRuleViolationError`) fall through to the global handler. That handler returns 400 for every `BusinessLogicError`, even "not found" | Map `EntityNotFoundError` to 404 and `DuplicateEntityError` to 409 (extend the handler in `main.py`) |
+| B7 | `GET /attendance?student_id=…` (role `student`) | A student can read **any** student's attendance; parents cannot read attendance at all | If the caller is a student, force `student_id = current_user.id`. Add the role `parent`, limited to their linked children |
+| B8 | `SuperAdminAttendanceService.get_multi` | Uses `self.tenant_id`, which the super-admin service does not have | Add an optional `tenant_id` filter parameter instead |
+
+#### Service and CRUD layer
+
+| # | Location | Symptom | Fix |
+|---|---|---|---|
+| S1 | `attendance_crud.update_attendance_status` | Notes are **silently lost**: it writes key `comments`, but the column is `notes` (the base `update` skips unknown attributes) | Use `update_data['notes'] = comments` |
+| S2 | Unique constraint `(student_id, class_id, date)` vs period marking | Marking period 2 overwrites period 1. The `GET` filtered by `schedule_id` then returns nothing for period 1 | Once the daily record exists (Phase 2), the period table is for subject periods only. Change the constraint to `(tenant_id, student_id, class_id, date, period_key)`, where `period_key = coalesce(schedule_id::text, period, 'day')`, and match the upsert lookup to it |
+| S3 | Three different definitions of "present" | `is_present` counts present/late/tardy; `attendance_rate` counts present/late; `get_class_attendance_trends` and global stats count present/late. Excused and sick days **lower** the rate | Add one helper in the model module: `PRESENT_STATUSES = {PRESENT, LATE, TARDY}`, `EXCUSED_STATUSES = {EXCUSED, SICK}`. Rate = present / (total − excused). Use it everywhere |
+| S4 | `bulk_mark_attendance` | Commits row by row, so a failure halfway leaves partial data. It recalculates every student's attendance grade over **all-time** records (not the academic year) on every save | Validate the class, year and permission once. Upsert all rows in one transaction (one `commit`). Move grade sync to `BackgroundTasks` and limit it to `academic_year_id` |
+| S5 | `mark_daily_attendance` permission check | Checks `Section.class_teacher_id`, but `Class.class_teacher_id` is the sponsor according to the Class model docstring, and the two can disagree. If the user lookup returns `None`, the check **passes** | Check `cls.class_teacher_id == marked_by` (fall back to the section sponsor only if it is null). If the user is not found, deny |
+| S6 | `mark_daily_attendance` | Does not check that the student is enrolled in the class (`Attendance.validate_student_enrollment` is a stub that returns `True`) | Query `ClassEnrollment` (`student_id`, `class_id`, `is_active`) and raise `BusinessRuleViolationError` if not enrolled. Delete the stub |
+| S7 | `print(...)` in the bulk grade sync | Errors never reach the logs | Use `src.core.logging` |
+
+#### Frontend
+
+| # | Location | Symptom | Fix |
+|---|---|---|---|
+| F1 | `teacher/attendance/page.tsx:154` | **Save always fails.** It sends `section_id` as `class_id`, statuses in uppercase (`PRESENT`, while backend enum values are lowercase), and no `schedule_id`/`period` | Send the real `class_id` and lowercase statuses. After Phase 2, post to the daily endpoint, which needs no period |
+| F2 | `teacher/attendance/page.tsx` | Lists the teacher's **subject assignments**, but the backend only lets the sponsor or an admin mark | List the classes where `class_teacher_id == me` (sponsor view). Subject teachers get read-only access, or period marking only |
+| F3 | `teacher/attendance/page.tsx:151` | `new Date().toISOString()` gives the UTC date, which can be the wrong day for schools east of UTC | Omit `date` and let the server fill in "today" in the school's timezone (see 6.3.4) |
+| F4 | `attendance-service.ts` `updateAttendanceStatus` | 405 error: sends `PUT`, but the backend route is `PATCH` | Use `client.patch` |
+| F5 | `attendance-service.ts` `markDailyAttendance` | 422 error: never sends `class_id` | Add `class_id` to the type and the query |
+| F6 | `app/api/v1/academics/attendance/class/[classId]/date/[attendance_date]/route.ts`, `…/enrolled-students/route.ts` | Proxy to backend endpoints that don't exist | Either add `GET /attendance/class/{class_id}/date/{date}` and `GET /attendance/class/{class_id}/enrolled-students` to the backend, or delete the proxies and their callers |
+| F7 | `app/(dashboard)/attendance/{by-class,by-student,daily}/page.tsx` | Empty (0-byte) files | Delete them; the live pages are under `[tenantDomain]` |
+
+**Phase 1 done when:** every endpoint in `attendance_api.py` returns a non-500 response for valid input (see the tests in 6.6), and a sponsor can save and re-open a class's attendance from the teacher page.
+
+#### 6.2.1 Phase 1: What Was Done (and Where It Differs From the Plan Above)
+
+All items above are implemented. Regression tests are in `tests/test_attendance.py` (18 tests, run with `python -m pytest tests/test_attendance.py`).
+
+**Deploy step:** run the migration `alembic upgrade head` (revision `c3a7e1f2d9b4`). It replaces `unique_student_class_date_attendance` with the unique index `uq_attendance_student_class_date_period`.
+
+Differences from the plan:
+
+- **B6:** `main.py` now maps `EntityNotFoundError` to 404, `DuplicateEntityError` to 409 and `PermissionDeniedError` to 403 for **every** module, not only attendance. Other `BusinessLogicError`s stay 400.
+- **B7:** implemented as `AttendanceService.resolve_viewable_student_id()`. Parents with several children must pass `student_id`.
+- **S4:** the per-save grade sync (`sync_attendance_to_grade`) was **removed**, not moved to a background task. It had never worked: a `Grade` requires `subject_id` and `enrollment_id`, which a whole-day attendance record doesn't have. Attendance grades come from `sync_assessment_attendance`, which runs when an `ATTENDANCE` assessment is created. That path was also broken: `src/schemas/academics/grade.py` `GradeType` was missing `ATTENDANCE`. This is now fixed.
+- **S5:** a non-sponsor now gets **403** (`PermissionDeniedError`). The same check also covers `PUT /attendance/{id}`, `PATCH /attendance/{id}/status` and `POST /attendance`. `POST /attendance` now ignores the client's `marked_by` and goes through the same validated path.
+- **S6:** the enrollment check uses `Enrollment` (academic year + grade + section, `is_active`), **not** `ClassEnrollment`. This is the same lookup `GET /classes/{id}/students` uses to build the roster, so the list a sponsor sees and the check always agree.
+- **S7:** resolved by removing the code that held the `print`.
+- **F1/F2:** the teacher page now lists classes where the teacher is `class_teacher_id`, using the new `class_teacher_id` filter on `GET /academics/classes`. It loads today's saved marks and saves with `period="Daily"`. This interim "Daily" period is replaced by `DailyAttendance` in Phase 2.
+- **F3:** the date is the **browser's local date** for now. The server-side school timezone comes with `AttendanceSettings` in Phase 2.
+- **F6:** the special-purpose Next proxies were deleted (`bulk-mark`, `date/[date]`, `class/[classId]/*`). Requests now fall through to the generic `app/api/v1/[[...path]]` proxy and reach the backend directly. The old `bulk-mark` proxy called `mark-daily` once per student and returned 422 when the class had no timetable slot for that weekday.
+- `mark-daily` takes `?date=` (what the frontend already sent) instead of `?attendance_date=`.
+
+Found during Phase 1 but **not fixed** (pre-existing TypeScript errors, `tsc --noEmit`):
+
+- `attendance/reports/page.tsx:49` calls `generateAttendanceReport` with 3 arguments, but it takes 1, so report filters are dropped.
+- `attendance/students/page.tsx` and `attendance/students/[studentId]/page.tsx` have type mismatches (`studentId` property, paged response shape, `StudentAttendanceHistory` props).
+- `enhanced-attendance-service.ts`: `bulkMarkAttendanceByClass` builds the wrong payload (an array, no period). It is unused. There are also several `Class`/`ClassAttendanceStats` type mismatches.
+
+---
+
+### 6.3 Phase 2: Daily (School-Day) Attendance and Settings
+
+#### 6.3.1 New model: `DailyAttendance`
+
+The source of truth for "was this student at school today". One row per student per school day. The existing `attendances` table stays, for subject or period attendance only.
+
+```python
+# src/db/models/academics/daily_attendance.py
+class AttendanceSource(str, enum.Enum):
+    QR = "qr"            # ID card scan
+    MANUAL = "manual"    # sponsor/admin marked it
+    AUTO = "auto"        # system marked absent at cut-off
+
+class ExcuseStatus(str, enum.Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+class DailyAttendance(TenantModel):
+    __tablename__ = "daily_attendances"
+
+    student_id       = Column(UUID(as_uuid=True), ForeignKey("students.id"), nullable=False)
+    class_id         = Column(UUID(as_uuid=True), ForeignKey("classes.id"), nullable=False)   # homeroom at time of marking
+    academic_year_id = Column(UUID(as_uuid=True), ForeignKey("academic_years.id"), nullable=False)
+    date             = Column(Date, nullable=False, index=True)                                # school-local date
+    status           = Column(Enum(AttendanceStatus), nullable=False)
+
+    check_in_at      = Column(DateTime(timezone=True), nullable=True)   # first successful scan
+    check_out_at     = Column(DateTime(timezone=True), nullable=True)
+    source           = Column(Enum(AttendanceSource), nullable=False)
+    marked_by        = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)  # null for AUTO
+    marked_at        = Column(DateTime(timezone=True), nullable=False, default=func.now())
+
+    # Excuse
+    excuse_reason    = Column(Text, nullable=True)
+    excuse_status    = Column(Enum(ExcuseStatus), nullable=True)
+    excuse_document_url = Column(String(500), nullable=True)
+    excuse_reviewed_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
+    notes            = Column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "student_id", "date", name="uq_daily_attendance_student_date"),
+        Index("idx_daily_att_tenant_class_date", "tenant_id", "class_id", "date"),
+    )
+```
+
+#### 6.3.2 New model: `AttendanceEvent` (append-only audit log)
+
+Every scan attempt (accepted, duplicate or rejected) and every manual change writes one row. It is never updated or deleted. Use it to answer "who changed this and when" and to debug scanner problems.
+
+```python
+class AttendanceEvent(TenantModel):
+    __tablename__ = "attendance_events"
+    daily_attendance_id = Column(UUID(as_uuid=True), ForeignKey("daily_attendances.id"), nullable=True)
+    student_id   = Column(UUID(as_uuid=True), ForeignKey("students.id"), nullable=True)  # null if token unreadable
+    event_type   = Column(String(30), nullable=False)  # scan_accepted | scan_duplicate | scan_rejected | manual_set | excuse_set | excuse_reviewed | auto_absent
+    old_status   = Column(String(20), nullable=True)
+    new_status   = Column(String(20), nullable=True)
+    actor_id     = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    device_label = Column(String(100), nullable=True)   # e.g. "Main gate tablet"
+    reason       = Column(Text, nullable=True)          # rejection reason / manual note
+    occurred_at  = Column(DateTime(timezone=True), nullable=False, default=func.now())
+```
+
+#### 6.3.3 Precedence rules
+
+Both flows write to the same row, so these rules decide which write wins:
+
+| Existing row | Incoming | Result |
+|---|---|---|
+| none | QR scan before `late_after` | `present`, `source=qr` |
+| none | QR scan after `late_after` (before `scan_closes_at`) | `late`, `source=qr` |
+| `qr` present/late | QR scan again | No change; respond `duplicate` (show "already checked in at 07:42") |
+| `auto` absent | QR scan (student arrived after cut-off) | `late`, `source=qr` |
+| `manual` excused/sick | QR scan | **No change**; the scan is logged only. Manual excuses are never overwritten by a scan |
+| any | Manual mark by sponsor/admin | Manual value wins; `source=manual`; old/new values logged |
+| any | Auto-absent job | Only creates rows for students with **no** row; never overwrites |
+
+#### 6.3.4 Attendance settings (per tenant)
+
+Store these under the `attendance` key in the existing `TenantSettings.settings` JSON. Validate them with a Pydantic schema, so no migration is needed:
+
+```python
+class AttendanceSettings(BaseModel):
+    timezone: str = "Africa/Monrovia"           # school-local "today"
+    school_days: list[int] = [0, 1, 2, 3, 4]    # Mon–Fri (date.weekday())
+    late_after: time = time(8, 0)
+    scan_closes_at: time = time(12, 0)          # scans rejected after this
+    auto_absent_at: time = time(12, 0)          # unmarked students -> absent
+    allow_checkout_scan: bool = False
+```
+
+Add a `SchoolCalendarDay` table (`tenant_id`, `date`, `is_school_day`, `label`) for holidays, exam breaks and make-up days. A day is a school day if: it is not marked `is_school_day=False`, **and** either its weekday is in `school_days` or it is marked `is_school_day=True`. The date must also fall within the active academic year.
+
+Every "today" on the server must come from `school_today(tenant)`, which applies `timezone`. Never use `date.today()` or the UTC date.
+
+#### 6.3.5 Daily API (manual flow)
+
+All routes go under `/academics/attendance/daily`.
+
+| Method & path | Roles | Purpose |
+|---|---|---|
+| `GET /daily?class_id=&date=` | admin, class sponsor | Class roster for the day: every actively enrolled student, joined to their daily row (or `status=null` if not yet marked) |
+| `PUT /daily/{student_id}?date=` | admin, class sponsor | Set the status manually (`present/late/absent/excused/sick` + `notes`). Upserts the row and logs `manual_set` |
+| `POST /daily/bulk` | admin, class sponsor | Save a whole roster in **one transaction** |
+| `PUT /daily/{daily_id}/excuse` | admin, class sponsor | Record an excuse: `reason` (required), optional document upload. Sets status `excused` and `excuse_status=approved` (staff-entered excuses are pre-approved) |
+| `POST /daily/{daily_id}/excuse/review` | admin | Approve or reject a `pending` excuse (for later parent-submitted excuses) |
+| `GET /daily/student/{student_id}?from=&to=` | admin, sponsor, the student, their parent | History and summary |
+| `POST /daily/close-day?date=` | admin | Run auto-absent now (manual trigger, see 6.4.4) |
+
+Sponsor check (shared with Phase 1 fix S5): `Class.class_teacher_id == current_user.id`, using the class the student is actively enrolled in.
+
+#### 6.3.6 Phase 2: What Was Done (and Where It Differs From the Plan Above)
+
+All of 6.3 is implemented. The defaults in 6.8 were confirmed on 2026-10-26.
+
+| Layer | File |
+|---|---|
+| Models | `src/db/models/academics/daily_attendance.py` (`DailyAttendance`, `AttendanceEvent`, `AttendanceSettings`, `SchoolCalendarDay`) |
+| Migration | `alembic/versions/d5b2c8a41e07_daily_attendance.py` (applied to the local DB; Render applies it on deploy via `alembic upgrade head`) |
+| Shared rules | `src/services/academics/attendance_access.py`: sponsor/admin check, enrollment check, who may view whose attendance, academic year for a date. Period attendance uses the same helpers. |
+| Service | `src/services/academics/daily_attendance_service.py` |
+| API | `src/api/v1/endpoints/academics/daily_attendance_api.py`. It is **mounted before** `attendance_api`, because `GET /attendance/{attendance_id}` would otherwise capture `/attendance/daily`, `/settings` and `/calendar`. A test guards this. |
+| Tests | `tests/test_daily_attendance.py` (25 tests). The shared fixtures moved to `tests/attendance_fixtures.py`. |
+| Frontend | `components/attendance/DailyRosterPanel.tsx` (shared roster), `teacher/attendance` (sponsor), `attendance/daily` (admin, with **Close day**), `settings/attendance` (rules + holidays), `services/api/daily-attendance-service.ts`, `types/daily-attendance.ts`. The sidebar's "Mark Attendance" now opens the daily page; the old period dashboard is under "Period Attendance". |
+
+Differences from the plan:
+
+- **Settings live in their own table** `attendance_settings`, not in `TenantSettings.settings["attendance"]`. The existing tenant-settings endpoints replace that JSON column wholesale, so saving any other school setting could silently erase the attendance rules.
+- **Extra endpoints** beyond 6.3.5: `GET/PUT /attendance/settings`; `GET /attendance/calendar`, `PUT/DELETE /attendance/calendar/{date}` and `GET /attendance/calendar/day-info`; `GET /attendance/daily/{daily_id}/events` (audit trail, shown in the roster's history dialog).
+- **Marking rules** that the plan didn't spell out:
+  - `excused` requires `excuse_reason`.
+  - `tardy` can't be set manually (it is kept for legacy records).
+  - Future dates and non-school days are rejected.
+  - Changing a student away from `excused` clears the excuse fields. The old values stay in the event log.
+- **A day is a school day** only if it falls inside an academic year. A calendar override then wins over the weekly `school_days`.
+- **Auto-absent (6.4.4 item 1) is already done**: the roster fills in missing students lazily, and `POST /attendance/daily/close-day` does the same for the whole school.
+  - It never back-fills dates before the class's `start_date` or the academic-year start.
+  - The Render cron job (6.4.4 item 2) is still Phase 3.
+- **Concurrent saves:** if two people save the same student/day at once, the loser gets "changed by someone else… reload" (400). Other integrity errors are not hidden.
+- **`attendance_rate` is `null`** in a student's daily summary when every record is excused or sick, instead of a misleading 0%.
+- `tzdata` was added to `requirements.txt` and `pyproject.toml` (Windows has no system timezone database). `poetry.lock` was **not** regenerated.
+
+Not done in Phase 2:
+
+- No upload UI for excuse documents yet. The API accepts `excuse_document_url`.
+- Parents can't submit excuses yet. The `pending` → review flow exists in the API.
+- The student and parent attendance pages still read the period table. Switching them is Phase 4.
+- Phase 1's interim teacher marks (period `"Daily"` rows in `attendances`) are not copied into `daily_attendances`. That is part of the Phase 4 data migration.
+
+---
+
+### 6.4 Phase 3: QR ID Cards and Scanning
+
+#### 6.4.1 QR token format
+
+The QR code holds a **signed token**, not the admission number. A photocopied or typed-in admission number cannot be used to check in, and a lost card can be revoked.
+
+```
+SMS1.<tenant_id_b64>.<student_id_b64>.<card_version>.<signature>
+signature = base64url(HMAC_SHA256(ATTENDANCE_QR_SECRET, "SMS1.<tenant>.<student>.<version>"))[:22]
+```
+
+- `ATTENDANCE_QR_SECRET` is a new setting in `src/core/config.py` (env var). Do **not** reuse the JWT secret, so it can be rotated on its own.
+- Add `card_version: int = 1` and `card_issued_at` to `Student`. **Reissuing** a card (lost or stolen) increments `card_version`; old cards then fail with `revoked`.
+- Verification checks, in order: the prefix, the HMAC (constant-time `hmac.compare_digest`), that `tenant_id` matches the request tenant, that the student exists and `status == "active"`, and that `card_version` matches.
+- Put this in `src/services/academics/qr_card_service.py` (`build_token`, `verify_token`).
+
+#### 6.4.2 ID card generation
+
+- Library: add `segno` to `pyproject.toml` / `requirements.txt` (pure Python, no Pillow needed for SVG).
+- `GET /people/students/{id}/id-card/qr.svg` (admin): returns the QR as SVG.
+- `POST /people/students/{id}/id-card/reissue` (admin): increments `card_version` and returns the new QR.
+- Frontend: a printable ID card page `[tenantDomain]/students/[id]/id-card` and a bulk "print class cards" page. Show photo, name, admission number, class and the QR. Use CSS `@media print`, sized to CR80 (85.6 × 54 mm).
+
+#### 6.4.3 Scan endpoint
+
+`POST /academics/attendance/scan`
+
+```json
+// request
+{ "token": "SMS1....", "mode": "check_in", "device_label": "Main gate tablet" }
+
+// response 200
+{
+  "result": "accepted",            // accepted | duplicate | rejected
+  "reason": null,                  // invalid_signature | wrong_tenant | revoked | inactive_student | not_school_day | scan_closed | not_enrolled
+  "student": { "id": "...", "name": "...", "admission_number": "...", "photo": "...", "class_name": "Grade 5 - A" },
+  "status": "present",
+  "check_in_at": "2026-10-24T07:42:10+00:00"
+}
+```
+
+- Roles: `admin` plus a new `attendance_scanner` role (gate staff or a kiosk account). Sponsors also have it, but **only** for students in their own class.
+- Always return 200 with `result`/`reason` for scan outcomes, so the scanner UI can show them. Use 4xx only for auth or malformed requests.
+- Rate-limit the endpoint per user (e.g. 120/min) and log every attempt as an `AttendanceEvent`.
+- Concurrency: two scanners reading the same card at the same moment are handled by the unique constraint. Insert inside `try`; on `IntegrityError`, roll back, reload, and treat it as `duplicate`.
+
+#### 6.4.4 Auto-absent at cut-off
+
+There is no scheduler in the stack today, so add the job in two ways:
+
+1. **Lazy (always works):** `GET /daily` for a past school day, or for today after `auto_absent_at`, first fills in missing rows as `absent`, `source=auto`.
+2. **Scheduled:** a Render Cron Job (`render.yaml`) that calls `POST /academics/attendance/daily/close-day` for each active tenant, using a service token, every 15 minutes during school hours. The endpoint is idempotent.
+
+Only students with an **active** `ClassEnrollment` in the current academic year get rows, and only on school days (6.3.4).
+
+#### 6.4.5 Scanner UI
+
+- Page: `[tenantDomain]/attendance/scan`. Camera scanning via `html5-qrcode` (pin an exact version in `package.json`).
+- After each scan, show a large full-screen result with the student's photo and name. Green = accepted, amber = duplicate, red = rejected with the reason. Play a sound. Pause about 1.5 s before the next scan.
+- Use a manual "type admission number" fallback when a card is damaged. It goes through the **manual** endpoint (logged as `manual_set`), not the scan endpoint.
+- Offline queue (optional, later): store scans in IndexedDB with the device timestamp and send them when back online. The server keeps the earliest `check_in_at`.
+
+#### 6.4.6 Phase 3: What Was Done (and Where It Differs From the Plan Above)
+
+All of 6.4 is implemented except the offline queue.
+
+| Layer | File |
+|---|---|
+| Token | `src/services/academics/qr_card_service.py`: `build_token`, `verify_token`, `qr_svg` (segno 1.6.6). The token is about 75 characters, which makes a version-5 QR. |
+| Scanning & cards | `src/services/academics/attendance_scan_service.py` (subclass of `DailyAttendanceService`) |
+| API | `src/api/v1/endpoints/academics/attendance_scan_api.py`, mounted before `attendance_api` |
+| Migration | `alembic/versions/e8f4a6b1c372_student_id_cards.py`: `students.card_version`, `students.card_issued_at`, and the `attendance-scanner` role |
+| Cron | `scripts/close_attendance_days.py` |
+| Tests | `tests/test_attendance_scan.py` (14 tests) |
+| Frontend | `attendance/scan` (scanner), `attendance/id-cards` (print + reissue), sidebar links, and post-login redirect for the scanner role |
+
+**Secret:** `ATTENDANCE_QR_SECRET` is in `src/core/config.py`. Without it, card and scan endpoints return 400 "QR ID cards are not configured". `render.yaml` generates it (`generateValue: true`). **Never change it after cards are printed:** every card would stop working.
+
+Differences from the plan:
+
+- **Endpoint paths:** the card endpoints live under the attendance router, not `/people/students/...`:
+  - `GET /academics/attendance/id-cards?class_id=` returns cards with inline QR SVG.
+  - `GET /academics/attendance/id-cards/{student_id}` returns one card.
+  - `POST /academics/attendance/id-cards/{student_id}/reissue` issues a new card version.
+  - `POST /academics/attendance/scan/manual` is the admission-number fallback. It is recorded as `manual_set` with source `manual`.
+- **Role name:** `attendance-scanner` (hyphenated, like `super-admin` and `tenant-admin`). Assign it on the existing **Admin → Role Assignment** page. Users whose primary (first) role is `attendance-scanner` land on the scan page after login and see only that menu entry.
+- **Precedence additions:**
+  - A scan also upgrades a **manual** `absent` (not only `auto`), because the student is physically there.
+  - Scans of `excused`/`sick` students return `duplicate` with the kept status.
+- **Extra reject reasons:** `unknown_student` (valid signature, but the student doesn't exist), `not_your_class` (a sponsor scanning another class), `checkout_disabled`, `not_checked_in`.
+- **Rate limit:** reuses `rate_limit(120, 60)` from `src/services/base/rate_limit.py`. That limiter is keyed per **client IP + path** (not per user), and it is off when Redis is unavailable.
+- **Scheduled auto-absent:** a script, not an HTTP call with a service token. It runs inside the backend's environment against the database, so no extra credentials are needed:
+
+  ```yaml
+  # render.yaml — NOT added automatically (a Render cron job is a separate billed service)
+  - type: cron
+    name: sms-close-attendance
+    runtime: python
+    rootDir: Backend/sms-backend
+    schedule: "*/30 * * * *"        # every 30 min; idempotent and checks each school's own timezone
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m scripts.close_attendance_days
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+  ```
+
+  Without the cron job, nothing is lost. Opening a class roster after the cut-off still fills in absences, and admins can press **Close day**.
+- **Scanner page:** one input accepts both handheld USB/Bluetooth scanners (they type the token and press Enter) and typed admission numbers. Camera scanning is optional (start/stop). The camera ignores the same card for 4 s, and results stay on screen for 2.5 s. The device name is kept in `localStorage`.
+- **ID card page:** prints only the card sheet (CR80, 85.6 × 54 mm). The QR SVG is generated by the server.
+
+---
+
+### 6.5 Phase 4: Reporting and Integration
+
+- Switch the student dashboard, the sponsor dashboard and `sync_attendance_to_grade` from `attendances` to `daily_attendances`, using the rate formula from S3, limited to the academic year.
+- Admin dashboard tiles for today: scanned in / late / absent / excused / not yet marked, by class.
+- Optional: notify the parent when a student is auto-marked absent (`src/services/notification/`).
+- Data migration: copy existing `attendances` rows into `daily_attendances`, one per student per date. Pick the best status in this order: present > late > tardy > excused > sick > absent. Set `source=manual`.
+
+---
+
+### 6.6 Testing Checklist
+
+Backend (`tests/`, pytest):
+
+- [ ] Every Phase 1 bug item has a regression test (B1–B8, S1–S6)
+- [ ] Scan: valid token → present; after `late_after` → late; second scan → duplicate; after `scan_closes_at` → rejected
+- [ ] Scan: tampered signature, other tenant's card, old `card_version`, inactive student, non-school day → rejected with the correct reason
+- [ ] Scan does not overwrite a manual `excused`; a manual mark overwrites a scan; every change writes an `AttendanceEvent`
+- [ ] Two concurrent scans for one student → one row, one `accepted` + one `duplicate`
+- [ ] Auto-absent only creates rows for unmarked, actively enrolled students on school days; running it twice creates nothing new
+- [ ] "Today" is computed in the tenant's timezone (test with a timezone where UTC is on a different date)
+- [ ] Sponsor of class A cannot mark or scan a student in class B; a student cannot read another student's attendance
+
+Frontend: a sponsor can open the roster, mark, save, reload and see the saved values. The scanner shows all three result states.
+
+---
+
+### 6.7 Troubleshooting
+
+| Symptom | Likely cause | Where to look |
+|---|---|---|
+| Teacher "Save Attendance" fails with 400 "Either schedule_id or period…" | Still posting to period bulk-mark without a period (F1) | `teacher/attendance/page.tsx`; should post to `/attendance/daily/bulk` |
+| 403 "Only the section sponsor or an administrator…" | User is not `Class.class_teacher_id` for that class | Class settings → sponsor; S5 |
+| Scan says `wrong_tenant` | Card printed for another school, or the scanner is logged into the wrong tenant | `X-Tenant-ID` header / tenant domain in the URL |
+| Scan says `revoked` | Card was reissued; the student is using the old card | Print the current card |
+| Scan says `invalid_signature` for every card | `ATTENDANCE_QR_SECRET` changed or differs between instances | Env vars on Render; all instances must share one secret |
+| Students marked present on the wrong day / late wrongly | Tenant `timezone` or `late_after` not set correctly | `TenantSettings.settings["attendance"]` |
+| Everyone absent on a holiday | Holiday missing from `SchoolCalendarDay` | Add the day, then re-mark (delete `auto` rows for that date) |
+| Notes disappear after editing | S1 not applied (`comments` vs `notes`) | `attendance_crud.update_attendance_status` |
+| Unhandled 500s | Global handler writes the stack trace to `tmp/backend_errors.log` | `main.py` `debug_exception_handler` |
+
+### 6.8 Open Decisions (confirm before Phase 2/3)
+
+These defaults are assumed above and are easy to change:
+
+1. **Where scanning happens:** gate/kiosk staff (`attendance_scanner` role), plus sponsors for their own class.
+2. **Late and cut-off times:** late after 08:00; scans close and auto-absent run at 12:00; timezone `Africa/Monrovia`.
+3. **Excuses:** entered by sponsor/admin and pre-approved. Parent-submitted excuses (`pending` → admin review) are supported by the model but not built in v1.
+4. **Check-out scanning:** off by default.
+5. **Subject or period attendance:** kept as is (after the fixes) alongside daily attendance, rather than removed.

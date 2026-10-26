@@ -11,6 +11,8 @@ from src.api.v1.endpoints.academics import (
     schedule_api,
     timetable_api,
     attendance_api,
+    daily_attendance_api,
+    attendance_scan_api,
     class_enrollment,
     promotion as promotion_api,
     remedial as remedial_api,
@@ -38,6 +40,11 @@ router.include_router(exam.router, tags=["exams"])
 router.include_router(enrollment.router, tags=["enrollments"])
 router.include_router(schedule_api.router, tags=["schedules"])
 router.include_router(timetable_api.router, tags=["timetables"])
+# daily_attendance_api and attendance_scan_api must come first: attendance_api's
+# /attendance/{attendance_id} would otherwise capture /attendance/daily, /settings,
+# /calendar and /id-cards
+router.include_router(daily_attendance_api.router, tags=["attendance"])
+router.include_router(attendance_scan_api.router, tags=["attendance"])
 router.include_router(attendance_api.router, tags=["attendance"])
 router.include_router(class_enrollment.router, tags=["class-enrollments"])  # mount class enrollment routes
 router.include_router(promotion_api.router, tags=["promotions"])

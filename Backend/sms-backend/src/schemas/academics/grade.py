@@ -13,6 +13,7 @@ class GradeType(str, Enum):
     EXAM = "EXAM"
     PROJECT = "PROJECT"
     PARTICIPATION = "PARTICIPATION"
+    ATTENDANCE = "ATTENDANCE"  # must match src.db.models.academics.grade.GradeType
     OTHER = "OTHER"
 
 

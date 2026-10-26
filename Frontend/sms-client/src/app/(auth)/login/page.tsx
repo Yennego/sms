@@ -67,6 +67,10 @@ export default function LoginPage() {
             router.push(`/${tenantId}/teacher/dashboard`);
           } else if (userRole === 'student') {
             router.push(`/${tenantId}/student/dashboard`);
+          } else if (userRole === 'attendance-scanner') {
+            router.push(`/${tenantId}/attendance/scan`);
+          } else if (userRole === 'parent') {
+            router.push(`/${tenantId}/parent/attendance`);
           } else {
             // Fallback to generic dashboard for unknown roles
             router.push(`/${tenantId}/dashboard`);

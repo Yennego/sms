@@ -72,13 +72,23 @@ async def debug_exception_handler(request: Request, exc: Exception):
         }
     )
 
-from src.core.exceptions.business import BusinessLogicError
+from src.core.exceptions.business import (
+    BusinessLogicError, EntityNotFoundError, DuplicateEntityError, PermissionDeniedError
+)
 
 @app.exception_handler(BusinessLogicError)
 async def business_logic_exception_handler(request, exc):
     from fastapi.responses import JSONResponse
+    if isinstance(exc, EntityNotFoundError):
+        status_code = 404
+    elif isinstance(exc, DuplicateEntityError):
+        status_code = 409
+    elif isinstance(exc, PermissionDeniedError):
+        status_code = 403
+    else:
+        status_code = 400
     return JSONResponse(
-        status_code=400,
+        status_code=status_code,
         content={"detail": str(exc)}
     )
 

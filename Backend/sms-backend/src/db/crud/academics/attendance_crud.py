@@ -5,17 +5,17 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func
 
 from src.db.crud.base.base import TenantCRUDBase
-from src.db.models.academics.attendance import Attendance, AttendanceStatus
+from src.db.models.academics.attendance import Attendance, AttendanceStatus, calculate_attendance_rate
 from src.schemas.academics.attendance import AttendanceCreate, AttendanceUpdate
 
 class CRUDAttendance(TenantCRUDBase[Attendance, AttendanceCreate, AttendanceUpdate]):
     """CRUD operations for Attendance model."""
-    
+
     def get_by_student_and_date(
-        self, 
-        db: Session, 
-        tenant_id: Any, 
-        student_id: UUID, 
+        self,
+        db: Session,
+        tenant_id: Any,
+        student_id: UUID,
         attendance_date: date,
         class_id: Optional[UUID] = None
     ) -> Optional[Attendance]:
@@ -27,6 +27,31 @@ class CRUDAttendance(TenantCRUDBase[Attendance, AttendanceCreate, AttendanceUpda
         )
         if class_id:
             query = query.filter(Attendance.class_id == class_id)
+        return query.first()
+
+    def get_for_period(
+        self,
+        db: Session,
+        tenant_id: Any,
+        student_id: UUID,
+        class_id: UUID,
+        attendance_date: date,
+        schedule_id: Optional[UUID] = None,
+        period: Optional[str] = None
+    ) -> Optional[Attendance]:
+        """Get the record matching the unique key (student, class, date, schedule or period)."""
+        query = db.query(Attendance).filter(
+            Attendance.tenant_id == self._ensure_uuid(tenant_id),
+            Attendance.student_id == student_id,
+            Attendance.class_id == class_id,
+            Attendance.date == attendance_date
+        )
+        # Mirrors coalesce(schedule_id, period, 'day') in the unique index
+        if schedule_id:
+            query = query.filter(Attendance.schedule_id == schedule_id)
+        else:
+            query = query.filter(Attendance.schedule_id.is_(None))
+            query = query.filter(Attendance.period == period if period else Attendance.period.is_(None))
         return query.first()
     
     def get_by_class_and_date(
@@ -145,20 +170,13 @@ class CRUDAttendance(TenantCRUDBase[Attendance, AttendanceCreate, AttendanceUpda
         
         total_records = sum(count for _, count in status_counts)
         
-        summary = {
+        status_breakdown = {status.value: count for status, count in status_counts}
+
+        return {
             'total_records': total_records,
-            'status_breakdown': {status.value: count for status, count in status_counts},
-            'attendance_rate': 0.0
+            'status_breakdown': status_breakdown,
+            'attendance_rate': calculate_attendance_rate(status_breakdown)
         }
-        
-        # Calculate attendance rate (present + late / total)
-        present_count = summary['status_breakdown'].get('present', 0)
-        late_count = summary['status_breakdown'].get('late', 0)
-        
-        if total_records > 0:
-            summary['attendance_rate'] = ((present_count + late_count) / total_records) * 100
-        
-        return summary
     
     def bulk_create_attendance(
         self, 
@@ -218,7 +236,7 @@ class CRUDAttendance(TenantCRUDBase[Attendance, AttendanceCreate, AttendanceUpda
         if check_out_time is not None:
             update_data['check_out_time'] = check_out_time
         if comments is not None:
-            update_data['comments'] = comments
+            update_data['notes'] = comments
         
         return self.update(db, tenant_id, db_obj=attendance, obj_in=update_data)
 
@@ -237,9 +255,13 @@ class CRUDAttendance(TenantCRUDBase[Attendance, AttendanceCreate, AttendanceUpda
         end_date: Optional[date] = None,
         status_filter: Optional[AttendanceStatus] = None
     ) -> List[Attendance]:
-        """Get multiple attendance records with pagination and optional filters."""
-        tenant_id = self._ensure_uuid(tenant_id)
-        query = db.query(Attendance).filter(Attendance.tenant_id == tenant_id)
+        """Get multiple attendance records with pagination and optional filters.
+
+        tenant_id=None lists across all tenants; only the super-admin service passes it.
+        """
+        query = db.query(Attendance)
+        if tenant_id is not None:
+            query = query.filter(Attendance.tenant_id == self._ensure_uuid(tenant_id))
 
         if student_id:
             query = query.filter(Attendance.student_id == student_id)

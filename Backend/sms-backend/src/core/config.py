@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-for-development")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30  # 30 minutes
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30  # 30 days
+    # Signs student ID-card QR codes. Separate from SECRET_KEY so either can be rotated
+    # alone; changing it invalidates every printed card. Card/scan endpoints refuse to run unset.
+    ATTENDANCE_QR_SECRET: str = os.getenv("ATTENDANCE_QR_SECRET", "")
     
     # Password policy settings
     PASSWORD_MIN_LENGTH: int = int(os.getenv("PASSWORD_MIN_LENGTH", "8"))

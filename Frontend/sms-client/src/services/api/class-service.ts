@@ -17,6 +17,7 @@ export function useClassService() {
         if (filters?.section_id) queryParams.append('section_id', filters.section_id);
         if (filters?.subject_id) queryParams.append('subject_id', filters.subject_id);
         if (filters?.teacher_id) queryParams.append('teacher_id', filters.teacher_id);
+        if (filters?.class_teacher_id) queryParams.append('class_teacher_id', filters.class_teacher_id);
         if (filters?.is_active !== undefined) queryParams.append('is_active', filters.is_active.toString());
         if (filters?.search) queryParams.append('search', filters.search);
         queryParams.append('skip', '0');

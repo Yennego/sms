@@ -76,6 +76,10 @@ export default function AdminDashboardPage() {
         router.push(`/${stableTenant?.domain || stableTenant?.id}/teacher/dashboard`);
       } else if (userRole === 'student') {
         router.push(`/${stableTenant?.domain || stableTenant?.id}/student/dashboard`);
+      } else if (userRole === 'attendance-scanner') {
+        router.push(`/${stableTenant?.domain || stableTenant?.id}/attendance/scan`);
+      } else if (userRole === 'parent') {
+        router.push(`/${stableTenant?.domain || stableTenant?.id}/parent/attendance`);
       } else {
         router.push(`/${stableTenant?.domain || stableTenant?.id}/dashboard`);
       }

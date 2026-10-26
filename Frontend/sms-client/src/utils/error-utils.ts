@@ -116,3 +116,7 @@ export const createError = {
   server: (message = 'Server error', originalError?: unknown) => 
     new AppError(message, ErrorType.SERVER, 500, originalError),
 };
+
+/** Message of a caught error (AppError and other Errors), or the fallback. */
+export const errorMessageOf = (error: unknown, fallback: string): string =>
+  error instanceof Error && error.message ? error.message : fallback;

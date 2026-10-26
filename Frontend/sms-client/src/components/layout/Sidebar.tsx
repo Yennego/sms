@@ -33,7 +33,9 @@ import {
   Award,
   Shield,
   ListChecks,
-  BarChart3
+  BarChart3,
+  ScanLine,
+  IdCard
 } from 'lucide-react';
 
 // Helper function to extract tenant domain from current path
@@ -106,8 +108,13 @@ function getNavigation(rawRole: string, tenantDomain?: string): MenuItem[] {
         name: 'Attendance Hub',
         icon: ClipboardList,
         children: [
-          { name: 'Mark Attendance', href: tenantDomain ? `/${tenantDomain}/academics/attendance` : '/academics/attendance', icon: ClipboardList },
+          { name: 'Mark Attendance', href: tenantDomain ? `/${tenantDomain}/attendance/daily` : '/attendance/daily', icon: ClipboardList },
+          { name: 'Scan ID Cards', href: tenantDomain ? `/${tenantDomain}/attendance/scan` : '/attendance/scan', icon: ScanLine },
+          { name: 'Student ID Cards', href: tenantDomain ? `/${tenantDomain}/attendance/id-cards` : '/attendance/id-cards', icon: IdCard },
+          { name: 'Absence Excuses', href: tenantDomain ? `/${tenantDomain}/attendance/excuses` : '/attendance/excuses', icon: FileText },
+          { name: 'Period Attendance', href: tenantDomain ? `/${tenantDomain}/academics/attendance` : '/academics/attendance', icon: ListChecks },
           { name: 'Attendance Reports', href: tenantDomain ? `/${tenantDomain}/attendance/reports` : '/attendance/reports', icon: FileText },
+          { name: 'Attendance Settings', href: tenantDomain ? `/${tenantDomain}/settings/attendance` : '/settings/attendance', icon: Settings },
         ]
       },
 
@@ -199,6 +206,7 @@ function getNavigation(rawRole: string, tenantDomain?: string): MenuItem[] {
         children: [
           { name: 'My Classes', href: tenantDomain ? `/${tenantDomain}/teacher/classes` : '/teacher/classes', icon: BookOpen },
           { name: 'Attendance', href: tenantDomain ? `/${tenantDomain}/teacher/attendance` : '/teacher/attendance', icon: ClipboardList },
+          { name: 'Scan Cards', href: tenantDomain ? `/${tenantDomain}/attendance/scan` : '/attendance/scan', icon: ScanLine },
           { name: 'Timetable', href: tenantDomain ? `/${tenantDomain}/academics/timetables` : '/academics/timetables', icon: Calendar },
         ]
       },
@@ -244,6 +252,20 @@ function getNavigation(rawRole: string, tenantDomain?: string): MenuItem[] {
       },
 
       { name: 'Communication', href: tenantDomain ? `/${tenantDomain}/student/communication` : '/student/communication', icon: MessageSquare },
+    ];
+  }
+
+  // Parents: their children's attendance and absence reporting
+  if (role === 'parent') {
+    return [
+      { name: 'Attendance', href: tenantDomain ? `/${tenantDomain}/parent/attendance` : '/parent/attendance', icon: ClipboardList },
+    ];
+  }
+
+  // Gate/kiosk staff: scanning only
+  if (role === 'attendance-scanner') {
+    return [
+      { name: 'Scan ID Cards', href: tenantDomain ? `/${tenantDomain}/attendance/scan` : '/attendance/scan', icon: ScanLine },
     ];
   }
 

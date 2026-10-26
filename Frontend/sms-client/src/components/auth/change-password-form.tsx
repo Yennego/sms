@@ -51,6 +51,10 @@ export default function ChangePasswordForm() {
         router.push(createTenantPath('/teacher/dashboard'));
       } else if (userRole === 'student') {
         router.push(createTenantPath('/student/dashboard'));
+      } else if (userRole === 'attendance-scanner') {
+        router.push(createTenantPath('/attendance/scan'));
+      } else if (userRole === 'parent') {
+        router.push(createTenantPath('/parent/attendance'));
       } else {
         router.push(createTenantPath('/dashboard'));
       }
