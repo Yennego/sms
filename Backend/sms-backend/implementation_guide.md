@@ -1221,6 +1221,44 @@ Differences from the plan:
 - Optional: notify the parent when a student is auto-marked absent (`src/services/notification/`).
 - Data migration: copy existing `attendances` rows into `daily_attendances`, one per student per date. Pick the best status in this order: present > late > tardy > excused > sick > absent. Set `source=manual`.
 
+#### 6.5.1 Done So Far (2026-10-26), Plus Excuse Follow-ups
+
+**Done:**
+
+- **The student's "My Attendance" page** now shows school-day attendance: summary tiles (rate, school days, present, late, absent, excused/sick) and every recorded day. Component: `components/attendance/DailyAttendanceHistory.tsx`.
+- **New parent page** at `[tenantDomain]/parent/attendance`:
+  - The parent picks a child, sees their attendance, and can **report an absence**. The form allows up to 14 days back or 30 days ahead, needs a reason, and takes an optional document.
+  - Parents get a sidebar entry and are sent to this page after login.
+  - Before this there was no parent area in the frontend; parents landed on a generic dashboard.
+- **Excuse documents:**
+  - Stored in the **database** (`attendance_documents`, migration `f1c9d3e7a2b5`), because the app has no persistent file storage and Render's disk is wiped on deploy.
+  - Documents travel as base64 JSON, because binary bodies don't pass reliably through the Next.js proxy.
+  - Images are re-encoded to JPEG (longest side 1600 px). This also strips metadata such as GPS location from phone photos.
+  - A PDF must start with `%PDF-`. The limit is 5 MB; allowed types are JPEG, PNG, WebP and PDF.
+  - Sponsors can attach a document in the roster's "Excused" dialog. Anyone allowed to see the record can open it.
+- **Excuse review:**
+  - Admins see a review queue at `[tenantDomain]/attendance/excuses`, with Pending / Approved / Rejected tabs, approve/reject, and document viewing.
+  - Approving changes the day to `excused` **only if** it is `absent`. If the child came in after all (for example, was scanned), the status stays.
+  - A sponsor's present/absent mark keeps a parent's **pending** excuse. Marking `excused` approves it with the sponsor's reason.
+
+New endpoints (all under `/academics/attendance/daily`):
+
+| Method & path | Roles | Purpose |
+|---|---|---|
+| `GET /my-children` | parent | The signed-in parent's linked children with their class |
+| `POST /excuses` | parent | Report an absence (creates an `absent` record if none) with a `pending` excuse |
+| `GET /excuses?status=pending` | admin | Review queue; "submitted by" comes from the latest `excuse_set` event |
+| `GET /{daily_id}/excuse/document` | admin, sponsor, the student, their parent | The document (base64) |
+| `PUT /{daily_id}/excuse` | admin, sponsor | Now also accepts `document` |
+
+Tests: `tests/test_attendance_excuses.py` (14). The whole attendance suite is 71 tests.
+
+**Still to do in Phase 4:** admin dashboard tiles, switching the sponsor dashboard and the attendance grade sync to `daily_attendances`, the data migration from `attendances`, and parent notifications. The admin pages `attendance/reports` and `attendance/students` still read period attendance (see the TypeScript errors listed in 6.2.1).
+
+**Housekeeping found along the way:**
+- `poetry.lock` was regenerated (`segno`, `tzdata`). It also picked up `pywhatkit` and its dependencies, which `pyproject.toml` already declared but the old lock had never included.
+- `pywhatkit` is imported by `src/services/notification/whatsapp_service.py` but is **not** in `requirements.txt`, which is what Render installs.
+
 ---
 
 ### 6.6 Testing Checklist

@@ -851,7 +851,7 @@ class TenantBaseService(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
 
 ## 6. Attendance Module (`academics/attendance`)
 
-**Status: Phase 1 (fixes) done 2026-10-24, see 6.2.1. Phase 2 (daily attendance) done 2026-10-26, see 6.3.6. Phases 3–4 not started.**
+**Status: Phase 1 (fixes) done 2026-10-24, see 6.2.1. Phase 2 (daily attendance) and Phase 3 (QR cards and scanning) done 2026-10-26, see 6.3.6 and 6.4.6. Phase 4 partly done, see 6.5.1.**
 
 Goal: a student is marked present for a school day by scanning the QR code on their ID card. The manual flow stays: the class sponsor or an admin can mark or correct any student, and record an excuse.
 
@@ -1161,6 +1161,57 @@ Only students with an **active** `ClassEnrollment` in the current academic year 
 - Use a manual "type admission number" fallback when a card is damaged. It goes through the **manual** endpoint (logged as `manual_set`), not the scan endpoint.
 - Offline queue (optional, later): store scans in IndexedDB with the device timestamp and send them when back online. The server keeps the earliest `check_in_at`.
 
+#### 6.4.6 Phase 3: What Was Done (and Where It Differs From the Plan Above)
+
+All of 6.4 is implemented except the offline queue.
+
+| Layer | File |
+|---|---|
+| Token | `src/services/academics/qr_card_service.py`: `build_token`, `verify_token`, `qr_svg` (segno 1.6.6). The token is about 75 characters, which makes a version-5 QR. |
+| Scanning & cards | `src/services/academics/attendance_scan_service.py` (subclass of `DailyAttendanceService`) |
+| API | `src/api/v1/endpoints/academics/attendance_scan_api.py`, mounted before `attendance_api` |
+| Migration | `alembic/versions/e8f4a6b1c372_student_id_cards.py`: `students.card_version`, `students.card_issued_at`, and the `attendance-scanner` role |
+| Cron | `scripts/close_attendance_days.py` |
+| Tests | `tests/test_attendance_scan.py` (14 tests) |
+| Frontend | `attendance/scan` (scanner), `attendance/id-cards` (print + reissue), sidebar links, and post-login redirect for the scanner role |
+
+**Secret:** `ATTENDANCE_QR_SECRET` is in `src/core/config.py`. Without it, card and scan endpoints return 400 "QR ID cards are not configured". `render.yaml` generates it (`generateValue: true`). **Never change it after cards are printed:** every card would stop working.
+
+Differences from the plan:
+
+- **Endpoint paths:** the card endpoints live under the attendance router, not `/people/students/...`:
+  - `GET /academics/attendance/id-cards?class_id=` returns cards with inline QR SVG.
+  - `GET /academics/attendance/id-cards/{student_id}` returns one card.
+  - `POST /academics/attendance/id-cards/{student_id}/reissue` issues a new card version.
+  - `POST /academics/attendance/scan/manual` is the admission-number fallback. It is recorded as `manual_set` with source `manual`.
+- **Role name:** `attendance-scanner` (hyphenated, like `super-admin` and `tenant-admin`). Assign it on the existing **Admin → Role Assignment** page. Users whose primary (first) role is `attendance-scanner` land on the scan page after login and see only that menu entry.
+- **Precedence additions:**
+  - A scan also upgrades a **manual** `absent` (not only `auto`), because the student is physically there.
+  - Scans of `excused`/`sick` students return `duplicate` with the kept status.
+- **Extra reject reasons:** `unknown_student` (valid signature, but the student doesn't exist), `not_your_class` (a sponsor scanning another class), `checkout_disabled`, `not_checked_in`.
+- **Rate limit:** reuses `rate_limit(120, 60)` from `src/services/base/rate_limit.py`. That limiter is keyed per **client IP + path** (not per user), and it is off when Redis is unavailable.
+- **Scheduled auto-absent:** a script, not an HTTP call with a service token. It runs inside the backend's environment against the database, so no extra credentials are needed:
+
+  ```yaml
+  # render.yaml — NOT added automatically (a Render cron job is a separate billed service)
+  - type: cron
+    name: sms-close-attendance
+    runtime: python
+    rootDir: Backend/sms-backend
+    schedule: "*/30 * * * *"        # every 30 min; idempotent and checks each school's own timezone
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m scripts.close_attendance_days
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+  ```
+
+  Without the cron job, nothing is lost. Opening a class roster after the cut-off still fills in absences, and admins can press **Close day**.
+- **Scanner page:** one input accepts both handheld USB/Bluetooth scanners (they type the token and press Enter) and typed admission numbers. Camera scanning is optional (start/stop). The camera ignores the same card for 4 s, and results stay on screen for 2.5 s. The device name is kept in `localStorage`.
+- **ID card page:** prints only the card sheet (CR80, 85.6 × 54 mm). The QR SVG is generated by the server.
+
 ---
 
 ### 6.5 Phase 4: Reporting and Integration
@@ -1169,6 +1220,44 @@ Only students with an **active** `ClassEnrollment` in the current academic year 
 - Admin dashboard tiles for today: scanned in / late / absent / excused / not yet marked, by class.
 - Optional: notify the parent when a student is auto-marked absent (`src/services/notification/`).
 - Data migration: copy existing `attendances` rows into `daily_attendances`, one per student per date. Pick the best status in this order: present > late > tardy > excused > sick > absent. Set `source=manual`.
+
+#### 6.5.1 Done So Far (2026-10-26), Plus Excuse Follow-ups
+
+**Done:**
+
+- **The student's "My Attendance" page** now shows school-day attendance: summary tiles (rate, school days, present, late, absent, excused/sick) and every recorded day. Component: `components/attendance/DailyAttendanceHistory.tsx`.
+- **New parent page** at `[tenantDomain]/parent/attendance`:
+  - The parent picks a child, sees their attendance, and can **report an absence**. The form allows up to 14 days back or 30 days ahead, needs a reason, and takes an optional document.
+  - Parents get a sidebar entry and are sent to this page after login.
+  - Before this there was no parent area in the frontend; parents landed on a generic dashboard.
+- **Excuse documents:**
+  - Stored in the **database** (`attendance_documents`, migration `f1c9d3e7a2b5`), because the app has no persistent file storage and Render's disk is wiped on deploy.
+  - Documents travel as base64 JSON, because binary bodies don't pass reliably through the Next.js proxy.
+  - Images are re-encoded to JPEG (longest side 1600 px). This also strips metadata such as GPS location from phone photos.
+  - A PDF must start with `%PDF-`. The limit is 5 MB; allowed types are JPEG, PNG, WebP and PDF.
+  - Sponsors can attach a document in the roster's "Excused" dialog. Anyone allowed to see the record can open it.
+- **Excuse review:**
+  - Admins see a review queue at `[tenantDomain]/attendance/excuses`, with Pending / Approved / Rejected tabs, approve/reject, and document viewing.
+  - Approving changes the day to `excused` **only if** it is `absent`. If the child came in after all (for example, was scanned), the status stays.
+  - A sponsor's present/absent mark keeps a parent's **pending** excuse. Marking `excused` approves it with the sponsor's reason.
+
+New endpoints (all under `/academics/attendance/daily`):
+
+| Method & path | Roles | Purpose |
+|---|---|---|
+| `GET /my-children` | parent | The signed-in parent's linked children with their class |
+| `POST /excuses` | parent | Report an absence (creates an `absent` record if none) with a `pending` excuse |
+| `GET /excuses?status=pending` | admin | Review queue; "submitted by" comes from the latest `excuse_set` event |
+| `GET /{daily_id}/excuse/document` | admin, sponsor, the student, their parent | The document (base64) |
+| `PUT /{daily_id}/excuse` | admin, sponsor | Now also accepts `document` |
+
+Tests: `tests/test_attendance_excuses.py` (14). The whole attendance suite is 71 tests.
+
+**Still to do in Phase 4:** admin dashboard tiles, switching the sponsor dashboard and the attendance grade sync to `daily_attendances`, the data migration from `attendances`, and parent notifications. The admin pages `attendance/reports` and `attendance/students` still read period attendance (see the TypeScript errors listed in 6.2.1).
+
+**Housekeeping found along the way:**
+- `poetry.lock` was regenerated (`segno`, `tzdata`). It also picked up `pywhatkit` and its dependencies, which `pyproject.toml` already declared but the old lock had never included.
+- `pywhatkit` is imported by `src/services/notification/whatsapp_service.py` but is **not** in `requirements.txt`, which is what Render installs.
 
 ---
 
