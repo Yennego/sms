@@ -4,6 +4,7 @@
 // sees it. This module only decodes the payload for routing decisions: the backend verifies the
 // signature on every request and stays the authority on who may do what.
 import type { CookieNamespace } from '@/utils/cookie-manager';
+import { isPlatformPath } from '@/config/reserved-slugs';
 
 export const SESSION_NAMESPACES: CookieNamespace[] = ['SUPER_ADMIN', 'TENANT', 'DEFAULT'];
 
@@ -44,7 +45,7 @@ export function preferredNamespace(headers: Headers): CookieNamespace | null {
   const referer = headers.get('referer');
   if (referer) {
     try {
-      return new URL(referer).pathname.startsWith('/super-admin') ? 'SUPER_ADMIN' : 'TENANT';
+      return isPlatformPath(new URL(referer).pathname) ? 'SUPER_ADMIN' : 'TENANT';
     } catch {
       return null;
     }

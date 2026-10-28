@@ -43,7 +43,7 @@ export function createWaitForApiClientReady(apiClient: ApiClient | null) {
 
 // Where to send the user when the backend says the session is over or a password change is due
 function sessionExpiredPath(tenantId: string | null): string {
-  if (getCurrentContext() === 'SUPER_ADMIN') return '/super-admin/login';
+  if (getCurrentContext() === 'SUPER_ADMIN') return '/platform/login';
   // The school's slug, never its id (the id only when no slug is known at all)
   const school = currentSchoolSlug() || tenantId;
   return school ? `/${school}/session-expired` : '/session-expired';

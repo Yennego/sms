@@ -71,7 +71,7 @@ export default function AdminDashboardPage() {
     if (!authLoading && user && !isAdmin) {
       // Redirect non-admin users to appropriate dashboard
       if (userRole === 'super_admin') {
-        router.push('/super-admin/dashboard');
+        router.push('/platform/dashboard');
       } else if (userRole === 'teacher') {
         router.push(`/${stableTenant?.domain || stableTenant?.id}/teacher/dashboard`);
       } else if (userRole === 'student') {

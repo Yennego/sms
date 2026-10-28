@@ -35,7 +35,7 @@ function LoginPageContent() {
         ));
 
       if (isSuperAdmin) {
-        router.push('/super-admin/dashboard');
+        router.push('/platform/dashboard');
       }
     }
   }, [isAuthenticated, user, router]);
@@ -59,7 +59,7 @@ function LoginPageContent() {
         ));
 
       if (isSuperAdmin) {
-        router.push('/super-admin/dashboard');
+        router.push('/platform/dashboard');
       } else {
         setError('This login is for Super Admins only.');
         // Don't log out, just show error. They might be a regular admin on the wrong page.

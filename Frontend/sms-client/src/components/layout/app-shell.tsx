@@ -300,12 +300,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
   );
 }
 
-/** The platform operator's pages (`/super-admin/...`). */
+/** The platform operator's pages (`/platform/...`). */
 export function PlatformShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const userMenu: MenuLink[] = [
-    { label: 'Your profile', href: '/super-admin/profile', icon: UserCog },
-    { label: 'Roles and permissions', href: '/super-admin/roles-permissions', icon: ShieldCheck },
+    { label: 'Your profile', href: '/platform/profile', icon: UserCog },
+    { label: 'Roles and permissions', href: '/platform/roles-permissions', icon: ShieldCheck },
   ];
   return (
     <ShellFrame

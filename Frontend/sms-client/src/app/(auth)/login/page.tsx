@@ -58,8 +58,8 @@ export default function LoginPage() {
         ));
 
       if (isSuperAdmin) {
-        console.log('LoginPage useEffect: Super admin detected, redirecting to /super-admin/dashboard');
-        router.push('/super-admin/dashboard');
+        console.log('LoginPage useEffect: Super admin detected, redirecting to /platform/dashboard');
+        router.push('/platform/dashboard');
       } else {
         // For regular users, check if they have a tenant_id
         const tenantId = user.tenantId;
@@ -141,8 +141,8 @@ export default function LoginPage() {
           ));
 
         if (isSuperAdmin) {
-          console.log('handleSubmit: Super admin login, redirecting to /super-admin/dashboard');
-          router.push('/super-admin/dashboard');
+          console.log('handleSubmit: Super admin login, redirecting to /platform/dashboard');
+          router.push('/platform/dashboard');
         } else {
           // For regular users, determine the correct tenant dashboard
           const tenantId = result?.user?.tenantId;

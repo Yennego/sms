@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertTriangle, Home, RefreshCw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useTenantNavigation } from '@/hooks/use-tenant';
+import { isPlatformPath } from '@/config/reserved-slugs';
 import { useAuth } from '@/hooks/use-auth';
 
 interface ErrorBoundaryState {
@@ -58,8 +59,8 @@ const DefaultErrorFallback: React.FC<{ error?: Error; resetError: () => void }> 
   const handleGoHome = () => {
     // Smart redirect based on current location and user role
     const currentPath = window.location.pathname;
-    if (currentPath.startsWith('/super-admin')) {
-      router.push('/super-admin/dashboard');
+    if (isPlatformPath(currentPath)) {
+      router.push('/platform/dashboard');
     } else {
       // Role-based redirect for tenant users
       const userRole = user?.role || 
@@ -70,7 +71,7 @@ const DefaultErrorFallback: React.FC<{ error?: Error; resetError: () => void }> 
           'admin');
       
       if (userRole === 'super_admin' || userRole === 'super-admin' || userRole === 'superadmin') {
-        router.push('/super-admin/dashboard');
+        router.push('/platform/dashboard');
       } else if (userRole === 'admin') {
         router.push(createTenantPath('/admin-dashboard'));
       } else if (userRole === 'teacher') {

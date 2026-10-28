@@ -22,7 +22,7 @@ const REFRESH_MAX_AGE = 30 * 24 * 60 * 60; // matches REFRESH_TOKEN_EXPIRE_DAYS 
 const ACCESS_MAX_AGE = REFRESH_MAX_AGE;
 const SECURE = process.env.NODE_ENV === 'production';
 
-/** Super-admins use the SUPER_ADMIN namespace (the /super-admin pages look for sa_ cookies first). */
+/** Super-admins use the SUPER_ADMIN namespace (the /platform pages look for sa_ cookies first). */
 export function namespaceForToken(accessToken: string): CookieNamespace {
   return decodeJwtPayload(accessToken).is_super_admin === true ? 'SUPER_ADMIN' : 'TENANT';
 }

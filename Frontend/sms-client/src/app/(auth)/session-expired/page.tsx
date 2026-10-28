@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { useTenantNavigation } from '@/hooks/use-tenant';
+import { isPlatformPath } from '@/config/reserved-slugs';
 
 function normalizeRole(user: any): string | null {
   if (!user) return null;
@@ -23,7 +24,7 @@ export default function SessionExpiredPage() {
 
   const currentPathIsSuperAdmin = useMemo(() => {
     if (typeof window === 'undefined') return false;
-    return window.location.pathname.startsWith('/super-admin');
+    return isPlatformPath(window.location.pathname);
   }, []);
 
   const userRole = useMemo(() => normalizeRole(user), [user]);
@@ -41,7 +42,7 @@ export default function SessionExpiredPage() {
       userRole === 'parent');
 
   const loginPath = useMemo(() => {
-    if (isSuperAdmin) return '/super-admin/login';
+    if (isSuperAdmin) return '/platform/login';
     if (isTenantRole) return createTenantPath('/login');
     return '/login';
   }, [isSuperAdmin, isTenantRole, createTenantPath]);

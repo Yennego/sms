@@ -19,14 +19,14 @@ export default function SuperAdminLayout({
 
   useEffect(() => {
     // Bypass auth checks for login page
-    if (pathname === '/super-admin/login') {
+    if (pathname === '/platform/login') {
       return;
     }
 
     if (hasInitialized && !hasRedirected.current) {
       if (!isAuthenticated) {
         hasRedirected.current = true;
-        router.push('/super-admin/login');
+        router.push('/platform/login');
         return;
       }
 
@@ -72,7 +72,7 @@ export default function SuperAdminLayout({
     ));
 
   // Bypass render check for login page
-  if (pathname === '/super-admin/login') {
+  if (pathname === '/platform/login') {
     return <>{children}</>;
   }
 

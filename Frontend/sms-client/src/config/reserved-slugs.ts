@@ -18,6 +18,15 @@ export const RESERVED_SLUGS: readonly string[] = [
 
 const RESERVED = new Set(RESERVED_SLUGS);
 
+/**
+ * True for the platform operator's pages: /platform/... (and the old /super-admin/... address,
+ * which next.config.ts redirects to /platform). These pages use the SUPER_ADMIN (sa_) cookies.
+ */
+export function isPlatformPath(pathname: string | null | undefined): boolean {
+  const first = pathname?.split('/').filter(Boolean)[0]?.toLowerCase();
+  return first === 'platform' || first === 'super-admin';
+}
+
 /** True when this first path segment can't be a school (case-insensitive). */
 export function isReservedSlug(segment: string | null | undefined): boolean {
   return !!segment && RESERVED.has(segment.toLowerCase());

@@ -45,7 +45,7 @@ export class SuperAdminApiClient {
         if (error.response && typeof window !== 'undefined') {
           // The proxy already tried a token refresh, so a 401 means the session is over
           if (error.response.status === 401) {
-            window.location.href = '/super-admin/login';
+            window.location.href = '/platform/login';
           } else if (error.response.status === 403 && error.response.headers?.['x-password-change-required'] === '1'
             && window.location.pathname !== '/change-password') {
             window.location.href = '/change-password';

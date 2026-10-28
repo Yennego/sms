@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { COOKIE_NAMESPACES, getNamespacedKey } from './utils/cookie-manager';
 import { getSession, getSuperAdminSession } from './lib/session';
 import { rejectCrossSite } from './app/api/_lib/csrf';
-import { isReservedSlug } from './config/reserved-slugs';
+import { isPlatformPath, isReservedSlug } from './config/reserved-slugs';
 
 type CookieNamespace = keyof typeof COOKIE_NAMESPACES;
 
@@ -12,7 +12,7 @@ function maskToken(token: string | undefined): string {
 }
 
 function getContextFromPath(pathname: string): CookieNamespace {
-  if (pathname.startsWith('/super-admin')) {
+  if (isPlatformPath(pathname)) {
     return 'SUPER_ADMIN';
   }
   
@@ -160,7 +160,7 @@ export async function middleware(request: NextRequest) {
   // Basic normalization
   const segs = pathname.split('/');
   const first = segs[1];
-  const reserved = ['api', '_next', 'static', 'super-admin'];
+  const reserved = ['api', '_next', 'static', 'platform', 'super-admin'];
 
   if (first && /[A-Z]/.test(first) && !reserved.includes(first.toLowerCase())) {
     segs[1] = first.toLowerCase();
@@ -178,7 +178,7 @@ export async function middleware(request: NextRequest) {
     if (blocked) return blocked;
   }
 
-  // Signed in = an access cookie (httpOnly) in any namespace; /super-admin pages need a super-admin one
+  // Signed in = an access cookie (httpOnly) in any namespace; /platform pages need a super-admin one
   const session = context === 'SUPER_ADMIN'
     ? getSuperAdminSession(request.cookies)
     : getSession(request.cookies, context);
@@ -238,7 +238,7 @@ export async function middleware(request: NextRequest) {
   }
   
   const isPublicRoute = [
-    '/login', '/session-expired', '/super-admin/login', '/register',
+    '/login', '/session-expired', '/platform/login', '/register',
     '/forgot-password', '/reset-password', '/_next', '/favicon.ico',
     '/api/auth/login', '/api/auth/logout', '/api/auth/me',
     '/api/auth/forgot-password', '/api/auth/reset-password',
@@ -265,8 +265,8 @@ export async function middleware(request: NextRequest) {
   if (!isPublic) {
     if (!session) {
       if (context === 'SUPER_ADMIN') {
-        console.log(`[Middleware] No super-admin session. Redirecting to super-admin login.`);
-        return NextResponse.redirect(new URL('/super-admin/login', request.url));
+        console.log(`[Middleware] No super-admin session. Redirecting to /platform/login.`);
+        return NextResponse.redirect(new URL('/platform/login', request.url));
       }
       console.log(`[Middleware] No session. Redirecting to session-expired.`);
       const target = (tenantId) ? `/${schoolPathSegment(request, context, tenantId)}/session-expired` : '/session-expired';

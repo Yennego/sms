@@ -205,7 +205,7 @@ const ROLE_PRIORITY = [
 ];
 
 export const SUPER_ADMIN_ROLES = ['super-admin', 'superadmin', 'super_admin'];
-export const SUPER_ADMIN_HOME = '/super-admin/dashboard';
+export const SUPER_ADMIN_HOME = '/platform/dashboard';
 
 /** The platform operator's menu (absolute paths; "Plans and billing" arrives with Phase 7). */
 export const PLATFORM_NAVIGATION: RoleNavigation = {
@@ -213,21 +213,21 @@ export const PLATFORM_NAVIGATION: RoleNavigation = {
   areas: [
     {
       key: 'home', label: 'Home', icon: Home,
-      tabs: [tab('Overview', SUPER_ADMIN_HOME), tab('Analytics', '/super-admin/analytics')],
+      tabs: [tab('Overview', SUPER_ADMIN_HOME), tab('Analytics', '/platform/analytics')],
     },
-    { key: 'schools', label: 'Schools', icon: School, tabs: [tab('Schools', '/super-admin/tenants')] },
+    { key: 'schools', label: 'Schools', icon: School, tabs: [tab('Schools', '/platform/tenants')] },
     {
       key: 'users', label: 'Users', icon: Users,
-      tabs: [tab('Users', '/super-admin/users'), tab('Roles and permissions', '/super-admin/roles-permissions')],
+      tabs: [tab('Users', '/platform/users'), tab('Roles and permissions', '/platform/roles-permissions')],
     },
-    { key: 'audit', label: 'Audit', icon: History, tabs: [tab('Security and audit', '/super-admin/security')] },
+    { key: 'audit', label: 'Audit', icon: History, tabs: [tab('Security and audit', '/platform/security')] },
     {
       key: 'system', label: 'System', icon: Settings,
       tabs: [
-        tab('Settings', '/super-admin/settings'),
-        tab('Health', '/super-admin/health'),
-        tab('Database', '/super-admin/database'),
-        tab('API docs', '/super-admin/api-docs'),
+        tab('Settings', '/platform/settings'),
+        tab('Health', '/platform/health'),
+        tab('Database', '/platform/database'),
+        tab('API docs', '/platform/api-docs'),
       ],
     },
   ],

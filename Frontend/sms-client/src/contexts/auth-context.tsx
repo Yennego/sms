@@ -6,6 +6,7 @@ import cookies from 'js-cookie';
 import { User } from '@/types/auth';
 import { contextualCookies, getCurrentContext } from '@/utils/cookie-manager';
 import { currentSchoolSlug } from '@/utils/tenant-utils';
+import { isPlatformPath } from '@/config/reserved-slugs';
 import axios from 'axios';
 
 // The session lives in httpOnly cookies set by the /api/auth routes. This context never sees a
@@ -296,7 +297,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Get tenant domain BEFORE clearing auth state
       const currentContext = getCurrentContext();
       const tenantDomain = contextualCookies.get('currentTenantDomain', currentContext) || localStorage.getItem('currentTenantDomain');
-      const isSA = window.location.pathname.startsWith('/super-admin');
+      const isSA = isPlatformPath(window.location.pathname);
 
       clearAuthState();
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -304,7 +305,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (options?.redirectTo) {
         router.push(options.redirectTo);
       } else if (isSA) {
-        router.push('/super-admin/login');
+        router.push('/platform/login');
       } else if (tenantDomain) {
         router.push(`/${tenantDomain}/login`);
       } else {

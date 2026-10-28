@@ -1,6 +1,6 @@
 import cookies from 'js-cookie';
 import { contextualCookies, getCurrentContext } from './cookie-manager';
-import { isReservedSlug } from '@/config/reserved-slugs';
+import { isPlatformPath, isReservedSlug } from '@/config/reserved-slugs';
 
 /**
  * Utility interface for tenant data
@@ -27,7 +27,7 @@ export function extractTenantId(): string | null {
     if (pathSegments.length > 1 && pathSegments[1] && 
         !pathSegments[1].startsWith('_') && 
         !pathSegments[1].startsWith('api') &&
-        pathSegments[1] !== 'super-admin') {
+        !isPlatformPath(pathname)) {
       
       const tenantIdentifier = pathSegments[1];
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tenantIdentifier) || 
