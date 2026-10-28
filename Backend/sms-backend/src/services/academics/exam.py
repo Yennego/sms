@@ -76,12 +76,12 @@ class ExamService(TenantBaseService[Exam, ExamCreate, ExamUpdate]):
             for field, value in filters.items():
                 if field == "period_id" and value:
                     from src.db.models.academics.period import Period
-                    period = self.db.query(Period).filter(Period.id == value).first()
+                    period = self.db.query(Period).filter(Period.id == value, Period.tenant_id == self.tenant_id).first()
                     if period:
                         query = query.filter(Exam.exam_date >= period.start_date, Exam.exam_date <= period.end_date)
                 elif field == "semester_id" and value:
                     from src.db.models.academics.semester import Semester
-                    semester = self.db.query(Semester).filter(Semester.id == value).first()
+                    semester = self.db.query(Semester).filter(Semester.id == value, Semester.tenant_id == self.tenant_id).first()
                     if semester:
                         query = query.filter(Exam.exam_date >= semester.start_date, Exam.exam_date <= semester.end_date)
                 elif hasattr(Exam, field) and value is not None:

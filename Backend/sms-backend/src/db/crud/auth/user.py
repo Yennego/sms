@@ -7,20 +7,15 @@ from typing import Optional
 from src.db.crud.base import TenantCRUDBase
 from src.db.models.auth import User, UserRole
 from src.schemas.auth.user import UserCreate, UserUpdate
-from src.core.security.password import get_password_hash, verify_password
+from src.core.security.password import get_password_hash, verify_password, generate_default_password
 from src.utils.uuid_utils import ensure_uuid
+
+SUPER_ADMIN_ROLE_NAMES = ("super-admin", "superadmin")
 import logging
-import secrets
-import string
 
 logger = logging.getLogger(__name__)
 
 
-# Add this function to generate random passwords
-def generate_default_password(length=12):
-    """Generate a secure random password."""
-    alphabet = string.ascii_letters + string.digits + string.punctuation
-    return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
     """CRUD operations for User model."""
@@ -35,11 +30,25 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
             func.lower(User.email) == email.lower()
         ).first()
     
-    def get_by_email_any_tenant(self, db: Session, email: str) -> Any:
-        """Get a user by email across all tenants (case-insensitive)."""
+    def get_super_admin_by_email(self, db: Session, email: str) -> Any:
+        """Get a platform super-admin by email (case-insensitive).
+
+        Emails are unique per school, not globally, so lookups without a school are
+        limited to super-admin accounts.
+        """
         if not email:
             return None
-        return db.query(User).filter(func.lower(User.email) == email.lower()).first()
+        return (
+            db.query(User)
+            .options(joinedload(User.roles))
+            .join(User.roles)
+            .filter(
+                func.lower(User.email) == email.lower(),
+                UserRole.name.in_(SUPER_ADMIN_ROLE_NAMES),
+                UserRole.tenant_id.is_(None),
+            )
+            .first()
+        )
     
     def has_role(self, db: Session, user_id: Any, role_name: str) -> bool:
         """Check if a user has a specific role."""
@@ -59,8 +68,8 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
         return result is not None
 
     def authenticate_global(self, db: Session, email: str, password: str) -> Any:
-        # Authenticate user globally (without tenant_id)
-        user = db.query(self.model).options(joinedload(self.model.roles)).filter(self.model.email == email).first()
+        # Without a school only super-admins can sign in (emails are unique per school)
+        user = self.get_super_admin_by_email(db, email=email)
         if not user or not verify_password(password, user.password_hash):
             return None
         return user
@@ -75,20 +84,8 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
         
         if not user:
             logger.debug(f"[AUTH] User not found in tenant {tenant_id_uuid}. Checking across all tenants...")
-            # If user not found in the specified tenant, check if they exist in any tenant
-            # and have the super-admin role
-            user_any_tenant = self.get_by_email_any_tenant(db, email=email)
-            
-            if user_any_tenant:
-                logger.debug(f"[AUTH] Found user in tenant {user_any_tenant.tenant_id}. Checking for super-admin role...")
-                if self.has_role(db, user_any_tenant.id, "super-admin"):
-                    logger.debug(f"[AUTH] User is a super-admin. Proceeding.")
-                    user = user_any_tenant
-                else:
-                    logger.debug(f"[AUTH] User found but is NOT a super-admin and NOT in requested tenant.")
-            else:
-                logger.debug(f"[AUTH] User not found in ANY tenant.")
-                return None
+            # Super-admins can sign in from any school's page
+            user = self.get_super_admin_by_email(db, email=email)
         
         if not user:
             return None
@@ -120,7 +117,7 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
             password_hash=get_password_hash(password)
         )
         db.add(db_obj)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(db_obj)
         
         # Return the generated password if it was auto-generated
@@ -144,7 +141,7 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
         # Use SQLAlchemy's update() method to avoid triggering __init__
         if update_data:
             db.query(User).filter(User.id == db_obj.id).update(update_data)
-            db.commit()
+            db.flush()  # committed once per request (get_db)
             db.refresh(db_obj)
         
         return db_obj
@@ -160,7 +157,7 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
         sort_by: Optional[str] = "created_at",
         sort_order: str = "asc",
         skip: int = 0,
-        limit: int = 100,
+        limit: int = 10,
         exclude_super_admin: bool = False
     ) -> List[Any]:
         """List users with flexible server-side filtering."""

@@ -34,7 +34,7 @@ class CRUDParent(TenantCRUDBase[Parent, ParentCreate, ParentUpdate]):
             
         parent.add_student(student)
         db.add(parent)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(parent)
         return parent
     
@@ -54,7 +54,7 @@ class CRUDParent(TenantCRUDBase[Parent, ParentCreate, ParentUpdate]):
             
         parent.remove_student(student)
         db.add(parent)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(parent)
         return parent
 

@@ -86,6 +86,15 @@ def test_class_report(school, db):
     default = at(school, db).class_report(school["cls"].id, None, None, school["admin"])
     assert (default.start_date, default.end_date) == (school["ay"].start_date, TODAY)
 
+    # A valid range that runs past today is clamped, not rejected
+    clamped = at(school, db).class_report(school["cls"].id, MONDAY, TODAY + timedelta(days=30), school["admin"])
+    assert (clamped.start_date, clamped.end_date) == (MONDAY, TODAY)
+    with pytest.raises(BusinessRuleViolationError, match="future"):
+        at(school, db).class_report(school["cls"].id, TODAY + timedelta(days=1), TODAY + timedelta(days=5), school["admin"])
+    with pytest.raises(BusinessRuleViolationError, match="academic year runs"):
+        at(school, db).class_report(school["cls"].id, school["ay"].start_date - timedelta(days=60),
+                                    school["ay"].start_date - timedelta(days=30), school["admin"])
+
 
 # --- Everything reads daily attendance -----------------------------------------------------
 

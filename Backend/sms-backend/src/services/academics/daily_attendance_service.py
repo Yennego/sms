@@ -466,13 +466,16 @@ class DailyAttendanceService:
         if not student:
             raise EntityNotFoundError("Student", student_id)
 
+        if start and end and start > end:
+            raise BusinessRuleViolationError("start_date must be on or before end_date")
+
         today = self.school_today()
+        if start and start > today:
+            raise BusinessRuleViolationError("The range can't start in the future")
         if start is None:
             ay = academic_year_for(self.db, self.tenant_id, today)
             start = ay.start_date if ay else today - timedelta(days=30)
-        end = min(end or today, today)
-        if start > end:
-            raise BusinessRuleViolationError("start_date must be on or before end_date")
+        end = max(min(end or today, today), start)
 
         records = self.db.query(DailyAttendance).filter(
             DailyAttendance.tenant_id == self.tenant_id,

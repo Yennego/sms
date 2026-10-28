@@ -1,4 +1,6 @@
 from typing import Any, Dict, List, Optional, Union
+from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.db.crud.base import CRUDBase
@@ -8,6 +10,21 @@ from src.schemas.tenant.tenant import TenantCreate, TenantUpdate
 
 class CRUDTenant(CRUDBase[Tenant, TenantCreate, TenantUpdate]):
     """CRUD operations for Tenant model."""
+
+    def remove_empty(self, db: Session, *, id: Any) -> Tenant:
+        """Delete a school that holds no records.
+
+        School data is protected by ON DELETE RESTRICT: a school with records must be
+        deactivated instead (permanent removal is a separate, audited purge).
+        """
+        try:
+            return self.remove(db, id=id)
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This school still has records. Deactivate it instead of deleting it.",
+            )
     
     def get_by_code(self, db: Session, code: str) -> Optional[Tenant]:
         """Get a tenant by its code."""
@@ -31,7 +48,7 @@ class CRUDTenant(CRUDBase[Tenant, TenantCreate, TenantUpdate]):
             db_obj = Tenant(**obj_in_data)
             print(f"[DEBUG] Created tenant object: {db_obj}")
             db.add(db_obj)
-            db.commit()
+            db.flush()  # committed once per request (get_db)
             db.refresh(db_obj)
             print(f"[DEBUG] Successfully committed tenant: {db_obj.id} - {db_obj.code}")
             return db_obj
@@ -56,7 +73,7 @@ class CRUDTenant(CRUDBase[Tenant, TenantCreate, TenantUpdate]):
                 update_data["code"] = update_data["code"].upper()
 
         db.add(db_obj)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(db_obj)
         
         return super().update(db, db_obj=db_obj, obj_in=update_data)

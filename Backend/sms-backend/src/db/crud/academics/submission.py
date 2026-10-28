@@ -56,7 +56,7 @@ class CRUDSubmission(TenantCRUDBase[Submission, SubmissionCreate, SubmissionUpda
             
         db_obj = self.model(**obj_in_data)
         db.add(db_obj)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(db_obj)
         return db_obj
 

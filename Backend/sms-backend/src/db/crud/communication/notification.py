@@ -38,7 +38,7 @@ class CRUDNotification(TenantCRUDBase[Notification, NotificationCreate, Notifica
         notification.is_read = True
         notification.status = "read"
         db.add(notification)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(notification)
         
         return notification
@@ -51,7 +51,7 @@ class CRUDNotification(TenantCRUDBase[Notification, NotificationCreate, Notifica
             Notification.is_read == False
         ).update({"is_read": True, "status": "read"})
         
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         return result
     
     def update_status(self, db: Session, tenant_id: Any, id: Any, status: str) -> Optional[Notification]:
@@ -66,7 +66,7 @@ class CRUDNotification(TenantCRUDBase[Notification, NotificationCreate, Notifica
         
         notification.status = status
         db.add(notification)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(notification)
         
         return notification

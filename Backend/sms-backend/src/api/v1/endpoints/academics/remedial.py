@@ -10,6 +10,10 @@ from src.db.session import get_db
 from src.services.academics.remedial_service import RemedialService
 from src.services.academics.promotion_service import PromotionService
 from src.services.academics.promotion_status_service import PromotionStatusService
+from src.core.security.permissions import has_permission
+
+# Changing remedial plans affects promotion decisions
+CAN_MANAGE = [Depends(has_permission("promote_students"))]
 
 router = APIRouter(prefix="/remedial", tags=["remedial"])
 
@@ -23,7 +27,7 @@ class IdentifyRiskRequest(BaseModel):
     academic_year_id: UUID
     grade_id: Optional[UUID] = None
 
-@router.post("/identify")
+@router.post("/identify", dependencies=CAN_MANAGE)
 async def identify_at_risk(
     payload: IdentifyRiskRequest,
     service: RemedialService = Depends()
@@ -33,7 +37,7 @@ async def identify_at_risk(
         grade_id=payload.grade_id
     )
 
-@router.post("/assign")
+@router.post("/assign", dependencies=CAN_MANAGE)
 async def assign_remedial(
     payload: AssignRemedialRequest,
     service: RemedialService = Depends(),
@@ -54,14 +58,16 @@ class CreateSessionsRequest(BaseModel):
     subject_ids: List[UUID]
     scheduled_date: Optional[date] = None
 
-@router.post("/sessions")
+@router.post("/sessions", dependencies=CAN_MANAGE)
 async def create_sessions(
     payload: CreateSessionsRequest,
     db: Session = Depends(get_db),
     service: RemedialService = Depends(),
 ):
     from src.db.models.academics.enrollment import Enrollment
-    enrollment = db.query(Enrollment).filter(Enrollment.id == payload.enrollment_id).first()
+    enrollment = db.query(Enrollment).filter(
+        Enrollment.id == payload.enrollment_id, Enrollment.tenant_id == service.tenant_id
+    ).first()
     if not enrollment:
         raise HTTPException(status_code=404, detail="Enrollment not found")
     created = 0
@@ -80,7 +86,7 @@ class RecordRemedialUpdateRequest(BaseModel):
     new_score: Optional[float] = None
     passed: Optional[bool] = None
 
-@router.put("/sessions/{id}")
+@router.put("/sessions/{id}", dependencies=CAN_MANAGE)
 async def update_session(
     id: UUID,
     payload: RecordRemedialUpdateRequest,

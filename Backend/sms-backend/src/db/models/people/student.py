@@ -1,5 +1,5 @@
-from sqlalchemy import Column, String, Date, DateTime, ForeignKey, Integer
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, UniqueConstraint, ForeignKeyConstraint, String, Date, DateTime, ForeignKey, Integer
+from sqlalchemy.orm import relationship, column_property
 from src.db.models.auth.user import User
 from datetime import date
 from sqlalchemy.dialects.postgresql import UUID
@@ -11,9 +11,16 @@ class Student(User):
     
     # Link to parent table
     id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
+    # Copy of users.tenant_id (one attribute writes both) so admission_number can be unique per school
+    tenant_id = column_property(Column("tenant_id", UUID(as_uuid=True), nullable=False), User.__table__.c.tenant_id)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "admission_number", name="uq_students_tenant_admission_number"),
+        ForeignKeyConstraint(["tenant_id", "id"], ["users.tenant_id", "users.id"], name="fk_students_tenant_user"),
+    )
     
     # Student-specific fields
-    admission_number = Column(String(50), nullable=False, unique=True)
+    admission_number = Column(String(50), nullable=False)  # unique per school
     roll_number = Column(Integer, nullable=True)
     # grade = Column(String(20), nullable=True) class_enrollments instead
     # section = Column(String(10), nullable=True)  
@@ -54,6 +61,8 @@ class Student(User):
     
     __mapper_args__ = {
         "polymorphic_identity": "student",
+        # Two FKs point at users (id, and tenant_id+id): join on id
+        "inherit_condition": id == User.id,
     }
 
     def graduate(self, grad_date: date):

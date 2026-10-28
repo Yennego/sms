@@ -1,6 +1,6 @@
 from uuid import UUID
-from sqlalchemy import Column, String, Date, ForeignKey, Boolean
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, UniqueConstraint, ForeignKeyConstraint, String, Date, ForeignKey, Boolean
+from sqlalchemy.orm import relationship, column_property
 from src.db.models.auth.user import User
 from datetime import date
 from sqlalchemy.dialects.postgresql import UUID
@@ -12,9 +12,16 @@ class Teacher(User):
     
     # Link to parent table
     id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
+    # Copy of users.tenant_id (one attribute writes both) so employee_id can be unique per school
+    tenant_id = column_property(Column("tenant_id", UUID(as_uuid=True), nullable=False), User.__table__.c.tenant_id)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "employee_id", name="uq_teachers_tenant_employee_id"),
+        ForeignKeyConstraint(["tenant_id", "id"], ["users.tenant_id", "users.id"], name="fk_teachers_tenant_user"),
+    )
     
     # Teacher-specific fields
-    employee_id = Column(String(50), nullable=False, unique=True)
+    employee_id = Column(String(50), nullable=False)  # unique per school
     department = Column(String(100), nullable=True)
     qualification = Column(String(200), nullable=True)
     joining_date = Column(Date, nullable=True)
@@ -42,6 +49,8 @@ class Teacher(User):
     
     __mapper_args__ = {
         "polymorphic_identity": "teacher",
+        # Two FKs point at users (id, and tenant_id+id): join on id
+        "inherit_condition": id == User.id,
     }
 
     def is_teacher_active(self) -> bool:

@@ -61,7 +61,7 @@ class NotificationDispatchService(TenantBaseService[Notification, NotificationCr
         # Get user email
         # Use text() or proper model query
         from src.db.models.auth.user import User
-        user = self.db.query(User).filter(User.id == user_id).first()
+        user = self.db.query(User).filter(User.id == user_id, User.tenant_id == self.tenant_id).first()
         if not user:
             notification_crud.update_status(
                 self.db, tenant_id=self.tenant_id, id=notification.id, status="failed"

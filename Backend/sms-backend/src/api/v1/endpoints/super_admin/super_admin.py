@@ -33,7 +33,7 @@ from src.db.models.tenant.notification_config import TenantNotificationConfig
 
 # Import security and utility functions
 from src.core.security.password import get_password_hash
-from src.services.auth.password import generate_default_password
+from src.core.security.password import generate_default_password
 from src.core.security.permissions import require_super_admin
 from src.services.tenant.dashboard import DashboardMetricsService
 from src.services.email import send_new_user_email
@@ -217,13 +217,7 @@ def create_tenant_with_admin(
     
 
 
-    # Check if admin user email already exists globally (across all tenants) BEFORE starting transaction
-    existing_user = user_crud.get_by_email_any_tenant(db, email=tenant_data.admin_user.email)
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A user with this email address already exists in the system. Please use a different email address."
-        )
+    # Emails are unique per school, so a new school's admin can't clash with existing accounts
 
     try:
         # Start transaction - all operations will be in one transaction
@@ -347,10 +341,10 @@ def create_tenant_with_admin(
         print(f"[DEBUG] Transaction rolled back due to integrity error: {str(e)}")
         
         # Check if it's a unique constraint violation on email
-        if "users_email_key" in str(e.orig):
+        if "uq_users_tenant_email" in str(e.orig):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="A user with this email address already exists in the system. Please use a different email address."
+                detail="A user with this email address already exists in this school."
             )
         else:
             # Other integrity errors
@@ -401,7 +395,7 @@ def delete_tenant(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Tenant not found"
         )
-    return tenant_crud.remove(db, id=tenant_id)
+    return tenant_crud.remove_empty(db, id=tenant_id)
 
 # New endpoints for tenant settings management
 @router.get("/tenants/{tenant_id}/settings", response_model=TenantSettings)
@@ -631,12 +625,12 @@ def create_user_cross_tenant(
     tenant_id = user_in.tenant_id
     user_create_data = user_in
     
-    # Check if user with this email already exists globally
-    existing_user = user_crud.get_by_email_any_tenant(db, email=user_in.email)
+    # Emails are unique per school
+    existing_user = user_crud.get_by_email(db, tenant_id=tenant_id, email=user_in.email)
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A user with this email address already exists in the system. Please use a different email address."
+            detail="A user with this email address already exists in this school."
         )
     
     # Generate password if not provided
@@ -659,10 +653,10 @@ def create_user_cross_tenant(
         print(f"[DEBUG] Database integrity error during user creation: {str(e)}")
         
         # Check if it's a unique constraint violation on email
-        if "users_email_key" in str(e.orig):
+        if "uq_users_tenant_email" in str(e.orig):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="A user with this email address already exists in the system. Please use a different email address."
+                detail="A user with this email address already exists in this school."
             )
         else:
             # Other integrity errors

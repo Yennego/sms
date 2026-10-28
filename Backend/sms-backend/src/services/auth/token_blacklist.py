@@ -17,7 +17,8 @@ class TokenBlacklistService:
             cls._instance.redis_available = False
             cls._instance._blacklisted_tokens = set()
             cls._instance._last_activity = {}
-            
+            cls._instance._revoked_before = {}
+
             if redis is not None:
                 try:
                     cls._instance.redis_client = redis.Redis(
@@ -55,6 +56,34 @@ class TokenBlacklistService:
         except Exception as e:
             print(f"Failed to check token blacklist: {e}")
             return False
+
+    async def revoke_user_sessions(self, user_id) -> bool:
+        """End every session of a user: tokens issued before now stop working.
+
+        Kept for the refresh-token lifetime, after which every older token has expired anyway.
+        """
+        now_ts = int(datetime.now(timezone.utc).timestamp())
+        try:
+            if self.redis_available:
+                ttl = int(settings.REFRESH_TOKEN_EXPIRE_DAYS) * 24 * 3600
+                await self.redis_client.setex(f"token:revoked_before:{user_id}", ttl, str(now_ts))
+            else:
+                self._revoked_before[str(user_id)] = now_ts
+            return True
+        except Exception as e:
+            print(f"Failed to revoke sessions: {e}")
+            return False
+
+    async def sessions_revoked_before(self, user_id) -> Optional[int]:
+        """Timestamp before which the user's tokens are revoked, if any."""
+        try:
+            if self.redis_available:
+                val = await self.redis_client.get(f"token:revoked_before:{user_id}")
+                return int(val) if val is not None else None
+            return self._revoked_before.get(str(user_id))
+        except Exception as e:
+            print(f"Failed to check session revocation: {e}")
+            return None
 
     async def update_last_activity(self, jti: str, expiry_timestamp: int) -> None:
         """Update last activity timestamp for a token jti."""

@@ -43,9 +43,10 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     description=settings.PROJECT_DESCRIPTION,
     version=settings.PROJECT_VERSION,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    docs_url="/docs",      
-    redoc_url="/redocs",   
+    # API docs are only served in development (DEBUG=true)
+    openapi_url=f"{settings.API_V1_STR}/openapi.json" if settings.DEBUG else None,
+    docs_url="/docs" if settings.DEBUG else None,
+    redoc_url="/redocs" if settings.DEBUG else None,
     lifespan=lifespan,
     debug=settings.DEBUG,
     redirect_slashes=False,      
@@ -63,13 +64,10 @@ async def debug_exception_handler(request: Request, exc: Exception):
         f.write(f"\n\n--- ERROR: {type(exc).__name__} at {datetime.now()} ---\n")
         f.write(traceback.format_exc())
     
+    # Internals (exception text, type, traceback) stay in the log, never in the response
     return JSONResponse(
         status_code=500,
-        content={
-            "detail": str(exc), 
-            "type": type(exc).__name__,
-            "message": "An unexpected server error occurred. Check backend logs."
-        }
+        content={"detail": "An unexpected server error occurred."}
     )
 
 from src.core.exceptions.business import (
@@ -111,8 +109,6 @@ if settings.BACKEND_CORS_ORIGINS:
 print("📢 API prefix:", settings.API_V1_STR)
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
-for route in app.routes:
-    print(f"🛣️ {route.path}")
 
 # Static files and OpenAPI customization
 
@@ -179,10 +175,6 @@ def custom_openapi():
 
 # Override the default OpenAPI schema
 app.openapi = custom_openapi
-
-@app.get("/test-cors")
-async def test_cors():
-    return {"message": "CORS is working!"}
 
 app.add_middleware(IdleActivityMiddleware)
 app.add_middleware(AuditLoggingMiddleware)

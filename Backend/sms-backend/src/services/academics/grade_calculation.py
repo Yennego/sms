@@ -88,7 +88,7 @@ class GradeCalculationService(TenantBaseService[Grade, GradeCreate, GradeUpdate]
         # Auto-set period and semester if not provided
         if obj_in.period_number is None or obj_in.semester is None:
             from src.db.models.academics.enrollment import Enrollment
-            enrollment = self.db.query(Enrollment).filter(Enrollment.id == obj_in.enrollment_id).first()
+            enrollment = self.db.query(Enrollment).filter(Enrollment.id == obj_in.enrollment_id, Enrollment.tenant_id == self.tenant_id).first()
             if enrollment:
                 ay = academic_year_crud.get_by_id(self.db, self.tenant_id, enrollment.academic_year_id)
                 settings_obj = tenant_settings_crud.get_by_tenant_id(self.db, self.tenant_id)
@@ -155,7 +155,7 @@ class GradeCalculationService(TenantBaseService[Grade, GradeCreate, GradeUpdate]
             eid = obj_in.enrollment_id
             if eid not in enrollment_ay_cache:
                 from src.db.models.academics.enrollment import Enrollment
-                enrollment = self.db.query(Enrollment).filter(Enrollment.id == eid).first()
+                enrollment = self.db.query(Enrollment).filter(Enrollment.id == eid, Enrollment.tenant_id == self.tenant_id).first()
                 ay = academic_year_crud.get_by_id(self.db, self.tenant_id, enrollment.academic_year_id) if enrollment else None
                 enrollment_ay_cache[eid] = ay
             

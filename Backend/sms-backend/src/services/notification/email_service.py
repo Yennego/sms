@@ -3,6 +3,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from src.core.config import settings
 import ssl
+import html
 
 class EmailService:
     def __init__(self):
@@ -47,6 +48,40 @@ class EmailService:
             print(f"Failed to send email: {str(e)}")
             return False
     
+    def is_configured(self) -> bool:
+        """True when an SMTP server and sender account are set."""
+        return bool(self.smtp_server and self.sender_email and self.sender_password)
+
+    def send_password_reset_link(self, user_email, reset_link, school_name, expires_minutes):
+        """Email a single-use password reset link."""
+        school = html.escape(school_name or "your school")
+        link = html.escape(reset_link, quote=True)
+        subject = f"Reset your password - {school_name or 'School Management System'}"
+        message = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h2 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">
+                    Reset your password
+                </h2>
+                <p>Someone asked to reset the password for your {school} account.</p>
+                <p style="margin: 24px 0;">
+                    <a href="{link}" style="background-color: #4f46e5; color: #fff; padding: 10px 18px; border-radius: 6px; text-decoration: none;">
+                        Choose a new password
+                    </a>
+                </p>
+                <p>The link works once and expires in {int(expires_minutes)} minutes.</p>
+                <p>If you didn't ask for this, you can ignore this email: your password stays the same.</p>
+                <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+                <p style="font-size: 12px; color: #666;">
+                    This is an automated message, please do not reply to this email.
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+        return self.send_email(user_email, subject, message)
+
     def send_password_notification(self, user_email, generated_password):
         """Send a notification with the generated password"""
         subject = "Your New Account Information - School Management System"

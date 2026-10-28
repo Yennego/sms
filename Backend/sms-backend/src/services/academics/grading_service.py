@@ -95,7 +95,7 @@ class GradingService(TenantBaseService):
         from src.db.models.academics.semester import Semester
         
         # 1. Get Class to find Academic Year
-        cls = self.db.query(Class).filter(Class.id == class_id).first()
+        cls = self.db.query(Class).filter(Class.id == class_id, Class.tenant_id == self.tenant_id).first()
         if not cls:
             return []
             
@@ -139,12 +139,12 @@ class GradingService(TenantBaseService):
         end_date = None
         
         if period_id:
-            period = self.db.query(Period).filter(Period.id == period_id).first()
+            period = self.db.query(Period).filter(Period.id == period_id, Period.tenant_id == self.tenant_id).first()
             if period:
                 start_date = period.start_date
                 end_date = period.end_date
         elif semester_id:
-            semester = self.db.query(Semester).filter(Semester.id == semester_id).first()
+            semester = self.db.query(Semester).filter(Semester.id == semester_id, Semester.tenant_id == self.tenant_id).first()
             if semester:
                 start_date = semester.start_date
                 end_date = semester.end_date

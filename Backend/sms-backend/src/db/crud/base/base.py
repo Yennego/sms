@@ -65,7 +65,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         obj_in_data = jsonable_encoder(obj_in)
         db_obj = self.model(**obj_in_data)
         db.add(db_obj)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(db_obj)
         return db_obj
     
@@ -84,7 +84,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
                 setattr(db_obj, field, value)
         
         db.add(db_obj)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(db_obj)
         return db_obj
     
@@ -95,7 +95,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         if not obj:
             return None
         db.delete(obj)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         return obj
 
 
@@ -205,7 +205,7 @@ class TenantCRUDBase(Generic[TenantModelType, CreateSchemaType, UpdateSchemaType
         obj_in_data["tenant_id"] = tenant_id
         db_obj = self.model(**obj_in_data)
         db.add(db_obj)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(db_obj)
         return db_obj
     
@@ -238,7 +238,7 @@ class TenantCRUDBase(Generic[TenantModelType, CreateSchemaType, UpdateSchemaType
                 setattr(db_obj, field, value)
         
         db.add(db_obj)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(db_obj)
         return db_obj
     
@@ -253,7 +253,7 @@ class TenantCRUDBase(Generic[TenantModelType, CreateSchemaType, UpdateSchemaType
         if not obj:
             return None
         db.delete(obj)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         return obj
 
         

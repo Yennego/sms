@@ -44,7 +44,7 @@ class CRUDAcademicYear(TenantCRUDBase[AcademicYear, AcademicYearCreate, Academic
         
         if academic_year:
             academic_year.is_current = True
-            db.commit()
+            db.flush()  # committed once per request (get_db)
             db.refresh(academic_year)
         
         return academic_year

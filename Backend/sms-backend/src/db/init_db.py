@@ -89,3 +89,6 @@ def init_db(db):
             )
         )
         print(f"Created test user with tenant ID: {test_tenant_id}")
+
+    # CRUD helpers only flush (they rely on the request to commit); seeding commits itself
+    db.commit()

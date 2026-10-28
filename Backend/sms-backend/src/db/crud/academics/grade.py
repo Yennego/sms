@@ -140,7 +140,7 @@ class CRUDGrade(TenantCRUDBase[Grade, GradeCreate, GradeUpdate]):
                 db.add(db_obj)
                 db_objs.append(db_obj)
         
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         # No need to refresh all if we just want to return the objects
         # SQLAlchemy handles the object state since they are still in session
         return db_objs

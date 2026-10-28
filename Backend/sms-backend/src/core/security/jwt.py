@@ -28,9 +28,9 @@ def create_access_token(subject: Union[str, UUID], tenant_id: Union[str, UUID], 
         "sub": str(subject),
         "tenant_id": str(tenant_id),
         "type": "access",
-        "is_super_admin": is_super_admin
-        ,
-        "jti": str(uuid4())
+        "is_super_admin": is_super_admin,
+        "jti": str(uuid4()),
+        "iat": datetime.now(timezone.utc),
     }
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -45,20 +45,26 @@ def create_refresh_token(subject: Union[str, UUID], tenant_id: Union[str, UUID],
         "sub": str(subject),
         "tenant_id": str(tenant_id),
         "type": "refresh",
-        "is_super_admin": is_super_admin  # Add this field
-        ,
-        "jti": str(uuid4())
+        "is_super_admin": is_super_admin,
+        "jti": str(uuid4()),
+        "iat": datetime.now(timezone.utc),
     }
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
 
-async def verify_token(token: str) -> Optional[TokenPayload]:
-    """Verify a JWT token and return its payload."""
+async def verify_token(token: str, expected_type: Optional[str] = None) -> Optional[TokenPayload]:
+    """Verify a JWT token and return its payload.
+
+    Pass expected_type ("access" or "refresh") wherever the token authorizes something,
+    so a long-lived refresh token can never be used as an access token or vice versa.
+    """
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         token_data = TokenPayload(**payload)
-        
+        if expected_type and token_data.type != expected_type:
+            return None
+
         # Fix: Use timezone-aware datetime comparison
         if datetime.fromtimestamp(token_data.exp, tz=timezone.utc) < datetime.now(timezone.utc):
             return None
@@ -68,6 +74,12 @@ async def verify_token(token: str) -> Optional[TokenPayload]:
         blacklist_service = TokenBlacklistService()
         if await blacklist_service.is_token_blacklisted(token):
             return None
+
+        # Sessions ended by a password reset: tokens issued before it no longer work
+        if token_data.sub:
+            revoked_before = await blacklist_service.sessions_revoked_before(token_data.sub)
+            if revoked_before is not None and (token_data.iat or 0) < revoked_before:
+                return None
 
         # Enforce idle timeout for access tokens
         if settings.IDLE_ENFORCEMENT_ENABLED and token_data.type == "access" and token_data.jti:

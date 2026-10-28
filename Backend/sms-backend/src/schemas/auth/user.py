@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from uuid import UUID
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
+
+from src.core.security.password_policy import check_password
 
 from src.schemas.base.base import TenantSchema
 from src.schemas.auth.user_role import UserRole
@@ -24,6 +26,12 @@ class UserCreate(UserBase):
     """Schema for creating a new user."""
     password: Optional[str] = None 
     # tenant_id: UUID
+
+    @field_validator("password")
+    @classmethod
+    def password_meets_policy(cls, v: Optional[str]) -> Optional[str]:
+        # Empty means "generate one"; anything typed must meet the policy
+        return check_password(v) if v else v
 
 
 class UserCreateCrossTenant(UserCreate):

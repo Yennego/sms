@@ -10,6 +10,21 @@ from src.services.logging import AuditLoggingService
 from src.services.logging.super_admin_activity_log_service import SuperAdminActivityLogService
 
 
+SENSITIVE_KEY_PARTS = ("password", "token", "secret")
+
+
+def redact(value):
+    """Replace password/token/secret fields (at any depth) so they never reach the audit log."""
+    if isinstance(value, dict):
+        return {
+            k: "[REDACTED]" if any(p in str(k).lower() for p in SENSITIVE_KEY_PARTS) else redact(v)
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [redact(v) for v in value]
+    return value
+
+
 class AuditLoggingMiddleware(BaseHTTPMiddleware):
     """Middleware to log all API requests and responses for audit purposes."""
     
@@ -62,7 +77,9 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         }
         
         action = action_map.get(method, "unknown")
-        
+        if "/change-password" in path or "/reset-password" in path:
+            return "update", "user"
+
         # Determine entity type from path
         if "/users" in path:
             entity_type = "user"
@@ -115,24 +132,26 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         
         return action, entity_type
     
+    # Session endpoints change no school data, so they aren't audit events
+    SESSION_PATHS = ("/auth/login", "/auth/token", "/auth/refresh", "/auth/logout", "/auth/me")
+
     def should_log_request(self, request: Request) -> bool:
-        """Determine if this request should be logged based on method and path."""
-        method = request.method.lower()
+        """Only data changes (create/update/delete) are audited; reads are not."""
+        if request.method.lower() not in ["post", "put", "patch", "delete"]:
+            return False
         path = str(request.url.path)
-        
-        # Always log state-changing operations
-        if method in ["post", "put", "patch", "delete"]:
-            return True
-            
-        # For GET requests, only log actual data exports (not just viewing)
-        if method == "get":
-            # Only log actual export/download operations
-            if ("/export" in path or "/download" in path or 
-                ("?" in str(request.url) and any(param in str(request.url.query) 
-                 for param in ["export", "download"]))):
-                return True
-        
-        return False
+        return not any(path.endswith(p) or f"{p}/" in path for p in self.SESSION_PATHS)
+
+    def target_tenant_of(self, request: Request, token_tenant_id: Optional[UUID]) -> Optional[UUID]:
+        """The school a super-admin request acted on: explicit query param, then X-Tenant-ID header."""
+        for raw in (request.query_params.get("tenant_id"), request.headers.get("X-Tenant-ID")):
+            if raw:
+                try:
+                    return UUID(raw)
+                except ValueError:
+                    pass
+        # On /super-admin/ routes the token's own tenant is just the account's home school
+        return None if self.is_super_admin_operation(request) else token_tenant_id
 
     def get_log_priority(self, request: Request) -> str:
         """Determine log priority for retention policies."""
@@ -182,7 +201,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                     content_type = request.headers.get("Content-Type", "")
                     if "application/json" in content_type:
                         try:
-                            request_body = json.loads(body.decode('utf-8'))
+                            request_body = redact(json.loads(body.decode('utf-8')))
                         except json.JSONDecodeError:
                              print(f"[AuditMiddleware] Non-JSON or malformed body for {request.method} {request.url.path}")
                     else:
@@ -203,25 +222,13 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         # Only log successful requests (2xx status codes)
         if 200 <= response.status_code < 300:
             try:
-                # Check if this is a super-admin operation
-                if self.is_super_admin_operation(request) and is_super_admin:
-                    # Use super-admin logging (no tenant isolation)
+                # Super-admin activity never goes into a school's log, whatever the route
+                if is_super_admin:
                     db = next(get_super_admin_db())
                     try:
                         super_admin_service = SuperAdminActivityLogService(db=db)
-                        
-                        # Extract target tenant from request if applicable
-                        target_tenant_id = None
-                        if "tenant_id" in str(request.url.query):
-                            # Extract from query params
-                            import urllib.parse
-                            query_params = urllib.parse.parse_qs(str(request.url.query))
-                            if "tenant_id" in query_params:
-                                try:
-                                    target_tenant_id = UUID(query_params["tenant_id"][0])
-                                except (ValueError, IndexError):
-                                    pass
-                        
+                        target_tenant_id = self.target_tenant_of(request, tenant_id)
+
                         # Generate enhanced details
                         details = self.generate_enhanced_details(request, action, entity_type, entity_id, request_body, target_tenant_id)
                         
@@ -235,6 +242,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                             details=details,
                             request=request
                         )
+                        db.commit()  # outside the request's unit of work: commit the log row
                     finally:
                         db.close()
                 
@@ -250,6 +258,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                             new_values=request_body,
                             request=request
                         )
+                        db.commit()  # outside the request's unit of work: commit the log row
                     finally:
                         db.close()
                         

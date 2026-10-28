@@ -79,7 +79,7 @@ class TeacherAssignmentService(TenantBaseService[ClassSubject, ClassSubjectCreat
         ).first()
 
         if existing:
-            subject = self.db.query(Subject).filter(Subject.id == subject_id).first()
+            subject = self.db.query(Subject).filter(Subject.id == subject_id, Subject.tenant_id == self.tenant_id).first()
             subject_name = subject.name if subject else "Unknown Subject"
             
             if str(existing.teacher_id) == str(obj_in.teacher_id):
@@ -314,7 +314,7 @@ class TeacherAssignmentService(TenantBaseService[ClassSubject, ClassSubjectCreat
         section = self.db.query(Section).filter(Section.id == section_id, Section.tenant_id == self.tenant_id).first()
         if not section: raise EntityNotFoundError("Section", section_id)
         
-        teacher = self.db.query(Teacher).filter(Teacher.id == teacher_id).first()
+        teacher = self.db.query(Teacher).filter(Teacher.id == teacher_id, Teacher.tenant_id == self.tenant_id).first()
         if not teacher: raise EntityNotFoundError("Teacher", teacher_id)
         
         section.class_teacher_id = teacher_id

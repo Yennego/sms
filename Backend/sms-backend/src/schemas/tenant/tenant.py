@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from src.schemas.base.base import BaseSchema, TimestampSchema
+from src.core.security.password_policy import check_password
 from src.schemas.tenant.tenant_settings import TenantSettings
 
 
@@ -49,6 +50,11 @@ class AdminUserData(BaseModel):
     email: str = Field(..., max_length=255)
     password: Optional[str] = Field(None, min_length=8)  # If None, password will be generated
 
+    @field_validator("password")
+    @classmethod
+    def password_meets_policy(cls, v: Optional[str]) -> Optional[str]:
+        return check_password(v) if v else v
+
 
 class TenantCreateWithAdmin(TenantBase):
     """Schema for creating a tenant with admin user in a single atomic operation"""
@@ -81,6 +87,38 @@ class TenantUpdate(BaseModel):
         if v and len(v) < 3:
             raise ValueError("tenant name must be at least 3 characters long")
         return v
+
+
+class TenantSelfUpdate(BaseModel):
+    """What a school admin may change about their own school (branding only).
+
+    Code, domain, active state and billing are platform-controlled (super-admin)."""
+    name: Optional[str] = None
+    logo: Optional[str] = None
+    primary_color: Optional[str] = None
+    secondary_color: Optional[str] = None
+
+    @field_validator('name')
+    def validate_name_length(cls, v):
+        if v and len(v) < 3:
+            raise ValueError("tenant name must be at least 3 characters long")
+        return v
+
+
+class TenantPublic(BaseModel):
+    """Branding shown before login (school picker / login page). No billing or status internals."""
+    id: UUID
+    name: str
+    code: str
+    domain: Optional[str] = None
+    subdomain: Optional[str] = None
+    logo: Optional[str] = None
+    primary_color: Optional[str] = None
+    secondary_color: Optional[str] = None
+    is_active: bool = True
+
+    class Config:
+        from_attributes = True
 
 
 class TenantCreateResponse(BaseModel):

@@ -11,6 +11,7 @@ from src.db.session import get_db, get_super_admin_db
 from src.schemas.logging.activity_log import ActivityLog, ActivityLogPaginated
 from src.schemas.logging.super_admin_activity_log import AuditLogResponse, AuditLogPaginated
 from src.services.logging import AuditLoggingService
+from src.services.logging.activity_log_service import is_key_event
 from src.services.logging.super_admin_activity_log_service import SuperAdminActivityLogService
 
 router = APIRouter()
@@ -41,9 +42,7 @@ def get_super_admin_audit_logs(
         parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00')) if start_date else None
         parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00')) if end_date else None
         
-        logs, total = audit_service.get_all_logs(
-            skip=skip,
-            limit=limit,
+        filters = dict(
             user_id=parsed_user_id,
             action=action,
             entity_type=entity_type,
@@ -51,6 +50,8 @@ def get_super_admin_audit_logs(
             start_date=parsed_start_date,
             end_date=parsed_end_date
         )
+        logs = audit_service.get_all_logs(skip=skip, limit=limit, **filters)
+        total = audit_service.get_count(**filters)
         
         # Transform to match frontend expectations
         items = [
@@ -240,10 +241,11 @@ def get_all_audit_logs_combined(
                 user_id=parsed_user_id,
                 action=action,
                 entity_type=entity_type,
+                target_tenant_id=parsed_tenant_id,
                 start_date=parsed_start_date,
                 end_date=parsed_end_date
             )
-            
+
             # Add super-admin logs with "Super-Admin" prefix
             for log in super_admin_logs:
                 all_logs.append(AuditLogResponse(
@@ -263,8 +265,8 @@ def get_all_audit_logs_combined(
             from src.db.models.logging.activity_log import ActivityLog
             from src.db.models.tenant.tenant import Tenant
             
-            query = db.query(ActivityLog).join(Tenant, ActivityLog.tenant_id == Tenant.id)
-            
+            query = db.query(ActivityLog).join(Tenant, ActivityLog.tenant_id == Tenant.id).filter(is_key_event())
+
             # Apply filters
             if parsed_user_id:
                 query = query.filter(ActivityLog.user_id == parsed_user_id)

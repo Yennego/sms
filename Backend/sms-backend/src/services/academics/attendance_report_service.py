@@ -111,12 +111,22 @@ class AttendanceReportService(DailyAttendanceService):
         cls = self._get_class(class_id)
         check_class_marking_permission(self.db, cls, user.id)
 
+        if start and end and start > end:
+            raise BusinessRuleViolationError("start_date must be on or before end_date")
+
         today = self.school_today()
         ay = cls.academic_year
+        if start and start > today:
+            raise BusinessRuleViolationError("The report can't start in the future")
+        # Clamp the requested range to what has happened and to the class's academic year
         end = min(end or today, today, ay.end_date if ay else today)
         start = max(start or (ay.start_date if ay else end - timedelta(days=30)), ay.start_date if ay else date.min)
         if start > end:
-            raise BusinessRuleViolationError("start_date must be on or before end_date")
+            raise BusinessRuleViolationError(
+                f"No school days in that range: {cls.name}'s academic year runs "
+                f"{ay.start_date:%d %b %Y} – {ay.end_date:%d %b %Y}"
+                if ay else "No school days in that range"
+            )
         if (end - start).days > MAX_REPORT_DAYS:
             raise BusinessRuleViolationError("Reports can cover at most one year")
 

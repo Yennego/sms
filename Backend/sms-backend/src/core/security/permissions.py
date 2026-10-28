@@ -3,12 +3,18 @@ from fastapi import Depends, HTTPException, status
 
 from src.db.models.auth import User, Permission
 # Change this import to avoid circular dependency
-from src.core.security.auth import get_current_user, get_current_active_user
+from src.core.security.auth import get_current_user, get_current_active_user, is_super_admin as _is_super_admin
+
+
+def _system_role_names(user: User) -> set:
+    """Names of the user's built-in roles. Role-name checks never match a school's custom
+    role (which only grants what its permissions say), even if it shares a name."""
+    return {role.name for role in user.roles if getattr(role, "tenant_id", None) is None}
 
 def has_permission(required_permission: str):
     """Dependency to check if user has a specific permission."""
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
-        if any(role.name in ["super-admin", "superadmin"] for role in current_user.roles):
+        if _is_super_admin(current_user):
             return current_user
 
         # Check if user has the required permission through any of their roles
@@ -33,11 +39,11 @@ def has_permission(required_permission: str):
 def has_role(required_role: str):
     """Dependency to check if user has a specific role."""
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
-        if any(role.name in ["super-admin", "superadmin"] for role in current_user.roles):
+        if _is_super_admin(current_user):
             return current_user
 
         # Check if user has the required role
-        has_required_role = any(role.name == required_role for role in current_user.roles)
+        has_required_role = required_role in _system_role_names(current_user)
                 
         if not has_required_role:
             raise HTTPException(
@@ -51,11 +57,11 @@ def has_role(required_role: str):
 def has_any_role(required_roles: List[str]):
     """Dependency to check if user has any of the specified roles."""
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
-        if any(role.name in ["super-admin", "superadmin"] for role in current_user.roles):
+        if _is_super_admin(current_user):
             return current_user
             
         # Check if user has any of the required roles
-        user_roles = {role.name for role in current_user.roles}
+        user_roles = _system_role_names(current_user)
         if not any(role in user_roles for role in required_roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -71,14 +77,12 @@ def admin_with_tenant_check():
     """Dependency that allows super-admins to access any tenant, but restricts admins to their specific tenant."""
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
         # Check if user has super-admin role
-        is_super_admin = any(role.name in ["super-admin", "superadmin"] for role in current_user.roles)
-        
         # Super-admins can access any tenant
-        if is_super_admin:
+        if _is_super_admin(current_user):
             return current_user
             
         # For regular admins, check if they have the admin role
-        is_admin = any(role.name == "admin" for role in current_user.roles)
+        is_admin = "admin" in _system_role_names(current_user)
         
         if not is_admin:
             # Add more detailed error message
@@ -95,9 +99,7 @@ def admin_with_tenant_check():
 def require_super_admin():
     """Dependency to check if user is a super-admin."""
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
-        is_super_admin = any(role.name in ["super-admin", "superadmin"] for role in current_user.roles)
-                
-        if not is_super_admin:
+        if not _is_super_admin(current_user):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Super-admin privileges required"

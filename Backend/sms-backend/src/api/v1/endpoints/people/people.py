@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 # WhatsApp service
 # REMOVED: from src.services.notification.whatsapp_service import MultiTenantWhatsAppService
-from src.services.auth.password import generate_default_password
+from src.core.security.password import generate_default_password
 
 # Replace CRUD imports with service imports
 from src.db.crud.people import student, teacher, parent
@@ -43,6 +43,22 @@ from src.db.models.academics.grade import Grade
 from src.db.models.academics.enrollment import Enrollment as EnrollmentModel
 from src.db.models.academics.class_enrollment import ClassEnrollment as ClassEnrollmentModel
 from src.utils.uuid_utils import ensure_uuid
+from src.db.models.people.student import Student as StudentModel
+
+
+def _student_in_school(db: Session, tenant_id: UUID, student_id: UUID) -> bool:
+    """Ownership check before touching a student's related rows (prevents cross-school deletes)."""
+    return db.query(StudentModel.id).filter(
+        StudentModel.id == student_id, StudentModel.tenant_id == tenant_id
+    ).first() is not None
+
+
+def _remove_enrollments(db: Session, tenant_id: UUID, student_id: UUID) -> None:
+    """Delete the student's enrollment rows in this school (no commit: part of the caller's unit)."""
+    for model in (ClassEnrollmentModel, EnrollmentModel):
+        db.query(model).filter(
+            model.student_id == student_id, model.tenant_id == tenant_id
+        ).delete(synchronize_session=False)
 
 router = APIRouter()
 
@@ -241,11 +257,15 @@ async def bulk_delete_students(
     
     for student_id in payload.student_ids:
         try:
+            if not _student_in_school(student_service.db, tenant_id, student_id):
+                errors.append({"id": str(student_id), "error": "Student not found"})
+                continue
+
             # 1. Check for "Human" Data (Grades, Attendance) - These BLOCK deletion
             has_human_data = False
-            
+
             # Grades check
-            if student_service.db.query(Grade).filter(Grade.student_id == student_id).count() > 0:
+            if student_service.db.query(Grade).filter(Grade.student_id == student_id, Grade.tenant_id == tenant_id).count() > 0:
                 has_human_data = True
             
             # Attendance check
@@ -265,15 +285,13 @@ async def bulk_delete_students(
                 })
                 continue
             
-            # 2. Automated Cleanup of "System" Records (Enrollments, Class Enrollments)
-            # This breaks the "circle" of orphan records
-            student_service.db.query(ClassEnrollmentModel).filter(ClassEnrollmentModel.student_id == student_id).delete(synchronize_session=False)
-            student_service.db.query(EnrollmentModel).filter(EnrollmentModel.student_id == student_id).delete(synchronize_session=False)
-            student_service.db.commit()
-                
+            # 2. Automated Cleanup of "System" Records (Enrollments, Class Enrollments);
+            # the student delete below commits them together
+            _remove_enrollments(student_service.db, tenant_id, student_id)
             await student_service.delete(id=student_id)
             deleted_ids.append(str(student_id))
         except Exception as e:
+            student_service.db.rollback()
             errors.append({"id": str(student_id), "error": str(e)})
             
     return {
@@ -297,10 +315,13 @@ async def delete_student(
         tenant=tenant_id,
         db=db
     )
+    if not _student_in_school(db, tenant_id, student_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
+
     # 1. Check for "Human" Data (Grades, Attendance) - These BLOCK deletion
-    
+
     # Grades check
-    if db.query(Grade).filter(Grade.student_id == student_id).count() > 0:
+    if db.query(Grade).filter(Grade.student_id == student_id, Grade.tenant_id == tenant_id).count() > 0:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Cannot delete student: The student has existing grade records. These must be preserved; consider archiving instead."
@@ -316,14 +337,13 @@ async def delete_student(
             detail="Cannot delete student: The student has attendance records. These must be preserved; consider archiving instead."
         )
 
-    # 2. Automated Cleanup of "System" Records (Enrollments, Class Enrollments)
-    # This prevents the "circle" of orphan records
-    db.query(ClassEnrollmentModel).filter(ClassEnrollmentModel.student_id == student_id).delete(synchronize_session=False)
-    db.query(EnrollmentModel).filter(EnrollmentModel.student_id == student_id).delete(synchronize_session=False)
-    db.commit()
+    # 2. Automated Cleanup of "System" Records (Enrollments, Class Enrollments);
+    # the student delete below commits them together
+    _remove_enrollments(db, tenant_id, student_id)
     try:
         return await student_service.delete(id=student_id)
     except EntityNotFoundError:
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Student not found"
@@ -394,7 +414,8 @@ async def create_teacher(*,
     db: Session = Depends(get_db), 
     tenant_id: UUID = Depends(get_tenant_id_from_request), 
     teacher_in: TeacherCreate,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(has_permission("manage_teachers"))
 ) -> Any:
     """Create a new teacher with auto-generated employee ID."""
     # Add tenant_id to the request data
@@ -402,11 +423,11 @@ async def create_teacher(*,
     # teacher_data.tenant_id = tenant_id  <-- REMOVED: Causing ValueError as TeacherCreate model has no such field
     
     # Check for duplicate email first
-    existing_user = user.get_by_email_any_tenant(db, email=teacher_data.email)
+    existing_user = user.get_by_email(db, tenant_id=tenant_id, email=teacher_data.email)
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"A user with email '{teacher_data.email}' already exists in the system"
+            detail=f"A user with email '{teacher_data.email}' already exists in this school"
         )
     
     # Check for duplicate employee ID only if provided
@@ -454,7 +475,9 @@ async def create_teacher(*,
     return response
 
 @router.post("/teachers/bulk", response_model=List[TeacherCreateResponse], status_code=status.HTTP_201_CREATED)
-async def create_teachers_bulk(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), teachers_in: List[TeacherCreate]) -> Any:
+async def create_teachers_bulk(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), teachers_in: List[TeacherCreate],
+    current_user: User = Depends(has_permission("manage_teachers"))
+) -> Any:
     """Create multiple teachers with auto-generated employee IDs and return credentials."""
     created_teachers = []
     for teacher_data in teachers_in:
@@ -468,11 +491,11 @@ async def create_teachers_bulk(*, db: Session = Depends(get_db), tenant_id: UUID
                 )
         
         # Check for duplicate email
-        existing_user = user.get_by_email_any_tenant(db, email=teacher_data.email)
+        existing_user = user.get_by_email(db, tenant_id=tenant_id, email=teacher_data.email)
         if existing_user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"A user with email '{teacher_data.email}' already exists in the system"
+                detail=f"A user with email '{teacher_data.email}' already exists in this school"
             )
         
         # Generate password if not provided
@@ -532,7 +555,9 @@ async def get_teachers(
     )
 
 @router.get("/teachers/class-teachers", response_model=List[Teacher])
-async def get_class_teachers(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request)) -> Any:
+async def get_class_teachers(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
     """Get all class teachers for a tenant."""
     return teacher.get_class_teachers(db, tenant_id=tenant_id)
 
@@ -552,7 +577,9 @@ async def get_teacher_departments(
     return sorted(list(departments))
 
 @router.get("/teachers/{teacher_id}", response_model=Teacher)
-async def get_teacher(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), teacher_id: UUID) -> Any:
+async def get_teacher(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), teacher_id: UUID,
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
     """Get a specific teacher by ID."""
     teacher_obj = teacher.get_by_id(db, tenant_id=tenant_id, id=teacher_id)
     if not teacher_obj:
@@ -563,7 +590,9 @@ async def get_teacher(*, db: Session = Depends(get_db), tenant_id: UUID = Depend
     return teacher_obj
 
 @router.put("/teachers/{teacher_id}", response_model=Teacher)
-async def update_teacher(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), teacher_id: UUID, teacher_in: TeacherUpdate) -> Any:
+async def update_teacher(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), teacher_id: UUID, teacher_in: TeacherUpdate,
+    current_user: User = Depends(has_permission("manage_teachers"))
+) -> Any:
     """Update a teacher."""
     teacher_obj = teacher.get_by_id(db, tenant_id=tenant_id, id=teacher_id)
     if not teacher_obj:
@@ -574,7 +603,9 @@ async def update_teacher(*, db: Session = Depends(get_db), tenant_id: UUID = Dep
     return teacher.update(db, tenant_id=tenant_id, db_obj=teacher_obj, obj_in=teacher_in)
 
 @router.delete("/teachers/{teacher_id}", response_model=Teacher)
-async def delete_teacher(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), teacher_id: UUID) -> Any:
+async def delete_teacher(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), teacher_id: UUID,
+    current_user: User = Depends(has_permission("manage_teachers"))
+) -> Any:
     """Delete a teacher."""
     teacher_obj = teacher.get_by_id(db, tenant_id=tenant_id, id=teacher_id)
     if not teacher_obj:
@@ -660,15 +691,16 @@ async def create_parent(*,
     db: Session = Depends(get_db), 
     tenant_id: UUID = Depends(get_tenant_id_from_request), 
     parent_in: ParentCreate,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(has_permission("manage_students"))
 ) -> Any:
     """Create a new parent."""
-    # Check for duplicate email globally
-    existing_user = user.get_by_email_any_tenant(db, email=parent_in.email)
+    # Check for duplicate email in this school
+    existing_user = user.get_by_email(db, tenant_id=tenant_id, email=parent_in.email)
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"A user with email '{parent_in.email}' already exists in the system"
+            detail=f"A user with email '{parent_in.email}' already exists in this school"
         )
 
     # Generate password if not provided
@@ -684,17 +716,23 @@ def send_parent_whatsapp_notification(tenant_id: str, phone_number: str, parent_
     return None
 
 @router.get("/parents", response_model=List[Parent])
-async def get_parents(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), skip: int = 0, limit: int = 100) -> Any:
+async def get_parents(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), skip: int = 0, limit: int = 100,
+    current_user: User = Depends(has_permission("view_students"))
+) -> Any:
     """Get all parents for a tenant."""
     return parent.list(db, tenant_id=tenant_id, skip=skip, limit=limit)
 
 @router.get("/parents/by-student/{student_id}", response_model=List[Parent])
-async def get_parents_by_student(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), student_id: UUID) -> Any:
+async def get_parents_by_student(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), student_id: UUID,
+    current_user: User = Depends(has_permission("view_students"))
+) -> Any:
     """Get all parents of a specific student."""
     return parent.get_by_student(db, tenant_id=tenant_id, student_id=student_id)
 
 @router.get("/parents/{parent_id}", response_model=Parent)
-async def get_parent(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), parent_id: UUID) -> Any:
+async def get_parent(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), parent_id: UUID,
+    current_user: User = Depends(has_permission("view_students"))
+) -> Any:
     """Get a specific parent by ID."""
     parent_obj = parent.get_by_id(db, tenant_id=tenant_id, id=parent_id)
     if not parent_obj:
@@ -705,7 +743,9 @@ async def get_parent(*, db: Session = Depends(get_db), tenant_id: UUID = Depends
     return parent_obj
 
 @router.put("/parents/{parent_id}", response_model=Parent)
-async def update_parent(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), parent_id: UUID, parent_in: ParentUpdate) -> Any:
+async def update_parent(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), parent_id: UUID, parent_in: ParentUpdate,
+    current_user: User = Depends(has_permission("manage_students"))
+) -> Any:
     """Update a parent."""
     parent_obj = parent.get_by_id(db, tenant_id=tenant_id, id=parent_id)
     if not parent_obj:
@@ -716,7 +756,9 @@ async def update_parent(*, db: Session = Depends(get_db), tenant_id: UUID = Depe
     return parent.update(db, tenant_id=tenant_id, db_obj=parent_obj, obj_in=parent_in)
 
 @router.delete("/parents/{parent_id}", response_model=Parent)
-async def delete_parent(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), parent_id: UUID) -> Any:
+async def delete_parent(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), parent_id: UUID,
+    current_user: User = Depends(has_permission("manage_students"))
+) -> Any:
     """Delete a parent."""
     parent_obj = parent.get_by_id(db, tenant_id=tenant_id, id=parent_id)
     if not parent_obj:
@@ -730,7 +772,9 @@ async def delete_parent(*, db: Session = Depends(get_db), tenant_id: UUID = Depe
     return await parent_service.delete(id=parent_id)
 
 @router.post("/parents/{parent_id}/students/{student_id}", response_model=Parent)
-async def add_student_to_parent(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), parent_id: UUID, student_id: UUID) -> Any:
+async def add_student_to_parent(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), parent_id: UUID, student_id: UUID,
+    current_user: User = Depends(has_permission("manage_students"))
+) -> Any:
     """Add a student to a parent."""
     parent_obj = parent.get_by_id(db, tenant_id=tenant_id, id=parent_id)
     if not parent_obj:
@@ -741,7 +785,9 @@ async def add_student_to_parent(*, db: Session = Depends(get_db), tenant_id: UUI
     return parent.add_student(db, tenant_id=tenant_id, parent_id=parent_id, student_id=student_id)
 
 @router.delete("/parents/{parent_id}/students/{student_id}", response_model=Parent)
-async def remove_student_from_parent(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), parent_id: UUID, student_id: UUID) -> Any:
+async def remove_student_from_parent(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), parent_id: UUID, student_id: UUID,
+    current_user: User = Depends(has_permission("manage_students"))
+) -> Any:
     """Remove a student from a parent."""
     parent_obj = parent.get_by_id(db, tenant_id=tenant_id, id=parent_id)
     if not parent_obj:

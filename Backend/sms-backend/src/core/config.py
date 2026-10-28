@@ -15,7 +15,9 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     
     # Security settings
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-for-development")
+    # Signs every login token. Required, no default: a guessable key lets anyone forge
+    # tokens for any user. Generate with: python -c "import secrets; print(secrets.token_urlsafe(48))"
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30  # 30 minutes
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30  # 30 days
     # Signs student ID-card QR codes. Separate from SECRET_KEY so either can be rotated
@@ -38,11 +40,18 @@ class Settings(BaseSettings):
         if origin.strip()
     ]
     
-    # Debug mode (set to false in production)
-    DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
-    
+    # Public address of the web app, used for links in emails (password reset).
+    # Defaults to the first CORS origin.
+    FRONTEND_URL: str = (os.getenv("FRONTEND_URL") or os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")[0]).strip().rstrip("/")
+
+    # Debug mode: tracebacks and /docs. Off unless explicitly enabled (DEBUG=true in local .env)
+    DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
+
     # Database settings
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:199922@localhost:5432/sms_db")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://localhost:5432/sms_db")
+    # Owner connection for migrations. The API's DATABASE_URL uses the restricted sms_app role
+    # (row level security applies to it); migrations need the owner. Empty: use DATABASE_URL.
+    ALEMBIC_DATABASE_URL: str = os.getenv("ALEMBIC_DATABASE_URL", "")
     
     # Super admin settings
     FIRST_SUPERADMIN_EMAIL: Optional[str] = os.getenv("FIRST_SUPERADMIN_EMAIL")
@@ -59,7 +68,7 @@ class Settings(BaseSettings):
     SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp-mail.outlook.com")
     SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
     SENDER_EMAIL: str = os.getenv("SENDER_EMAIL", "topfoundation@outlook.com")
-    SENDER_PASSWORD: str = os.getenv("SENDER_PASSWORD", "your-outlook-password")
+    SENDER_PASSWORD: str = os.getenv("SENDER_PASSWORD", "")
     SMTP_USE_TLS: bool = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
     
     # Logfire settings
@@ -75,8 +84,16 @@ class Settings(BaseSettings):
     IDLE_TIMEOUT_MINUTES: int = int(os.getenv("IDLE_TIMEOUT_MINUTES", "30"))
     IDLE_ENFORCEMENT_ENABLED: bool = os.getenv("IDLE_ENFORCEMENT_ENABLED", "true").lower() == "true"
 
+MIN_SECRET_KEY_LENGTH = 32
+
 # Create settings instance
 settings = Settings()
+
+if len(settings.SECRET_KEY) < MIN_SECRET_KEY_LENGTH:
+    raise RuntimeError(
+        f"SECRET_KEY must be set to at least {MIN_SECRET_KEY_LENGTH} characters. Generate one with: "
+        'python -c "import secrets; print(secrets.token_urlsafe(48))"'
+    )
 
 
 # Email settings - require environment variables

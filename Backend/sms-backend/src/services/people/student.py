@@ -68,9 +68,9 @@ class StudentService(TenantBaseService[Student, StudentCreate, StudentUpdate]):
     
     async def create(self, *, obj_in: StudentCreate) -> Student:
         """Create a new student with duplicate checking."""
-        # Check for duplicate email globally
+        # Check for duplicate email in this school
         if obj_in.email:
-            existing_user = user_crud.get_by_email_any_tenant(self.db, email=obj_in.email)
+            existing_user = user_crud.get_by_email(self.db, tenant_id=self.tenant_id, email=obj_in.email)
             if existing_user:
                 raise DuplicateEntityError("User", "email", obj_in.email)
 

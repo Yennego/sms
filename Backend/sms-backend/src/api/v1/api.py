@@ -1,14 +1,12 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-# Endpoint imports (core service endpoint etc)
-# from src.api.v1.endpoints import auth
-# from src.api.v1.endpoints.tenant import router as tenant_router
 from src.api.v1.endpoints import tenant, auth, people, super_admin, academics, communication, logging, resources, finance
 from src.api.v1.endpoints.specialized import financial_academic
+from src.core.security.auth import authenticate_request
 
-# Update the router includes
-api_router = APIRouter()
-
+# Authenticated by default: every route requires a valid session and is bound to the
+# user's own school, except the explicit PUBLIC_ROUTES allow-list in core/security/auth.py.
+api_router = APIRouter(dependencies=[Depends(authenticate_request)])
 
 
 # Include routers for each module

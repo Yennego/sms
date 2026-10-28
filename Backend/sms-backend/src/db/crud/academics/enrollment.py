@@ -80,7 +80,7 @@ class CRUDEnrollment(TenantCRUDBase[Enrollment, EnrollmentCreate, EnrollmentUpda
             enrollment.withdrawal_reason = withdrawal_reason
             
         db.add(enrollment)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(enrollment)
         return enrollment
     
@@ -91,7 +91,7 @@ class CRUDEnrollment(TenantCRUDBase[Enrollment, EnrollmentCreate, EnrollmentUpda
             return None
         
         db.delete(enrollment)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         return enrollment
     
     def count(self, db: Session, tenant_id: Any, search: Optional[str] = None, **filters) -> int:

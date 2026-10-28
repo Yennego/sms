@@ -110,7 +110,7 @@ class CRUDExam(TenantCRUDBase[Exam, ExamCreate, ExamUpdate]):
         
         exam.is_published = is_published
         db.add(exam)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(exam)
         
         return exam

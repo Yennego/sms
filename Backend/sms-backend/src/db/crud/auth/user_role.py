@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional, Union
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from src.db.crud.base import CRUDBase
@@ -10,8 +11,22 @@ class CRUDUserRole(CRUDBase[UserRole, UserRoleCreate, UserRoleUpdate]):
     """CRUD operations for UserRole model."""
     
     def get_by_name(self, db: Session, name: str) -> Optional[UserRole]:
-        """Get a user role by name."""
-        return db.query(UserRole).filter(UserRole.name == name).first()
+        """Get a system role by name."""
+        return db.query(UserRole).filter(UserRole.name == name, UserRole.tenant_id.is_(None)).first()
+
+    def get_visible(self, db: Session, role_id: Any, tenant_id: Any) -> Optional[UserRole]:
+        """A system role, or a custom role of the given school."""
+        return db.query(UserRole).filter(
+            UserRole.id == role_id,
+            or_(UserRole.tenant_id.is_(None), UserRole.tenant_id == tenant_id),
+        ).first()
+
+    def list_visible(self, db: Session, tenant_id: Any) -> List[UserRole]:
+        """System roles plus the school's custom roles (all roles when tenant_id is None)."""
+        query = db.query(UserRole)
+        if tenant_id is not None:
+            query = query.filter(or_(UserRole.tenant_id.is_(None), UserRole.tenant_id == tenant_id))
+        return query.order_by(UserRole.tenant_id.isnot(None), UserRole.name).all()
     
     def add_permissions_to_role(self, db: Session, role_id: Any, permission_ids: List[Any]) -> UserRole:
         """Add permissions to a role."""
@@ -28,7 +43,7 @@ class CRUDUserRole(CRUDBase[UserRole, UserRoleCreate, UserRoleUpdate]):
                 role.permissions.append(permission)
             
         db.add(role)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(role)
         return role
 
@@ -45,7 +60,7 @@ class CRUDUserRole(CRUDBase[UserRole, UserRoleCreate, UserRoleUpdate]):
         role.permissions = permissions
         
         db.add(role)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(role)
         return role
 

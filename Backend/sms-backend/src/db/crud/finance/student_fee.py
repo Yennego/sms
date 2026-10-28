@@ -61,7 +61,7 @@ class CRUDStudentFee(TenantCRUDBase[StudentFee, StudentFeeCreate, StudentFeeUpda
             db_installment = FeeInstallment(**inst_data)
             db.add(db_installment)
             
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(db_obj)
         return db_obj
 
@@ -127,7 +127,7 @@ class CRUDStudentFee(TenantCRUDBase[StudentFee, StudentFeeCreate, StudentFeeUpda
             
             count += 1
             
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         return {"count": count, "skipped": skipped}
 
 student_fee = CRUDStudentFee(StudentFee)

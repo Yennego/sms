@@ -6,7 +6,8 @@ from src.db.session import get_super_admin_db
 from src.core.security.permissions import require_super_admin
 from src.services.tenant.dashboard import DashboardMetricsService
 
-router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+# Platform-wide metrics (all schools, revenue): super-admin only
+router = APIRouter(prefix="/dashboard", tags=["dashboard"], dependencies=[Depends(require_super_admin())])
 
 @router.get("/tenant-stats")
 async def get_tenant_stats(db: Session = Depends(get_super_admin_db)):

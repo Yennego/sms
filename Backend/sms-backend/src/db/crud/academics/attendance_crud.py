@@ -201,7 +201,7 @@ class CRUDAttendance(TenantCRUDBase[Attendance, AttendanceCreate, AttendanceUpda
             db_objects.append(db_obj)
         
         db.add_all(db_objects)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         
         # Refresh all objects
         for obj in db_objects:
