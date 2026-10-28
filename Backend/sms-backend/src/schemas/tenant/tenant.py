@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.schemas.base.base import BaseSchema, TimestampSchema
 from src.core.security.password_policy import check_password
+from src.core.constants.reserved_slugs import validate_slug
 from src.schemas.tenant.tenant_settings import TenantSettings
 
 
@@ -40,7 +41,12 @@ class TenantBase(BaseModel):
 
 class TenantCreate(TenantBase):
     """Schema for creating a new tenant."""
-    pass
+
+    # A new school's address is its slug: lowercase letters, digits, hyphens; not a reserved word
+    @field_validator('domain', 'subdomain')
+    @classmethod
+    def slug_rules(cls, v, info):
+        return validate_slug(v, info.field_name)
 
 
 class AdminUserData(BaseModel):
@@ -59,6 +65,11 @@ class AdminUserData(BaseModel):
 class TenantCreateWithAdmin(TenantBase):
     """Schema for creating a tenant with admin user in a single atomic operation"""
     admin_user: AdminUserData
+
+    @field_validator('domain', 'subdomain')
+    @classmethod
+    def slug_rules(cls, v, info):
+        return validate_slug(v, info.field_name)
 
 
 class TenantUpdate(BaseModel):

@@ -297,3 +297,79 @@ def test_generated_passwords_meet_policy():
     policy = PasswordPolicy()
     for _ in range(200):
         assert policy.validate(generate_default_password()) == []
+
+
+# --- School slugs (a school's address is /{domain}/...) ------------------------------------------
+
+def test_slug_rules():
+    from src.core.constants.reserved_slugs import RESERVED_SLUGS, validate_slug
+
+    assert validate_slug("top-foundation") == "top-foundation"
+    assert validate_slug("school2") == "school2"
+    assert validate_slug(" Foundation ") == "foundation"  # stored lower case
+    assert validate_slug("  ") is None and validate_slug(None) is None  # blank means none
+    for reserved in ("login", "super-admin", "platform", "api", "students", "settings"):
+        assert reserved in RESERVED_SLUGS
+        with pytest.raises(ValueError, match="reserved"):
+            validate_slug(reserved)
+    for bad in ("top foundation", "top_foundation", "-top", "top-", "top--x", "é", "a" * 64):
+        with pytest.raises(ValueError):
+            validate_slug(bad)
+
+
+def _super_db_too():
+    from src.db.session import get_super_admin_db
+    main.app.dependency_overrides[get_super_admin_db] = main.app.dependency_overrides[get_db]
+
+
+def test_new_school_slug_must_be_valid_and_not_reserved(env):
+    client, ids = env
+    _super_db_too()
+    h = headers(ids, "super")
+    new = {"name": "New School", "code": "NEW"}
+    for domain in ("login", "super-admin", "students"):
+        resp = client.post("/api/v1/tenants/", json={**new, "domain": domain}, headers=h)
+        assert resp.status_code == 422 and "reserved" in resp.text, domain
+    for domain in ("New School", "new_school"):
+        resp = client.post("/api/v1/tenants/", json={**new, "domain": domain}, headers=h)
+        assert resp.status_code == 422 and "lowercase letters, digits and hyphens" in resp.text, domain
+    assert client.post("/api/v1/tenants/", json={**new, "subdomain": "api"}, headers=h).status_code == 422
+
+    with_admin = {**new, "admin_user": {"first_name": "A", "last_name": "B", "email": "a@new.org"}}
+    resp = client.post("/api/v1/super-admin/tenants/with-admin", json={**with_admin, "domain": "platform"}, headers=h)
+    assert resp.status_code == 422 and "reserved" in resp.text
+
+    resp = client.post("/api/v1/tenants/", json={**new, "domain": "New-School"}, headers=h)
+    assert resp.status_code == 201 and resp.json()["domain"] == "new-school"  # lower-cased
+
+
+def test_changed_school_slug_must_be_valid(env):
+    client, ids = env
+    _super_db_too()
+    h = headers(ids, "super")
+    url = f"/api/v1/super-admin/tenants/{ids['tenant_b']}"
+    resp = client.put(url, json={"domain": "dashboard"}, headers=h)
+    assert resp.status_code == 422 and "reserved" in resp.text
+    assert client.put(url, json={"domain": "school b2"}, headers=h).status_code == 422
+    assert client.put(f"/api/v1/tenants/{ids['tenant_b']}", json={"subdomain": "login"}, headers=h).status_code == 422
+    assert client.patch(f"{url}/subscription", json={"domain": "admin"}, headers=h).status_code == 422
+    resp = client.put(url, json={"domain": "School-B2"}, headers=h)
+    assert resp.status_code == 200 and resp.json()["domain"] == "school-b2"  # lower-cased
+    # Blank means "no domain"
+    assert client.put(url, json={"subdomain": ""}, headers=h).json()["subdomain"] is None
+
+
+def test_existing_capitalised_slug_is_lower_cased_on_edit(env):
+    client, ids = env
+    _super_db_too()
+    gen = main.app.dependency_overrides[get_db]()
+    db = next(gen)
+    db.get(Tenant, ids["tenant_b"]).domain = "Legacy"  # predates the rules
+    next(gen, None)  # commit
+
+    h = headers(ids, "super")
+    url = f"/api/v1/super-admin/tenants/{ids['tenant_b']}"
+    # The edit form sends the unchanged domain along with the change: it's saved lower case
+    resp = client.put(url, json={"name": "School B renamed", "domain": "Legacy"}, headers=h)
+    assert resp.status_code == 200 and resp.json()["domain"] == "legacy"
+    assert client.put(url, json={"domain": "Legacy 2"}, headers=h).status_code == 422

@@ -3,6 +3,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from src.core.constants.reserved_slugs import normalize_slug, validate_slug
 from src.db.crud.base import CRUDBase
 from src.db.models.tenant import Tenant
 from src.schemas.tenant.tenant import TenantCreate, TenantUpdate
@@ -72,12 +73,33 @@ class CRUDTenant(CRUDBase[Tenant, TenantCreate, TenantUpdate]):
             if update_data.get("code"):
                 update_data["code"] = update_data["code"].upper()
 
+        self._check_slug_changes(db_obj, update_data)
+
         db.add(db_obj)
         db.flush()  # committed once per request (get_db)
         db.refresh(db_obj)
         
         return super().update(db, db_obj=db_obj, obj_in=update_data)
     
+    @staticmethod
+    def _check_slug_changes(db_obj: Tenant, update_data: Dict[str, Any]) -> None:
+        """A changed domain/subdomain must be a valid slug (the school's address).
+
+        Only changes are checked, so editing other fields of a school whose existing slug
+        predates these rules still works. Blank means none.
+        """
+        for field in ("domain", "subdomain"):
+            if field not in update_data:
+                continue
+            new = normalize_slug(update_data[field])
+            update_data[field] = new
+            if new == getattr(db_obj, field):
+                continue
+            try:
+                validate_slug(new, field)
+            except ValueError as e:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+
     def get_active_tenants(self, db: Session, skip: int = 0, limit: int = 100) -> List[Tenant]:
         """Get all active tenants."""
         return db.query(Tenant).filter(Tenant.is_active == True).offset(skip).limit(limit).all()

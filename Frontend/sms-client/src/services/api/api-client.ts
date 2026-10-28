@@ -1,5 +1,7 @@
 import { useTenant } from '@/hooks/use-tenant';
 import { getCurrentContext } from '@/utils/cookie-manager';
+import { isReservedSlug } from '@/config/reserved-slugs';
+import { currentSchoolSlug } from '@/utils/tenant-utils';
 import { handleError, createError, ErrorType, AppError } from '@/utils/error-utils';
 import { useMemo, useEffect } from 'react';
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from 'axios';
@@ -42,7 +44,9 @@ export function createWaitForApiClientReady(apiClient: ApiClient | null) {
 // Where to send the user when the backend says the session is over or a password change is due
 function sessionExpiredPath(tenantId: string | null): string {
   if (getCurrentContext() === 'SUPER_ADMIN') return '/super-admin/login';
-  return `/${tenantId || 'foundation'}/session-expired`;
+  // The school's slug, never its id (the id only when no slug is known at all)
+  const school = currentSchoolSlug() || tenantId;
+  return school ? `/${school}/session-expired` : '/session-expired';
 }
 
 export class ApiClient {
@@ -83,12 +87,7 @@ export class ApiClient {
 
           // Priority 2: Use the URL path segment (very reliable for tenant routes)
           const seg = typeof window !== 'undefined' ? window.location.pathname.split('/')[1] || null : null;
-          const reserved = [
-            'api', '_next', 'static', 'super-admin', 'login', 'session-expired', 'favicon.ico',
-            'students', 'teachers', 'parents', 'academics', 'communication', 'resources',
-            'logging', 'settings', 'dashboard', 'profile'
-          ];
-          if (seg && !reserved.includes(seg.toLowerCase())) {
+          if (seg && !isReservedSlug(seg)) {
             return seg;
           }
 
@@ -130,7 +129,7 @@ export class ApiClient {
             const path = window.location.pathname;
             if (!/\/change-password$/.test(path)) {
               const first = path.split('/')[1] || '';
-              const outsideSchool = ['', 'login', 'super-admin', 'change-password', 'session-expired'].includes(first);
+              const outsideSchool = !first || isReservedSlug(first);
               window.location.href = outsideSchool ? '/change-password' : `/${first}/change-password`;
             }
             return Promise.reject(error);

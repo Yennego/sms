@@ -5,6 +5,19 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 
+// The user's school's slug (public lookup by id); the id only if the lookup fails
+// (the school layout then swaps the id address for the slug)
+async function schoolSlugFor(tenantId: string): Promise<string> {
+  try {
+    const res = await fetch(`/api/v1/tenants/${tenantId}`, { cache: 'no-store' });
+    const data = res.ok ? await res.json() : null;
+    if (data?.domain) return String(data.domain).toLowerCase();
+  } catch {
+    // fall back to the id
+  }
+  return tenantId;
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -59,25 +72,17 @@ export default function LoginPage() {
                 user.roles[0].name) :
               'admin');
 
-          console.log('LoginPage useEffect: Regular user with tenant, redirecting to role-specific dashboard using UUID');
-
-          if (userRole === 'admin') {
-            router.push(`/${tenantId}/admin-dashboard`);
-          } else if (userRole === 'teacher') {
-            router.push(`/${tenantId}/teacher/dashboard`);
-          } else if (userRole === 'student') {
-            router.push(`/${tenantId}/student/dashboard`);
-          } else if (userRole === 'attendance-scanner') {
-            router.push(`/${tenantId}/attendance/scan`);
-          } else if (userRole === 'parent') {
-            router.push(`/${tenantId}/parent/attendance`);
-          } else {
-            // Fallback to generic dashboard for unknown roles
-            router.push(`/${tenantId}/dashboard`);
-          }
+          // Addresses use the school's slug, never its id
+          const home = userRole === 'admin' ? '/admin-dashboard'
+            : userRole === 'teacher' ? '/teacher/dashboard'
+            : userRole === 'student' ? '/student/dashboard'
+            : userRole === 'attendance-scanner' ? '/attendance/scan'
+            : userRole === 'parent' ? '/parent/attendance'
+            : '/dashboard'; // generic dashboard for unknown roles
+          schoolSlugFor(tenantId).then(school => router.push(`/${school}${home}`));
         } else {
-          console.log('LoginPage useEffect: User without tenant, redirecting to /dashboard');
-          router.push('/dashboard');
+          // There is no school-less /dashboard page
+          setError('This account is not linked to a school. Sign in from your school\'s page.');
         }
       }
     }
@@ -142,12 +147,11 @@ export default function LoginPage() {
           // For regular users, determine the correct tenant dashboard
           const tenantId = result?.user?.tenantId;
           if (tenantId && tenantId !== 'None' && tenantId !== 'null') {
-            // Always use tenant UUID for consistent routing
-            console.log('handleSubmit: Regular user with tenant, redirecting to tenant dashboard using UUID');
-            router.push(`/${tenantId}/dashboard`);
+            // Addresses use the school's slug, never its id
+            router.push(`/${await schoolSlugFor(tenantId)}/dashboard`);
           } else {
-            console.log('handleSubmit: User without tenant, redirecting to /dashboard');
-            router.push('/dashboard');
+            // There is no school-less /dashboard page
+            setError('This account is not linked to a school. Sign in from your school\'s page.');
           }
         }
       }

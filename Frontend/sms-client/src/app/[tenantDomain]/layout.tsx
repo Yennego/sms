@@ -4,8 +4,7 @@ import { ReactNode, useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useTenant } from '@/hooks/use-tenant';
-import Sidebar from '@/components/layout/Sidebar';
-import Header from '@/components/layout/Header';
+import AppShell from '@/components/layout/app-shell';
 import { Loader2 } from "lucide-react";
 
 export default function TenantLayout({ children }: { children: ReactNode }) {
@@ -65,17 +64,5 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  return (
-    <div className="flex h-screen overflow-hidden bg-slate-50">
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden md:ml-64">
-        <Header />
-        <div className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-50">
-          <main className="p-4 md:p-6 max-w-7xl mx-auto">
-            {children}
-          </main>
-        </div>
-      </div>
-    </div>
-  );
+  return <AppShell>{children}</AppShell>;
 }

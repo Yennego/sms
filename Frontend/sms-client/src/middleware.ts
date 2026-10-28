@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { COOKIE_NAMESPACES, getNamespacedKey } from './utils/cookie-manager';
 import { getSession, getSuperAdminSession } from './lib/session';
 import { rejectCrossSite } from './app/api/_lib/csrf';
+import { isReservedSlug } from './config/reserved-slugs';
 
 type CookieNamespace = keyof typeof COOKIE_NAMESPACES;
 
@@ -73,13 +74,7 @@ function extractTenantFromSubdomain(hostname: string): string | null {
 
 function extractTenantFromPath(pathname: string): string | null {
   const pathSegments = pathname.split('/');
-  
-  // Define dashboard routes that should not be treated as tenant domains
-  const dashboardRoutes = [
-      'dashboard', 'students', 'teachers', 'classes', 'timetable', 
-      'timetables', 'attendance', 'exams', 'grades', 'communication', 'settings', 'academics'
-  ];
-  
+
   // Check for UUID-based tenant paths first
   if (pathSegments.length > 1 && pathSegments[1]) {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -93,11 +88,8 @@ function extractTenantFromPath(pathname: string): string | null {
   
   if (pathSegments.length >= 2 && 
       firstSegment && 
-      !firstSegment.startsWith('_') && 
-      !firstSegment.startsWith('api') &&
-      !firstSegment.startsWith('super-admin') &&
-      !dashboardRoutes.includes(firstSegment) &&
-      !['login', 'register', 'session-expired', 'forgot-password', 'reset-password'].includes(firstSegment)) {
+      !firstSegment.startsWith('_') &&
+      !isReservedSlug(firstSegment)) {
     return firstSegment;
   }
   
@@ -149,6 +141,17 @@ function resolveTenantId(request: NextRequest, context: CookieNamespace): string
 
   // 6. The school in the signed-in user's token (current namespace first)
   return getSession(request.cookies, context)?.tenantId ?? null;
+}
+
+// The school's address for a redirect: its slug (from the URL, then the remembered domain),
+// and its id only when no slug is known (the school layout swaps an id for the slug)
+function schoolPathSegment(request: NextRequest, context: CookieNamespace, tenantId: string): string {
+  const fromPath = extractTenantFromPath(request.nextUrl.pathname);
+  if (fromPath && !isValidUUID(fromPath)) return fromPath;
+  const remembered = getNamespacedCookie(request, 'currentTenantDomain', context)
+    || request.cookies.get('currentTenantDomain')?.value;
+  if (remembered && !isReservedSlug(remembered)) return remembered.toLowerCase();
+  return tenantId;
 }
 
 export async function middleware(request: NextRequest) {
@@ -222,7 +225,7 @@ export async function middleware(request: NextRequest) {
       (pathSegments.length === 3 && pathSegments[1] === 'settings')) {
     
     if (tenantId) {
-      const targetPath = `/${tenantId}${pathname}`;
+      const targetPath = `/${schoolPathSegment(request, context, tenantId)}${pathname}`;
       console.log(`[Middleware] URL missing tenant segment. Redirecting to: ${targetPath}`);
       const redirect = NextResponse.redirect(new URL(targetPath, request.url));
       // Carry over any cookies we might have set
@@ -266,7 +269,7 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/super-admin/login', request.url));
       }
       console.log(`[Middleware] No session. Redirecting to session-expired.`);
-      const target = (tenantId) ? `/${tenantId}/session-expired` : '/session-expired';
+      const target = (tenantId) ? `/${schoolPathSegment(request, context, tenantId)}/session-expired` : '/session-expired';
       return NextResponse.redirect(new URL(target, request.url));
     }
 

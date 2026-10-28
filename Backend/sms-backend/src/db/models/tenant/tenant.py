@@ -1,5 +1,5 @@
 from uuid import uuid4
-from sqlalchemy import Column, String, Boolean, Numeric
+from sqlalchemy import Column, String, Boolean, Numeric, Index, func
 import sqlalchemy as sa
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
@@ -33,6 +33,12 @@ class Tenant(Base, TimestampMixin, UUIDMixin):
     # Additional fields for frontend compatibility
     domain = Column(String(255), unique=True, nullable=True, comment="Domain for the tenant")
     subdomain = Column(String(100), nullable=True, comment="Subdomain for the tenant")
+
+    # School addresses are matched without regard to case, so they're unique that way too
+    __table_args__ = (
+        Index("uq_tenants_domain_lower", func.lower(domain), unique=True),
+        Index("uq_tenants_subdomain_lower", func.lower(subdomain), unique=True),
+    )
     logo = Column(String(500), nullable=True, comment="Logo URL for the tenant")
     primary_color = Column(String(7), nullable=True, comment="Primary color for branding (hex)")
     secondary_color = Column(String(7), nullable=True, comment="Secondary color for branding (hex)")

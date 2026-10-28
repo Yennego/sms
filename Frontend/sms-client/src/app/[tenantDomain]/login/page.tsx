@@ -12,6 +12,7 @@ import { AlertCircle, Loader2, School, LogIn, Mail } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useTenant } from "@/hooks/use-tenant";
 import { PasswordInput } from '@/components/auth/password-input';
+import { homePath } from '@/config/navigation';
 
 export default function TenantLoginPage() {
   const router = useRouter();
@@ -52,7 +53,7 @@ export default function TenantLoginPage() {
       if (result.requiresPasswordChange) {
         router.push(`/${tenantDomain}/change-password`);
       } else {
-        router.push(`/${tenantDomain}/dashboard`);
+        router.push(homePath(result.user, tenantDomain));
       }
     } catch (err: unknown) {
       console.error("Login error:", err);

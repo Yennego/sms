@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import cookies from 'js-cookie';
 import { User } from '@/types/auth';
 import { contextualCookies, getCurrentContext } from '@/utils/cookie-manager';
+import { currentSchoolSlug } from '@/utils/tenant-utils';
 import axios from 'axios';
 
 // The session lives in httpOnly cookies set by the /api/auth routes. This context never sees a
@@ -340,10 +341,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                         : (r.name === 'superadmin' || r.name === 'super-admin')
                     );
 
-        // Prefer domain name for user-friendly redirects
-        const domain = contextualCookies.get('currentTenantDomain', 'TENANT');
-        const uuid = contextualCookies.get('tenantId', 'TENANT');
-        const tid = domain || uuid;
+        // The school's slug (URL, then remembered domain); its id only when no slug is known
+        const tid = currentSchoolSlug() || contextualCookies.get('tenantId', 'TENANT');
 
         const target = (tid && !isSA) ? `/${tid}/session-expired` : '/session-expired';
 

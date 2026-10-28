@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
+import { currentSchoolSlug } from '@/utils/tenant-utils';
 
 export default function AdminDashboardRedirect() {
   const router = useRouter();
@@ -22,7 +23,9 @@ export default function AdminDashboardRedirect() {
     if (isSuperAdmin) {
       router.push('/super-admin/dashboard');
     } else {
-      router.push('/dashboard?role=admin');
+      // There is no school-less /dashboard: go to the school's home, or sign in
+      const school = currentSchoolSlug();
+      router.push(school ? `/${school}/dashboard` : '/login');
     }
   }, [router, user]);
   

@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
-import SuperAdminSidebar from '@/components/layout/SuperAdminSidebar';
-import SuperAdminHeader from '@/components/layout/SuperAdminHeader';
+import { PlatformShell } from '@/components/layout/app-shell';
 import ErrorBoundary from '@/components/common/ErrorBoundary';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 
@@ -13,25 +12,10 @@ export default function SuperAdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { user, isAuthenticated, isLoading, isLoggingOut, hasInitialized } = useAuth();
+  const { user, isAuthenticated, isLoggingOut, hasInitialized } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const hasRedirected = useRef(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-
-  // Load sidebar state from localStorage
-  useEffect(() => {
-    const savedCollapsed = localStorage.getItem('superadmin-sidebar-collapsed');
-    if (savedCollapsed !== null) {
-      setIsSidebarCollapsed(JSON.parse(savedCollapsed));
-    }
-  }, []);
-
-  // Save sidebar state to localStorage
-  useEffect(() => {
-    localStorage.setItem('superadmin-sidebar-collapsed', JSON.stringify(isSidebarCollapsed));
-  }, [isSidebarCollapsed]);
 
   useEffect(() => {
     // Bypass auth checks for login page
@@ -42,7 +26,7 @@ export default function SuperAdminLayout({
     if (hasInitialized && !hasRedirected.current) {
       if (!isAuthenticated) {
         hasRedirected.current = true;
-        router.push('/login');
+        router.push('/super-admin/login');
         return;
       }
 
@@ -58,20 +42,13 @@ export default function SuperAdminLayout({
 
       // Only redirect non-super-admins once
       if (!isSuperAdmin) {
+        // School accounts belong on their school's pages
         hasRedirected.current = true;
-        router.push('/dashboard');
+        router.push('/');
         return;
       }
     }
   }, [isAuthenticated, hasInitialized, user, router, pathname]);
-
-  const toggleSidebar = () => {
-    setIsSidebarOpen(!isSidebarOpen);
-  };
-
-  const handleSidebarCollapse = (collapsed: boolean) => {
-    setIsSidebarCollapsed(collapsed);
-  };
 
   if (!hasInitialized || isLoggingOut) {
     // If we are redirecting to login, don't spin
@@ -106,24 +83,9 @@ export default function SuperAdminLayout({
   return (
     <ErrorBoundary>
       <NuqsAdapter>
-        <div className="h-screen flex overflow-hidden bg-gray-100">
-          <SuperAdminSidebar
-            isOpen={isSidebarOpen}
-            onToggle={toggleSidebar}
-            isCollapsed={isSidebarCollapsed}
-            onCollapse={handleSidebarCollapse}
-          />
-
-          {/* Main content area - no margin needed now */}
-          <div className="flex flex-col flex-1 overflow-hidden">
-            <SuperAdminHeader onMenuToggle={toggleSidebar} />
-            <main className="flex-1 relative overflow-y-auto focus:outline-none">
-              <ErrorBoundary>
-                {children}
-              </ErrorBoundary>
-            </main>
-          </div>
-        </div>
+        <PlatformShell>
+          <ErrorBoundary>{children}</ErrorBoundary>
+        </PlatformShell>
       </NuqsAdapter>
     </ErrorBoundary>
   );

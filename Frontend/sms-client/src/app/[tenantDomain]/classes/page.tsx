@@ -11,9 +11,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { usePromotionService } from '@/services/api/promotion-service';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
+import { useTenantNavigation } from '@/hooks/use-tenant';
 
 export default function ClassesOverviewPage() {
   const queryClient = useQueryClient();
+  const { createTenantPath } = useTenantNavigation();
   const { data: classes = [], isLoading: classesLoading } = useClasses();
   const { data: grades = [] } = useEnrollmentGrades();
   const { data: sections = [] } = useEnrollmentSections();
@@ -59,7 +61,7 @@ export default function ClassesOverviewPage() {
         <h1 className="text-2xl font-bold">Classes Overview</h1>
         <div className="flex gap-2">
           <Button onClick={() => setIsEvalOpen(true)}>Evaluate Promotions</Button>
-          <Button onClick={() => (window.location.href = './new')}>Create Class</Button>
+          <Button onClick={() => (window.location.href = createTenantPath('/classes/new'))}>Create Class</Button>
         </div>
       </div>
 
@@ -88,7 +90,7 @@ export default function ClassesOverviewPage() {
                     <TableCell>{c.room || '-'}</TableCell>
                     <TableCell>
                       <div className="flex gap-2">
-                        <Button variant="outline" onClick={() => (window.location.href = `./classes/${c.id}`)}>View</Button>
+                        <Button variant="outline" onClick={() => (window.location.href = createTenantPath(`/classes/${c.id}`))}>View</Button>
                       </div>
                     </TableCell>
                   </TableRow>

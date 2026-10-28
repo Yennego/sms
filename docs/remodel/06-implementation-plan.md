@@ -44,6 +44,8 @@ Exit: isolation suite passes on Postgres with RLS on; no Bearer tokens in browse
 
 ## Phase 2: App shell and navigation (1–2 weeks)
 
+**Status (Oct 2026): built, not yet merged.** One navigation config (`src/config/navigation.ts`) drives the sidebar, the phone bottom bar with "More", the area tabs, the role homes and every post-login redirect; schools and the platform share one shell (`components/layout/app-shell.tsx`). Each area's existing pages appear as its tabs until Phases 3–5 rebuild them. Component set in `components/ui` (PageShell, DataTable, StatusBadge, EmptyState, ConfirmDialog, Sheet, DropdownMenu, FormField, Toaster); dialogs and menus run on Headless UI until the Radix packages can be installed. One reserved-slug list on both sides, slugs validated (lowercase letters, digits, hyphens) and unique regardless of case; links use the slug. Not done: the `/platform` rename (still `/super-admin`) and Playwright smoke tests (packages can't be installed offline).
+
 - Design system setup (design brief §4): shadcn/Radix components, tokens, `PageShell`, `DataTable`, `StatusBadge`, `EmptyState`, `ConfirmDialog`.
 - New URL scheme (`/{school}`, `/platform`), slug-only links, reserved slugs.
 - Role→menu config, sidebar and phone bottom navigation; role homes.

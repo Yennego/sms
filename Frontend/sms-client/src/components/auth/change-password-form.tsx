@@ -6,17 +6,9 @@ import { Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { PasswordInput } from '@/components/auth/password-input';
 import { contextualCookies, getCurrentContext } from '@/utils/cookie-manager';
+import { homePath } from '@/config/navigation';
 
 type Step = 'idle' | 'saving' | 'opening';
-
-const ROLE_HOMES: Record<string, string> = {
-  admin: '/admin-dashboard',
-  teacher: '/teacher/dashboard',
-  student: '/student/dashboard',
-  parent: '/parent/attendance',
-  'attendance-scanner': '/attendance/scan',
-};
-const SUPER_ADMIN_ROLES = ['super-admin', 'superadmin', 'super_admin'];
 
 export default function ChangePasswordForm() {
   const [currentPassword, setCurrentPassword] = useState('');
@@ -32,16 +24,6 @@ export default function ChangePasswordForm() {
   const schoolSlug = (params?.tenantDomain as string | undefined)
     || contextualCookies.get('currentTenantDomain', getCurrentContext())
     || (typeof window !== 'undefined' ? localStorage.getItem('currentTenantDomain') : null);
-
-  const homePath = () => {
-    const roles = [
-      user?.role,
-      ...(Array.isArray(user?.roles) ? user.roles.map((r) => (typeof r === 'string' ? r : r.name)) : []),
-    ].filter((r): r is string => !!r);
-    if (roles.some((r) => SUPER_ADMIN_ROLES.includes(r))) return '/super-admin/dashboard';
-    const home = roles.map((r) => ROLE_HOMES[r]).find(Boolean) || '/dashboard';
-    return schoolSlug ? `/${schoolSlug}${home}` : '/login';
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,7 +43,7 @@ export default function ChangePasswordForm() {
       await changePassword(currentPassword, newPassword);
       // Keep the loader up until the dashboard has replaced this page
       setStep('opening');
-      router.replace(homePath());
+      router.replace(homePath(user, schoolSlug));
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
       const message = typeof detail === 'string'

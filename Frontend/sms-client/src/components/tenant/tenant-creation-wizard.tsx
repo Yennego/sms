@@ -117,9 +117,8 @@ export default function TenantCreationWizard({ onClose, onComplete }: TenantCrea
           email: createdResult.admin_user.email,
           password: createdResult.admin_user.generated_password || '[Password was set by user]',
           username: createdResult.admin_user.email,
-          tenantLoginUrl: createdResult.tenant.domain 
-            ? `https://${createdResult.tenant.domain}` 
-            : `https://${createdResult.tenant.subdomain}.yourdomain.com`,
+          // The school's sign-in page lives at /{slug}/login on this app
+          tenantLoginUrl: `${typeof window !== 'undefined' ? window.location.origin : ''}/${(createdResult.tenant.domain || createdResult.tenant.subdomain || createdResult.tenant.id || '').toLowerCase()}/login`,
           userId: createdResult.admin_user.id
         };
         
