@@ -95,13 +95,16 @@ function LoginPageContent() {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
+                <Label htmlFor="email">Email or username</Label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                   <Input
                     id="email"
-                    type="email"
-                    placeholder="admin@foundation.com"
+                    type="text"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    placeholder="name@school.com or ama.kollie"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required

@@ -50,7 +50,11 @@ class User(Base, TimestampMixin, UUIDMixin):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # User fields
-    email = Column(String(255), nullable=False, comment="User's email address (unique per school)")
+    # Sign-in identifiers, both unique per school (case-insensitive). Every account has a
+    # username (generated from the name when none is given); email is optional because many
+    # families don't have one.
+    email = Column(String(255), nullable=True, comment="User's email address (unique per school)")
+    username = Column(String(50), nullable=False, comment="Sign-in name (unique per school)")
     password_hash = Column(String(255), nullable=False)
     first_name = Column(String(100), nullable=False, comment="User's first name")
     last_name = Column(String(100), nullable=False, comment="User's last name")
@@ -74,6 +78,7 @@ class User(Base, TimestampMixin, UUIDMixin):
         Index('ix_users_tenant_id', 'tenant_id'),
         Index('uq_users_tenant_email', tenant_id, func.lower(email), unique=True),
         Index('ix_users_email_lower', func.lower(email)),
+        Index('uq_users_tenant_username', tenant_id, func.lower(username), unique=True),
         # Target for composite foreign keys from school tables (tenant_id, user_id)
         UniqueConstraint('tenant_id', 'id', name='uq_users_tenant_id_id'),
     )

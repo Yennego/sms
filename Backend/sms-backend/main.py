@@ -70,6 +70,28 @@ async def debug_exception_handler(request: Request, exc: Exception):
         content={"detail": "An unexpected server error occurred."}
     )
 
+from sqlalchemy.exc import IntegrityError
+
+# Unique rules people can trip over, by constraint name: answer 409 with what to change
+DUPLICATE_MESSAGES = {
+    "uq_users_tenant_username": "That username is already used in this school. Choose another.",
+    "uq_users_tenant_email": "That email is already used in this school.",
+    "uq_students_tenant_admission_number": "That admission number is already used in this school.",
+    "uq_teachers_tenant_employee_id": "That employee ID is already used in this school.",
+    "unique_class_identity": "This school already has a class for that grade and section this year.",
+    "uq_user_roles_tenant_name": "A role with that name already exists.",
+}
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError):
+    message = str(getattr(exc, "orig", exc))
+    for constraint, detail in DUPLICATE_MESSAGES.items():
+        if constraint in message:
+            return JSONResponse(status_code=409, content={"detail": detail})
+    return await debug_exception_handler(request, exc)
+
+
 from src.core.exceptions.business import (
     BusinessLogicError, EntityNotFoundError, DuplicateEntityError, PermissionDeniedError
 )

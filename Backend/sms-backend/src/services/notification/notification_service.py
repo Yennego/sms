@@ -68,8 +68,8 @@ class NotificationDispatchService(TenantBaseService[Notification, NotificationCr
             )
             raise EntityNotFoundError("User", user_id)
         
-        # Send email
-        email_sent = self.email_service.send_email(
+        # Send email (accounts without an email only get the in-app notification)
+        email_sent = bool(user.email) and self.email_service.send_email(
             recipient_email=user.email,
             subject=title,
             message_html=message

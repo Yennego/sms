@@ -30,20 +30,43 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
             func.lower(User.email) == email.lower()
         ).first()
     
-    def get_super_admin_by_email(self, db: Session, email: str) -> Any:
-        """Get a platform super-admin by email (case-insensitive).
+    @staticmethod
+    def _identifier_matches(identifier: str):
+        """Sign-in identifier: an email or a username (both unique per school, any case)."""
+        value = identifier.strip().lower()
+        column = User.email if "@" in value else User.username
+        return func.lower(column) == value
 
-        Emails are unique per school, not globally, so lookups without a school are
+    def get_by_identifier(self, db: Session, tenant_id: Any, identifier: str) -> Any:
+        """Get a user of a school by email or username (case-insensitive)."""
+        if not identifier or not identifier.strip():
+            return None
+        return db.query(User).filter(
+            User.tenant_id == ensure_uuid(tenant_id), self._identifier_matches(identifier)
+        ).first()
+
+    def get_by_username(self, db: Session, tenant_id: Any, username: str) -> Any:
+        """Get a user by username within a tenant (case-insensitive)."""
+        if not username:
+            return None
+        return db.query(User).filter(
+            User.tenant_id == ensure_uuid(tenant_id), func.lower(User.username) == username.strip().lower()
+        ).first()
+
+    def get_super_admin_by_email(self, db: Session, email: str) -> Any:
+        """Get a platform super-admin by email or username (case-insensitive).
+
+        Identifiers are unique per school, not globally, so lookups without a school are
         limited to super-admin accounts.
         """
-        if not email:
+        if not email or not email.strip():
             return None
         return (
             db.query(User)
             .options(joinedload(User.roles))
             .join(User.roles)
             .filter(
-                func.lower(User.email) == email.lower(),
+                self._identifier_matches(email),
                 UserRole.name.in_(SUPER_ADMIN_ROLE_NAMES),
                 UserRole.tenant_id.is_(None),
             )
@@ -79,8 +102,8 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
         tenant_id_uuid = ensure_uuid(tenant_id)
         logger.info(f"[AUTH] Authenticating email={email} (Fix v1.0), tenant_id={tenant_id}")
         
-        # First try to find the user in the specified tenant
-        user = self.get_by_email(db, tenant_id=tenant_id_uuid, email=email)
+        # First try to find the user in the specified tenant (email or username)
+        user = self.get_by_identifier(db, tenant_id=tenant_id_uuid, identifier=email)
         
         if not user:
             logger.debug(f"[AUTH] User not found in tenant {tenant_id_uuid}. Checking across all tenants...")
@@ -106,6 +129,7 @@ class CRUDUser(TenantCRUDBase[User, UserCreate, UserUpdate]):
             
         db_obj = User(
             email=obj_in.email,
+            username=obj_in.username,  # generated from the name when empty
             first_name=obj_in.first_name,
             last_name=obj_in.last_name,
             is_active=obj_in.is_active,

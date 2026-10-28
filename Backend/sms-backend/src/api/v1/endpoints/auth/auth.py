@@ -56,8 +56,8 @@ def create_user(
         )
     new_user = user_crud.create(db, tenant_id=tenant_id, obj_in=user_in)
     
-    # Send email notification if a password was generated
-    if hasattr(new_user, 'generated_password'):
+    # Send email notification if a password was generated (accounts may have no email)
+    if hasattr(new_user, 'generated_password') and new_user.email:
         email_service = EmailService()
         email_service.send_password_notification(
             new_user.email, 
@@ -703,9 +703,9 @@ def admin_reset_password(
     db.add(user)
     db.commit()
     
-    # Send email notification
-    email_service = EmailService()
-    email_service.send_password_notification(user.email, new_password)
+    # Send email notification (accounts may have no email: the admin hands the password over)
+    if user.email:
+        EmailService().send_password_notification(user.email, new_password)
     
     return {"message": "Password reset successful", "generated_password": new_password}
 

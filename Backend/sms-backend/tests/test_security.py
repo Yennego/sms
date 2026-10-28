@@ -29,7 +29,7 @@ from src.db.session import get_db, request_session
 ADMIN_PERMISSIONS = [
     "view_users", "manage_users", "delete_users", "view_students", "manage_students",
     "manage_teachers", "manage_tenant_settings", "view_financial_data", "manage_financial_data",
-    "manage_roles",
+    "manage_roles", "create_users",
 ]
 PLATFORM_ONLY = ["manage_tenants"]
 

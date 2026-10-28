@@ -702,7 +702,7 @@ def create_user_cross_tenant(
                     print(f"Error auto-assigning admin role: {e}")
     
     # Send email with login details if password was generated
-    if password_was_generated and generated_password:
+    if password_was_generated and generated_password and user.email:
         try:
             send_new_user_email(user.email, user.first_name, generated_password)
         except Exception as e:
