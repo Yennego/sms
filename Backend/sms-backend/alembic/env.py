@@ -1,3 +1,4 @@
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
@@ -18,13 +19,28 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Set the database URL in the alembic.ini file
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Set the database URL in the alembic.ini file. Migrations need the owner role; the API may
+# run as a restricted role (row level security), so ALEMBIC_DATABASE_URL can override.
+config.set_main_option(
+    "sqlalchemy.url",
+    os.getenv("ALEMBIC_DATABASE_URL") or settings.ALEMBIC_DATABASE_URL or settings.DATABASE_URL,
+)
 
 # add your model's MetaData object here
 # for 'autogenerate' support
 from src.db.models.base import Base
 target_metadata = Base.metadata
+
+# Database-only constraints (composite tenant keys, RLS helpers) that the models don't
+# declare: autogenerate must not try to drop them.
+DB_ONLY_PREFIXES = ("fk_tn_", "uq_tn_")
+
+
+def include_object(object, name, type_, reflected, compare_to):
+    if reflected and compare_to is None and name and name.startswith(DB_ONLY_PREFIXES):
+        return False
+    return True
+
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -48,6 +64,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        include_object=include_object,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -71,7 +88,8 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection, target_metadata=target_metadata,
+            include_object=include_object,
         )
 
         with context.begin_transaction():
