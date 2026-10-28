@@ -15,7 +15,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Use Node.js
       uses: actions/setup-node@v4
       with:
@@ -24,8 +24,12 @@ jobs:
         cache-dependency-path: './Frontend/sms-client/package-lock.json'
 
     - name: Install dependencies
-      run: npm install
+      run: npm ci
 
+    - name: Type check
+      run: npx tsc --noEmit
+
+    # Existing lint findings are being worked down; new code should lint clean
     - name: Lint check
       run: npm run lint
       continue-on-error: true
@@ -33,9 +37,9 @@ jobs:
     - name: Build check
       run: npm run build
       env:
-        NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+        BACKEND_API_URL: http://localhost:8000/api/v1
 
-  backend-check:
+  backend-tests:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -47,7 +51,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: '3.13'
         cache: 'pip'
         cache-dependency-path: './Backend/sms-backend/requirements.txt'
 
@@ -56,5 +60,60 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Test import
-      run: python -c "import main; print('Main boot success')"
+    # Includes the route check: every route outside PUBLIC_ROUTES must reject anonymous calls
+    - name: Tests
+      run: |
+        export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+        python -m pytest -q
+
+  postgres-isolation:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./Backend/sms-backend
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sms_ci
+        ports: [ "5432:5432" ]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+      ALEMBIC_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sms_ci
+      TEST_PG_ADMIN_URL: postgresql://postgres:postgres@localhost:5432/sms_ci
+      TEST_PG_APP_URL: postgresql://sms_app:ci_app_password@localhost:5432/sms_ci
+      CI_REQUIRE_POSTGRES: "1"
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+        cache: 'pip'
+        cache-dependency-path: './Backend/sms-backend/requirements.txt'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    # From empty: the baseline migration, then any newer ones
+    - name: Build the database
+      run: |
+        export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+        alembic upgrade head
+        psql -h localhost -U postgres -d sms_ci -v ON_ERROR_STOP=1 -v app_password="'ci_app_password'" -f scripts/create_app_db_role.sql
+
+    - name: Isolation tests (row level security, composite keys)
+      run: |
+        export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+        python -m pytest -q tests/test_postgres_isolation.py
