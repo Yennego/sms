@@ -1,7 +1,13 @@
 import { put } from '@vercel/blob';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { getSession } from '@/lib/session';
 
-export async function POST(request: Request): Promise<NextResponse> {
+export async function POST(request: NextRequest): Promise<NextResponse> {
+    // Only signed-in users may upload (logos, photos)
+    if (!getSession(request.cookies)) {
+        return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const filename = searchParams.get('filename');
 

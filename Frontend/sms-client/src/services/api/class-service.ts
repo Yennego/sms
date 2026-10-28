@@ -8,6 +8,9 @@ export function useClassService() {
   const waitForApiClientReady = useMemo(() => createWaitForApiClientReady(apiClient), [apiClient]);
 
   const service = useMemo(() => ({
+    // True once the tenant-scoped API client is usable (methods also await readiness themselves).
+    isApiReady: !!apiClient && !apiLoading,
+
     getClasses: async (filters?: ClassFilters): Promise<Class[]> => {
       const client = await waitForApiClientReady();
       try {
@@ -133,6 +136,22 @@ export function useClassService() {
       );
     },
 
+    exportClassEnrollments: async (
+      classId: string,
+      options?: { format?: 'csv' | 'xlsx'; details?: boolean; academic_year_id?: string; is_active?: boolean }
+    ): Promise<Blob> => {
+      const client = await waitForApiClientReady();
+      const qs = new URLSearchParams();
+      if (options?.format) qs.append('format', options.format);
+      if (options?.details !== undefined) qs.append('details', String(options.details));
+      if (options?.academic_year_id) qs.append('academic_year_id', options.academic_year_id);
+      if (options?.is_active !== undefined) qs.append('is_active', String(options.is_active));
+      return client.get<Blob>(
+        `/academics/classes/${classId}/enrollments/export${qs.size ? '?' + qs.toString() : ''}`,
+        { responseType: 'blob' }
+      );
+    },
+
     createClassEnrollment: async (payload: {
       student_id: string;
       class_id: string;
@@ -185,7 +204,7 @@ export function useClassService() {
     getClassesByGrade: async (gradeId: string): Promise<Class[]> => {
       return service.getClasses({ grade_id: gradeId });
     }
-  }), [waitForApiClientReady]);
+  }), [waitForApiClientReady, apiClient, apiLoading]);
 
   return service;
 }

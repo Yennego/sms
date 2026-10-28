@@ -2,14 +2,16 @@
 
 import { useState, useMemo } from "react";
 import { useRouter, useParams } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { AlertCircle, Loader2, School, LogIn, Mail, Lock } from "lucide-react";
+import { AlertCircle, Loader2, School, LogIn, Mail } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useTenant } from "@/hooks/use-tenant";
+import { PasswordInput } from '@/components/auth/password-input';
 
 export default function TenantLoginPage() {
   const router = useRouter();
@@ -48,13 +50,14 @@ export default function TenantLoginPage() {
       const result = await login(email, password, idToUse || undefined);
 
       if (result.requiresPasswordChange) {
-        router.push("/change-password");
+        router.push(`/${tenantDomain}/change-password`);
       } else {
         router.push(`/${tenantDomain}/dashboard`);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Login error:", err);
-      setError(err.response?.data?.detail || "Invalid email or password");
+      const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+      setError(typeof detail === "string" && detail ? detail : "Invalid email or password");
     } finally {
       setIsLoading(false);
     }
@@ -82,8 +85,9 @@ export default function TenantLoginPage() {
                 alt={branding} 
                 className="w-12 h-12 object-contain"
                 onError={(e) => {
-                  (e.target as any).style.display = 'none';
-                  const fallback = (e.target as any).nextSibling;
+                  const img = e.currentTarget;
+                  img.style.display = 'none';
+                  const fallback = img.nextElementSibling as HTMLElement | null;
                   if (fallback) fallback.style.display = 'flex';
                 }}
               />
@@ -129,22 +133,20 @@ export default function TenantLoginPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="password">Password</Label>
-                  <Button variant="link" className="p-0 h-auto text-xs text-primary font-medium" type="button">
+                  <Link href={`/${tenantDomain}/forgot-password`} className="text-xs text-primary font-medium hover:underline">
                     Forgot password?
-                  </Button>
+                  </Link>
                 </div>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    className="pl-10 h-11 border-slate-200 focus:ring-primary focus:border-primary"
-                    disabled={isLoading}
-                  />
-                </div>
+                <PasswordInput
+                  id="password"
+                  withIcon
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="h-11 border-slate-200 focus:ring-primary focus:border-primary"
+                  disabled={isLoading}
+                />
               </div>
 
               <Button 
@@ -170,10 +172,7 @@ export default function TenantLoginPage() {
 
         <div className="text-center">
           <p className="text-sm text-slate-500">
-            Don't have an account?{" "}
-            <Button variant="link" className="p-0 h-auto text-primary font-semibold">
-              Contact your administrator
-            </Button>
+            Don&apos;t have an account? Your school office creates accounts: ask them to set one up for you.
           </p>
         </div>
       </div>

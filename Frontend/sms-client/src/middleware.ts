@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { COOKIE_NAMESPACES, getNamespacedKey } from './utils/cookie-manager';
+import { getSession, getSuperAdminSession } from './lib/session';
+import { rejectCrossSite } from './app/api/_lib/csrf';
 
 type CookieNamespace = keyof typeof COOKIE_NAMESPACES;
 
-// Utility function to mask sensitive tokens in logs
+// Tokens never appear in logs, in any environment: only whether one is present
 function maskToken(token: string | undefined): string {
-  if (!token) return 'undefined';
-  if (process.env.NODE_ENV === 'production') {
-    return token.length > 10 ? `${token.substring(0, 6)}...${token.substring(token.length - 4)}` : '***masked***';
-  }
-  return token; // Show full token in development
+  return token ? '[present]' : 'undefined';
 }
 
 function getContextFromPath(pathname: string): CookieNamespace {
@@ -106,21 +104,8 @@ function extractTenantFromPath(pathname: string): string | null {
   return null;
 }
 
-function extractTenantFromToken(accessToken: string): string | null {
-  try {
-    const payload = JSON.parse(atob(accessToken.split('.')[1]));
-    const tenantId = payload.tenant_id;
-    if (!tenantId || tenantId === 'None' || tenantId === 'null' || tenantId === 'undefined') {
-      return null;
-    }
-    return tenantId;
-  } catch {
-    return null;
-  }
-}
-
 function resolveTenantId(request: NextRequest, context: CookieNamespace): string | null {
-  const { pathname, searchParams } = request.nextUrl;
+  const { pathname } = request.nextUrl;
   const hostname = request.headers.get('host') || '';
   
   console.log(`[Middleware] Resolving tenant ID for context: ${context}`);
@@ -162,18 +147,8 @@ function resolveTenantId(request: NextRequest, context: CookieNamespace): string
     }
   }
 
-  // 6. Try extract from JWT token - check both current and TENANT namespace for API calls
-  let jwtAccessToken = getNamespacedCookie(request, 'accessToken', context);
-  if (!jwtAccessToken && pathname.startsWith('/api/') && context !== 'TENANT') {
-    jwtAccessToken = getNamespacedCookie(request, 'accessToken', 'TENANT');
-  }
-
-  if (jwtAccessToken) {
-    const fromToken = extractTenantFromToken(jwtAccessToken);
-    if (fromToken) return fromToken;
-  }
-  
-  return null;
+  // 6. The school in the signed-in user's token (current namespace first)
+  return getSession(request.cookies, context)?.tenantId ?? null;
 }
 
 export async function middleware(request: NextRequest) {
@@ -194,7 +169,17 @@ export async function middleware(request: NextRequest) {
   const context = getContextFromPath(pathname);
   console.log(`[Middleware] Processing ${context} request for: ${pathname}`);
 
-  const accessToken = getNamespacedCookie(request, 'accessToken', context);
+  // Cross-site writes never reach a route handler (session cookies would otherwise be sent along)
+  if (pathname.startsWith('/api/')) {
+    const blocked = rejectCrossSite(request);
+    if (blocked) return blocked;
+  }
+
+  // Signed in = an access cookie (httpOnly) in any namespace; /super-admin pages need a super-admin one
+  const session = context === 'SUPER_ADMIN'
+    ? getSuperAdminSession(request.cookies)
+    : getSession(request.cookies, context);
+  console.log(`[Middleware] Session (${context}): ${maskToken(session?.token)}`);
   let tenantId = resolveTenantId(request, context);
   let cookieResponse: NextResponse | null = null;
   
@@ -252,22 +237,19 @@ export async function middleware(request: NextRequest) {
   const isPublicRoute = [
     '/login', '/session-expired', '/super-admin/login', '/register',
     '/forgot-password', '/reset-password', '/_next', '/favicon.ico',
-    '/api/auth/login', '/api/auth/logout', '/api/auth/me', '/api/auth/register',
+    '/api/auth/login', '/api/auth/logout', '/api/auth/me',
+    '/api/auth/forgot-password', '/api/auth/reset-password',
     '/api/auth/refresh', '/api/tenants/public', '/api/tenants',
   ].some(route => pathname.startsWith(route));
-  
+
   const isTenantPublicRoute = /^\/[^/]+\/(login|session-expired|register|forgot-password|reset-password)$/.test(pathname);
   const isPublic = isPublicRoute || isTenantPublicRoute;
-  
-  // API Route Handling
+
+  // API Route Handling: the route handlers and the backend check the session; here we only
+  // supply the school when the caller didn't name one (super-admins name it explicitly).
   if (pathname.startsWith('/api/')) {
-    if (isPublic) return NextResponse.next();
-    
-    if (context !== 'SUPER_ADMIN' && !tenantId) {
-      console.log(`[Middleware] Blocked API request: No tenant context for ${pathname}`);
-      return NextResponse.json({ message: 'Tenant context required' }, { status: 400 });
-    }
-    
+    if (isPublic || request.headers.has('X-Tenant-ID')) return NextResponse.next();
+
     if (tenantId && isValidUUID(tenantId)) {
       const headers = new Headers(request.headers);
       headers.set('X-Tenant-ID', tenantId);
@@ -275,11 +257,15 @@ export async function middleware(request: NextRequest) {
     }
     return NextResponse.next();
   }
-  
+
   // Page Route Protected Check
   if (!isPublic) {
-    if (!accessToken) {
-      console.log(`[Middleware] No token. Redirecting to session-expired.`);
+    if (!session) {
+      if (context === 'SUPER_ADMIN') {
+        console.log(`[Middleware] No super-admin session. Redirecting to super-admin login.`);
+        return NextResponse.redirect(new URL('/super-admin/login', request.url));
+      }
+      console.log(`[Middleware] No session. Redirecting to session-expired.`);
       const target = (tenantId) ? `/${tenantId}/session-expired` : '/session-expired';
       return NextResponse.redirect(new URL(target, request.url));
     }
@@ -294,7 +280,9 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next|static|public|_vercel).*)'],
+  // Skip build assets and anything that looks like a file or a well-known URI
+  // (/.well-known/..., /favicon.ico, /robots.txt): those are never a school's address
+  matcher: ['/((?!_next|static|public|_vercel|\\.well-known|.*\\.[a-zA-Z0-9]+$).*)'],
 };
 
 function isValidUUID(str: string): boolean {

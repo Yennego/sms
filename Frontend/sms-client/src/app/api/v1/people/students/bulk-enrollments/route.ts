@@ -38,9 +38,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const authHeader = request.headers.get('authorization') || request.headers.get('Authorization');
-    const cookieAccessToken = getAccessToken(cookieStore);
-    const accessToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader ?? cookieAccessToken;
+    const accessToken = getAccessToken(cookieStore);
 
     if (!accessToken) {
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });

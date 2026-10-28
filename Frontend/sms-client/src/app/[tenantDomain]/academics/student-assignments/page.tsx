@@ -67,7 +67,8 @@ export default function StudentAssignmentsPage() {
     setLoading(true);
     try {
       // Load students first
-      const studentsData = await studentService.getStudents();
+      // getStudents returns a paged envelope ({ items, total }); this page needs the array.
+      const { items: studentsData } = await studentService.getStudents();
       setStudents(studentsData);
 
       // Load other data in parallel

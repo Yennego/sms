@@ -263,8 +263,8 @@ function getNavigation(rawRole: string, tenantDomain?: string): MenuItem[] {
     ];
   }
 
-  // Gate/kiosk staff: scanning only
-  if (role === 'attendance-scanner') {
+  // Gate/kiosk staff: scanning only (role is normalized without hyphens above)
+  if (role === 'attendancescanner') {
     return [
       { name: 'Scan ID Cards', href: tenantDomain ? `/${tenantDomain}/attendance/scan` : '/attendance/scan', icon: ScanLine },
     ];

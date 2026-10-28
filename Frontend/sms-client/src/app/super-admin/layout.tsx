@@ -13,7 +13,7 @@ export default function SuperAdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { user, isAuthenticated, isLoading, accessToken, isLoggingOut, hasInitialized } = useAuth();
+  const { user, isAuthenticated, isLoading, isLoggingOut, hasInitialized } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const hasRedirected = useRef(false);
@@ -40,7 +40,7 @@ export default function SuperAdminLayout({
     }
 
     if (hasInitialized && !hasRedirected.current) {
-      if (!isAuthenticated || !accessToken) {
+      if (!isAuthenticated) {
         hasRedirected.current = true;
         router.push('/login');
         return;
@@ -63,7 +63,7 @@ export default function SuperAdminLayout({
         return;
       }
     }
-  }, [isAuthenticated, hasInitialized, user, accessToken, router, pathname]);
+  }, [isAuthenticated, hasInitialized, user, router, pathname]);
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);

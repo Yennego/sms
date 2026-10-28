@@ -127,7 +127,7 @@ export function TeacherAssignmentModal({
     return `${grade?.name || 'Unknown Grade'} - ${section?.name || 'Unknown Section'} - ${subject?.name || 'Unknown Subject'}`;
   };
 
-  const getCurrentTeacher = (teacherId: string) => {
+  const getCurrentTeacher = (teacherId: string | undefined) => {
     return teachers.find(t => t.id === teacherId);
   };
 
@@ -142,7 +142,7 @@ export function TeacherAssignmentModal({
       section: section?.name || 'Unknown',
       subject: subject?.name || 'Unknown',
       room: cls.room || 'Not specified',
-      academicYear: cls.academic_year,
+      academicYear: cls.academic_year_name,
       currentTeacher: currentTeacher ? `${currentTeacher.first_name} ${currentTeacher.last_name}` : 'Unknown Teacher'
     };
   };

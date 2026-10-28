@@ -1,7 +1,7 @@
 'use client';
 
 import { ReactNode, useEffect } from 'react';
-import { useRouter, usePathname, useParams } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useTenant } from '@/hooks/use-tenant';
 import Sidebar from '@/components/layout/Sidebar';
@@ -10,14 +10,22 @@ import { Loader2 } from "lucide-react";
 
 export default function TenantLayout({ children }: { children: ReactNode }) {
   const { 
-    isAuthenticated, 
-    isLoading: authLoading, 
-    hasInitialized, 
-    isLoggingOut 
+    isAuthenticated,
+    hasInitialized,
+    isLoggingOut
   } = useAuth();
   const { tenant, isLoading: tenantLoading } = useTenant();
-  const params = useParams();
   const pathname = usePathname();
+  const router = useRouter();
+
+  // Addresses use the school's name (/foundation/...), never its id: swap an id for the name
+  useEffect(() => {
+    const [, first, ...rest] = pathname.split('/');
+    const isId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(first || '');
+    if (isId && tenant?.domain && String(tenant.id) === first) {
+      router.replace(['', tenant.domain, ...rest].join('/') + window.location.search);
+    }
+  }, [pathname, tenant?.id, tenant?.domain, router]);
 
   useEffect(() => {
     if (tenant?.name && tenant.name !== 'Loading...') {
@@ -25,7 +33,8 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
     }
   }, [tenant?.name]);
 
-  const isLoginPage = pathname.endsWith('/login') || /\/login(\/|$)/.test(pathname);
+  // Sign-in and password pages: no sidebar, and no wait for the session check
+  const isLoginPage = /\/(login|forgot-password|reset-password|change-password)(\/|$)/.test(pathname);
 
   // Only show full-screen loader if we have NO tenant data at all OR authentication is still initializing. 
   // If we already have a tenant and are authenticated, don't show the loader just because tenantLoading is true (prevents flash on sub-navigation).

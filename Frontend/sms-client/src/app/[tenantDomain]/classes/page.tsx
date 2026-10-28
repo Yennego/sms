@@ -83,7 +83,7 @@ export default function ClassesOverviewPage() {
                 {classes.map(c => (
                   <TableRow key={c.id}>
                     <TableCell>{formatClassRow(c)}</TableCell>
-                    <TableCell>{c.academic_year}</TableCell>
+                    <TableCell>{c.academic_year_name}</TableCell>
                     <TableCell>{c.is_active ? 'Active' : 'Inactive'}</TableCell>
                     <TableCell>{c.room || '-'}</TableCell>
                     <TableCell>

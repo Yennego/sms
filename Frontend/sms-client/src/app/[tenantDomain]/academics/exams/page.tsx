@@ -81,7 +81,7 @@ export default function ExamsPage() {
   });
   const { data: teachers = [] } = useQuery({
     queryKey: ['teachers'],
-    queryFn: getTeachers,
+    queryFn: () => getTeachers(),
   });
   const { data: grades = [] } = useQuery({
     queryKey: ['grades'],
@@ -343,7 +343,7 @@ export default function ExamsPage() {
                     <Select value={form.teacher_id} onValueChange={val => setForm({ ...form, teacher_id: val })}>
                       <SelectTrigger><SelectValue placeholder="Select Teacher" /></SelectTrigger>
                       <SelectContent>
-                        {teachers.map(t => <SelectItem key={t.id} value={t.id}>{t.name || `${t.first_name} ${t.last_name}`}</SelectItem>)}
+                        {teachers.map(t => <SelectItem key={t.id} value={t.id}>{`${t.first_name} ${t.last_name}`}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -545,10 +545,13 @@ export default function ExamsPage() {
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <div className="w-7 h-7 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-[10px] font-black">
-                        {(teachers.find(t => t.id === e.teacher_id)?.name || 'U').charAt(0)}
+                        {(teachers.find(t => t.id === e.teacher_id)?.first_name || 'U').charAt(0)}
                       </div>
                       <span className="text-sm font-medium text-gray-700">
-                        {teachers.find(t => t.id === e.teacher_id)?.name || 'Unassigned'}
+                        {(() => {
+                          const teacher = teachers.find(t => t.id === e.teacher_id);
+                          return teacher ? `${teacher.first_name} ${teacher.last_name}` : 'Unassigned';
+                        })()}
                       </span>
                     </div>
                   </TableCell>
@@ -660,7 +663,7 @@ export default function ExamsPage() {
                 <Select value={form.teacher_id} onValueChange={val => setForm({ ...form, teacher_id: val })}>
                   <SelectTrigger><SelectValue placeholder="Select Teacher" /></SelectTrigger>
                   <SelectContent>
-                    {teachers.map(t => <SelectItem key={t.id} value={t.id}>{t.name || `${t.first_name} ${t.last_name}`}</SelectItem>)}
+                    {teachers.map(t => <SelectItem key={t.id} value={t.id}>{`${t.first_name} ${t.last_name}`}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

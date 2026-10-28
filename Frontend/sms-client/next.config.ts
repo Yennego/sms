@@ -19,19 +19,8 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  async rewrites() {
-    // In production (Vercel), BACKEND_API_URL is set and API routes handle proxying
-    // In development, rewrite /api/v1/* directly to the local backend
-    if (process.env.BACKEND_API_URL) {
-      return []; // API routes handle proxying in production
-    }
-    return [
-      {
-        source: '/api/v1/:path*',
-        destination: 'http://127.0.0.1:8000/api/v1/:path*',
-      },
-    ];
-  },
+  // No /api/v1 rewrites: every backend call goes through the src/app/api/v1/[...path] proxy,
+  // which attaches the httpOnly session cookie (BACKEND_API_URL defaults to the local backend).
 };
 
 export default nextConfig;

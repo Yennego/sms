@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { TenantCreate, TenantCreateWithAdmin, AdminUserData, TenantCreateResponse } from '@/types/tenant';
+import { Tenant, TenantCreate, TenantCreateWithAdmin, AdminUserData, TenantCreateResponse } from '@/types/tenant';
 import TenantForm from './tenant-form';
 import AdminUserCreation from './admin-user-creation';
 import CredentialDisplay from './credential-display';
@@ -24,14 +24,21 @@ export default function TenantCreationWizard({ onClose, onComplete }: TenantCrea
 
   const tenantService = useTenantService();
 
-  const handleTenantDataCollected = (tenant: TenantCreate) => {
+  // TenantForm's onSubmit is shared with edit mode; in wizard mode it always passes the new TenantCreate.
+  const handleTenantDataCollected = (tenant?: Tenant | TenantCreate) => {
+    if (!tenant || 'id' in tenant) return;
     console.log('Tenant data collected:', tenant);
     setTenantData(tenant);
     setCurrentStep('admin');
     setError(null);
   };
 
-  const handleAdminDataCollected = async (adminUserData: AdminUserData) => {
+  // AdminUserCreation (with tenant={null}) reports the collected AdminUserData rather than created credentials.
+  const handleAdminDataCollected = async (
+    credentialsOrAdmin: Parameters<React.ComponentProps<typeof AdminUserCreation>['onAdminCreated']>[0]
+  ) => {
+    if (!('first_name' in credentialsOrAdmin)) return;
+    const adminUserData: AdminUserData = credentialsOrAdmin;
     if (!tenantData) {
       setError('Tenant data is missing. Please go back and fill the tenant form.');
       return;

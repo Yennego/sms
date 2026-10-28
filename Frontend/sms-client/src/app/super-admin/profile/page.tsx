@@ -138,11 +138,11 @@ export default function SuperAdminProfilePage() {
     setIsLoading(true);
     
     try {
-      const response = await fetch('/api/auth/change-password', {
+      const response = await fetch('/api/v1/auth/change-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'X-Auth-Context': 'SUPER_ADMIN',
         },
         body: JSON.stringify({
           current_password: passwordData.currentPassword,
