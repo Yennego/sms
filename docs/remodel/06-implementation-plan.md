@@ -67,6 +67,8 @@ Exit: a new school year for a 12-class school can be set up in under an hour by 
 
 ## Phase 4: Grades and report cards (2–3 weeks)
 
+**Status (Oct 2026): built, not yet tried with a pilot school.** One grading model (design and decisions in `phase4-design.md`): assessments per class subject and period (or semester exam), score entries, publication per class and period/semester, pass mark per school. Period grade = weighted category averages; semester = (P1+P2+P3+exam)/4; yearly = mean of semesters. Gradebook (desk grid, phone list), Review and publish, Report cards (A4 print, whole class), student "My results" and parent "Results" (published only). Marks only by the class subject's teacher or admins; old grade endpoints retired. Still open: old `exams`/`grades` tables and the period/semester publish toggles to remove; report card remarks; the grading-schema "categories status" check still reads the old marks.
+
 - Schema plan step 7: assessment unification, result publications.
 - Gradebook (desk grid, phone entry), review and publish, report cards (print), remedial.
 

@@ -14,7 +14,7 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusBadge, type StatusBadgeStatus } from "@/components/ui/status-badge"
 import { notify } from "@/components/ui/toaster"
-import type { GuardianRecord, PublishedGrade, StudentEnrollment, StudentRecord } from "@/services/api/student-records-service"
+import type { GuardianRecord, StudentEnrollment, StudentRecord } from "@/services/api/student-records-service"
 import type { DailyStatus } from "@/types/daily-attendance"
 import {
   capitalize,
@@ -30,9 +30,10 @@ import {
   useReissueIdCard,
   useStudentAttendance,
   useStudentEnrollments,
-  useStudentGrades,
   useStudentGuardians,
 } from "./queries"
+import { ResultsView } from "@/components/results/results-view"
+import { useResultYears } from "@/components/results/year-select"
 
 function LoadError({ error, onRetry, what }: { error: unknown; onRetry: () => void; what: string }) {
   return (
@@ -271,68 +272,15 @@ export function AttendanceTab({ studentId, school }: { studentId: string; school
 
 // --- Results --------------------------------------------------------------------------------
 
+/** The student's report card (staff see unpublished columns marked as such); the year follows ?year= */
 export function ResultsTab({ studentId }: { studentId: string }) {
-  const q = useStudentGrades(studentId)
-  const bySubject = React.useMemo(() => {
-    const map = new Map<string, { name: string; grades: PublishedGrade[] }>()
-    for (const g of q.data ?? []) {
-      if (g.is_published === false) continue
-      const key = g.subject_id
-      const entry = map.get(key) ?? { name: g.subject_name || "Subject", grades: [] }
-      entry.grades.push(g)
-      map.set(key, entry)
-    }
-    return [...map.values()]
-      .map((e) => ({ ...e, grades: e.grades.sort((a, b) => b.assessment_date.localeCompare(a.assessment_date)) }))
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }, [q.data])
-
-  if (q.isError) return <LoadError error={q.error} onRetry={() => q.refetch()} what="results" />
-  if (q.isLoading) return <ListSkeleton />
-  if (bySubject.length === 0) {
-    return (
-      <EmptyState
-        icon={BookOpen}
-        title="No published results yet"
-        description="Results appear here once teachers enter marks and the school publishes them."
-      />
-    )
-  }
+  const { yearId } = useResultYears()
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      {bySubject.map((subject) => {
-        const avg = subject.grades.reduce((sum, g) => sum + g.percentage, 0) / subject.grades.length
-        return (
-          <section key={subject.name} className="rounded-xl border">
-            <header className="flex items-center justify-between gap-2 border-b px-4 py-3">
-              <h2 className="font-semibold">{subject.name}</h2>
-              <span className="text-sm text-muted-foreground">Average {Math.round(avg)}%</span>
-            </header>
-            <ul className="divide-y">
-              {subject.grades.map((g) => (
-                <li key={g.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
-                  <span className="min-w-0">
-                    <span className="block font-medium break-words">{g.assessment_name}</span>
-                    <span className="text-muted-foreground">
-                      {formatDate(g.assessment_date)}
-                      {g.period_number ? ` · Period ${g.period_number}` : ""}
-                    </span>
-                  </span>
-                  <span className="text-right">
-                    <span className="block font-medium">
-                      {g.score} / {g.max_score}
-                    </span>
-                    <span className="text-muted-foreground">
-                      {Math.round(g.percentage)}%{g.letter_grade ? ` · ${g.letter_grade}` : ""}
-                    </span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )
-      })}
-    </div>
+    <ResultsView
+      studentId={studentId}
+      yearId={yearId}
+      emptyMessage="Results appear here once teachers enter marks for this school year."
+    />
   )
 }
 

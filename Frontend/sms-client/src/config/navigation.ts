@@ -100,14 +100,12 @@ const ATTENDANCE: NavArea = {
 const GRADES: NavArea = {
   key: 'grades', label: 'Grades', icon: Award,
   tabs: [
-    tab('Overview', '/academics/grading-hub'),
     tab('Gradebook', '/academics/gradebook'),
-    tab('Assessments', '/academics/assessments'),
-    tab('Assignments', '/academics/assignments'),
-    tab('Exams', '/academics/exams'),
-    tab('Publish', '/academics/grades/publish'),
+    tab('Review and publish', '/academics/grades/publish'),
     tab('Report cards', '/academics/report-cards'),
-    tab('Grading schemas', '/academics/grading-schemas'),
+    tab('Assignments', '/academics/assignments'),
+    tab('Grading settings', '/academics/grading-schemas'),
+    tab('Remedial', '/academics/remedial'),
   ],
 };
 
@@ -167,8 +165,7 @@ const ROLES: Record<string, RoleNavigation> = {
       {
         key: 'gradebook', label: 'Gradebook', icon: Award,
         tabs: [
-          tab('Overview', '/academics/grading-hub'),
-          tab('Assessments', '/academics/assessments'),
+          tab('Gradebook', '/academics/gradebook'),
           tab('Assignments', '/academics/assignments'),
         ],
       },
@@ -183,14 +180,17 @@ const ROLES: Record<string, RoleNavigation> = {
       { key: 'courses', label: 'Courses', icon: BookOpen, tabs: [tab('My courses', '/student/courses')] },
       {
         key: 'results', label: 'Results', icon: Award,
-        tabs: [tab('Grades', '/student/grades'), tab('Exams', '/student/exams')],
+        tabs: [tab('My results', '/student/grades')],
       },
       { key: 'attendance', label: 'Attendance', icon: ClipboardCheck, tabs: [tab('Attendance', '/student/attendance')] },
     ],
   },
   parent: {
     home: '/parent/attendance',
-    areas: [{ key: 'attendance', label: 'Attendance', icon: ClipboardCheck, tabs: [tab('Attendance', '/parent/attendance')] }],
+    areas: [
+      { key: 'attendance', label: 'Attendance', icon: ClipboardCheck, tabs: [tab('Attendance', '/parent/attendance')] },
+      { key: 'results', label: 'Results', icon: Award, tabs: [tab('Results', '/parent/results')] },
+    ],
   },
   'attendance-scanner': {
     home: '/attendance/scan',

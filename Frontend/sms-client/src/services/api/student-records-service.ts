@@ -87,22 +87,6 @@ export interface YearClass {
   is_active?: boolean;
 }
 
-export interface PublishedGrade {
-  id: string;
-  subject_id: string;
-  subject_name?: string | null;
-  assessment_name: string;
-  assessment_type: string;
-  assessment_date: string;
-  score: number;
-  max_score: number;
-  percentage: number;
-  letter_grade?: string | null;
-  period_number?: number | null;
-  semester?: number | null;
-  is_published?: boolean;
-}
-
 const PAGE = 200;
 const ENROLLMENT_CHUNK = 100;
 
@@ -182,12 +166,6 @@ export function useStudentRecordsService() {
         if (endDate) qs.append('end_date', endDate);
         const q = qs.toString();
         return client.get<StudentDailyHistory>(`/academics/attendance/daily/student/${studentId}${q ? `?${q}` : ''}`);
-      },
-
-      getGrades: async (studentId: string): Promise<PublishedGrade[]> => {
-        const client = await waitForApiClientReady();
-        const resp = await client.get<PublishedGrade[]>(`/academics/grades?student_id=${studentId}&limit=1000`);
-        return Array.isArray(resp) ? resp : [];
       },
 
       /** Returns the new one-time password. */

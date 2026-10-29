@@ -66,16 +66,6 @@ export function useStudentAttendance(id: string, start: string, end: string) {
   });
 }
 
-export function useStudentGrades(id: string) {
-  const service = useStudentRecordsService();
-  const school = useSchoolKey();
-  return useQuery({
-    queryKey: studentAreaKeys.grades(school, id),
-    queryFn: () => service.getGrades(id),
-    enabled: Boolean(school && id),
-  });
-}
-
 export function useCurrentYear() {
   const service = useStudentRecordsService();
   const school = useSchoolKey();
