@@ -36,12 +36,10 @@ from src.core.exceptions.business import (
 from src.schemas.people.student import StudentCreateResponse
 from src.schemas.academics.enrollment import Enrollment as EnrollmentSchema
 from src.services.academics.enrollment import EnrollmentService
-from src.services.academics.class_enrollment_service import ClassEnrollmentService
 from src.services.academics.attendance_service import AttendanceService
 from src.services.academics.attendance_access import has_daily_attendance_history
 from src.db.models.academics.grade import Grade
 from src.db.models.academics.enrollment import Enrollment as EnrollmentModel
-from src.db.models.academics.class_enrollment import ClassEnrollment as ClassEnrollmentModel
 from src.utils.uuid_utils import ensure_uuid
 from src.db.models.people.student import Student as StudentModel
 
@@ -55,10 +53,9 @@ def _student_in_school(db: Session, tenant_id: UUID, student_id: UUID) -> bool:
 
 def _remove_enrollments(db: Session, tenant_id: UUID, student_id: UUID) -> None:
     """Delete the student's enrollment rows in this school (no commit: part of the caller's unit)."""
-    for model in (ClassEnrollmentModel, EnrollmentModel):
-        db.query(model).filter(
-            model.student_id == student_id, model.tenant_id == tenant_id
-        ).delete(synchronize_session=False)
+    db.query(EnrollmentModel).filter(
+        EnrollmentModel.student_id == student_id, EnrollmentModel.tenant_id == tenant_id
+    ).delete(synchronize_session=False)
 
 router = APIRouter()
 

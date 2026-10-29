@@ -24,7 +24,6 @@ class AcademicYear(TenantModel):
     # Relationships
     enrollments = relationship("Enrollment", back_populates="academic_year_obj")
     attendances = relationship("Attendance", back_populates="academic_year")
-    class_enrollments = relationship("ClassEnrollment", back_populates="academic_year")
     promotion_criteria = relationship("PromotionCriteria", back_populates="academic_year")
     semesters = relationship("Semester", back_populates="academic_year", cascade="all, delete-orphan")
     

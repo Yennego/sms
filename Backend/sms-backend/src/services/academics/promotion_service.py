@@ -397,15 +397,10 @@ class PromotionService(TenantBaseService):
         from src.services.academics.academic_year_service import AcademicYearService
         from src.services.academics.academic_grade_service import AcademicGradeService
         from src.services.academics.section_service import SectionService
-        from src.services.academics.class_service import ClassService
-        from src.services.academics.class_enrollment_service import ClassEnrollmentService
-        from src.schemas.academics.class_enrollment import ClassEnrollmentCreate
 
         ay_service = AcademicYearService(tenant=self.tenant_id, db=self.db)
         ag_service = AcademicGradeService(tenant=self.tenant_id, db=self.db)
         sec_service = SectionService(tenant=self.tenant_id, db=self.db)
-        cls_service = ClassService(tenant=self.tenant_id, db=self.db)
-        cl_enroll_service = ClassEnrollmentService(tenant=self.tenant_id, db=self.db)
 
         ay_obj = ay_service.get_by_name(target_academic_year)
         if not ay_obj:
@@ -440,22 +435,9 @@ class PromotionService(TenantBaseService):
             semester_2_status="pending",
             comments=f"Promoted from {current_grade} to {next_grade} on {date.today()}"
         )
+        # The new enrollment's class is the next grade/section's class for that year (created
+        # if missing) when it is flushed: see Enrollment sync_enrollment_classes.
         new_enrollment = enrollment_crud.create(self.db, tenant_id=self.tenant_id, obj_in=new_enrollment_data)
-
-        classes = cls_service.get_by_grade_and_section(next_grade_obj.id, target_section_obj.id)
-        for c in classes:
-            if c.academic_year != target_academic_year:
-                continue
-            try:
-                cl_enroll_service.enroll_student(
-                    obj_in=ClassEnrollmentCreate(
-                        student_id=current_enrollment.student_id,
-                        class_id=c.id,
-                        academic_year_id=ay_obj.id
-                    )
-                )
-            except Exception:
-                continue
 
         return {
             "student_id": current_enrollment.student_id,

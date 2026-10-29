@@ -3,7 +3,6 @@ from src.db.models.academics.academic_year import AcademicYear
 from src.db.models.academics.assignment import Assignment
 from src.db.models.academics.class_model import Class
 from src.db.models.academics.class_subject import ClassSubject
-from src.db.models.academics.class_enrollment import ClassEnrollment
 from src.db.models.academics.enrollment import Enrollment
 from src.db.models.academics.exam import Exam
 from src.db.models.academics.grade import Grade
@@ -30,7 +29,6 @@ __all__ = [
     "Assignment",
     "Class",
     "ClassSubject",
-    "ClassEnrollment",
     "Enrollment",
     "Exam",
     "Grade",

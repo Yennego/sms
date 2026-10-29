@@ -185,7 +185,10 @@ async def delete_class(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Class with ID {class_id} not found"
         )
-    return await class_service.delete(id=class_id)
+    try:
+        return await class_service.delete(id=class_id)
+    except BusinessRuleViolationError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 
 @router.get("/classes/{class_id}/students", response_model=List[Student])
 async def get_students_by_class(

@@ -12,7 +12,6 @@ from src.db.models.academics.subject import Subject
 from src.db.models.academics.class_model import Class
 from src.db.models.academics.enrollment import Enrollment
 from src.db.models.academics.exam import Exam
-from src.db.models.academics.class_enrollment import ClassEnrollment
 from src.db.models.academics.class_subject import ClassSubject
 from src.db.models.academics.assignment import Assignment
 from src.db.models.academics.submission import Submission
@@ -254,7 +253,6 @@ class AcademicDashboardService:
         from src.db.models.academics.class_subject import ClassSubject
         from src.db.models.academics.submission import Submission, SubmissionStatus
         from src.db.models.academics.assignment import Assignment
-        from src.db.models.academics.class_enrollment import ClassEnrollment
 
         # 1. Assigned Classes (Teacher can be a Subject Teacher OR a Class Sponsor)
         # Get IDs of classes where teacher is assigned via ClassSubject
@@ -277,22 +275,11 @@ class AcademicDashboardService:
         assigned_classes_count = len(all_class_ids)
 
         # 2. Total Students (Unique across all assigned classes)
-        # We query the Enrollment table based on Grade, Section, and Year that match the assigned classes.
-        # This is because students are enrolled in Grades/Sections, and Classes represent those units.
-        from src.db.models.academics.enrollment import Enrollment
-        from sqlalchemy import and_
-
+        # Each enrollment names its class (enrollments.class_id).
         total_students = 0
         if all_class_ids:
-            total_students = self.db.query(func.count(func.distinct(Enrollment.student_id))).join(
-                Class, and_(
-                    Class.grade_id == Enrollment.grade_id,
-                    Class.section_id == Enrollment.section_id,
-                    Class.academic_year_id == Enrollment.academic_year_id,
-                    Class.tenant_id == Enrollment.tenant_id
-                )
-            ).filter(
-                Class.id.in_(all_class_ids),
+            total_students = self.db.query(func.count(func.distinct(Enrollment.student_id))).filter(
+                Enrollment.class_id.in_(all_class_ids),
                 Enrollment.status == "active",
                 Enrollment.tenant_id == self.tenant_id
             ).scalar() or 0

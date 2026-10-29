@@ -80,8 +80,7 @@ class Student(User):
         self.transfer_school = new_school
         self.transfer_reason = reason
     
-    # Relationships - Updated with proper class enrollment relationship
-    class_enrollments = relationship("ClassEnrollment", back_populates="student", lazy="dynamic")
+    # Relationships
     enrollments = relationship("Enrollment", back_populates="student", lazy="dynamic")
     grades = relationship("Grade", back_populates="student", lazy="dynamic", foreign_keys="[Grade.student_id]")
     attendances = relationship("Attendance", back_populates="student")
@@ -101,10 +100,10 @@ class Student(User):
     
     def get_enrolled_classes(self, academic_year_id=None):
         """Get all classes the student is enrolled in for a specific academic year."""
-        query = self.class_enrollments.filter_by(is_active=True)
+        query = self.enrollments.filter_by(is_active=True)
         if academic_year_id:
             query = query.filter_by(academic_year_id=academic_year_id)
-        return [enrollment.class_obj for enrollment in query.all()]
+        return [enrollment.class_obj for enrollment in query.all() if enrollment.class_obj]
     
     def __repr__(self):
         return f"<Student {self.email} - {self.admission_number}>"

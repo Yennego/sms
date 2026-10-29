@@ -119,15 +119,8 @@ class StudentService(TenantBaseService[Student, StudentCreate, StudentUpdate]):
             from src.services.academics.enrollment import EnrollmentService
             enrollment_service = EnrollmentService(tenant=self.tenant_id, db=self.db)
             active_enrollments = await enrollment_service.get_multi(student_id=id, is_active=True)
-            for enrollment in active_enrollments:
+            for enrollment in active_enrollments:  # the class is on the enrollment too
                 await enrollment_service.update(id=enrollment.id, obj_in={"is_active": False})
-            
-            # Also inactivate Class Enrollments
-            from src.services.academics.class_enrollment_service import ClassEnrollmentService
-            ce_service = ClassEnrollmentService(tenant=self.tenant_id, db=self.db)
-            active_ces = await ce_service.get_multi(student_id=id, is_active=True)
-            for ce in active_ces:
-                await ce_service.update(id=ce.id, obj_in=ClassEnrollmentUpdate(is_active=False))
         
         return updated_student
 

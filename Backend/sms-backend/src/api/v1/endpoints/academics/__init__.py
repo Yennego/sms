@@ -23,6 +23,7 @@ from src.api.v1.endpoints.academics import (
     period_api,
     assessment,
     setup_api,
+    year_setup_api,
     dashboard_api,
     grading_api,
     submissions
@@ -57,6 +58,7 @@ router.include_router(semester_api.router, tags=["semesters"])
 router.include_router(period_api.router, tags=["periods"])
 router.include_router(assessment.router, tags=["assessments"])
 router.include_router(setup_api.router, tags=["setup"])
+router.include_router(year_setup_api.router, tags=["year-setup"])
 router.include_router(dashboard_api.router, prefix="/dashboard", tags=["Dashboard"])
 router.include_router(grading_api.router, tags=["grading"])
 router.include_router(submissions.router, prefix="/submissions", tags=["submissions"])
