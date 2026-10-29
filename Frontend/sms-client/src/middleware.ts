@@ -298,7 +298,7 @@ async function getTenantUUIDByDomain(domain: string): Promise<string | null> {
     const backendUrl = process.env.BACKEND_API_URL || 'http://localhost:8000/api/v1';
     console.log(`[Middleware] Resolving domain '${domain}' via ${backendUrl}`);
     
-    const response = await fetch(`${backendUrl}/tenants?domain=${encodeURIComponent(domain.toLowerCase())}`, {
+    const response = await fetch(`${backendUrl}/tenants/?domain=${encodeURIComponent(domain.toLowerCase())}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
       next: { revalidate: 3600 } // Cache for 1 hour

@@ -74,11 +74,12 @@ export default function StudentAssignmentsPage() {
       // Load other data in parallel
       const [gradesData, sectionsData] = await Promise.all([
         gradeService.getAllGrades().catch(() => []),
-        sectionService.getSections().catch(() => [])
+        sectionService.getSections().catch(() => null)
       ]);
 
-      setGrades(gradesData);
-      setSections(sectionsData as any);
+      setGrades(Array.isArray(gradesData) ? gradesData : []);
+      // getSections returns a { sections, total } envelope, not the array
+      setSections(sectionsData?.sections ?? []);
 
       // Load enrollments for each student
       await loadStudentEnrollments(studentsData);
