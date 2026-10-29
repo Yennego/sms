@@ -201,6 +201,21 @@ export interface PaginatedResponse<T> {
   limit: number;
   has_next: boolean;
   has_prev: boolean;
+  /** Totals across every page for the current search/filters, e.g. { all, active, inactive } */
+  counts?: Record<string, number> | null;
+}
+
+/** Server-side query for the platform user list */
+export interface UserListParams {
+  skip?: number;
+  limit?: number;
+  /** Name, email or username */
+  q?: string;
+  is_active?: boolean;
+  tenant_id?: string;
+  role?: string;
+  sort_by?: 'name' | 'email' | 'username' | 'last_login' | 'created_at' | 'school';
+  sort_order?: 'asc' | 'desc';
 }
 
 export interface TenantData {
@@ -383,19 +398,12 @@ export function useSuperAdminService() {
     },
 
     // Enhanced user list with role filtering
-    getUserList: async (params?: {
-      skip?: number;
-      limit?: number;
-      email?: string;
-      is_active?: boolean;
-      tenant_id?: string;
-      sort_by?: string;
-      sort_order?: 'asc' | 'desc';
-    }): Promise<PaginatedResponse<UserWithRoles>> => {
+    getUserList: async (params?: UserListParams): Promise<PaginatedResponse<UserWithRoles>> => {
       const queryParams = new URLSearchParams();
       if (params?.skip !== undefined) queryParams.append('skip', params.skip.toString());
       if (params?.limit !== undefined) queryParams.append('limit', params.limit.toString());
-      if (params?.email) queryParams.append('email', params.email);
+      if (params?.q) queryParams.append('q', params.q);
+      if (params?.role) queryParams.append('role', params.role);
       if (params?.is_active !== undefined) queryParams.append('is_active', params.is_active.toString());
       if (params?.tenant_id) queryParams.append('tenant_id', params.tenant_id);
       if (params?.sort_by) queryParams.append('sort_by', params.sort_by);

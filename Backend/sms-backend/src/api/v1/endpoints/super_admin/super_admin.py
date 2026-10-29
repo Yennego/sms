@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, text
+from sqlalchemy import case, func, or_, text
 from sqlalchemy.exc import IntegrityError
 from psycopg2.errors import UniqueViolation
 
@@ -458,56 +458,75 @@ def update_tenant_settings(
     return tenant_settings_crud.update(db, tenant_id=tenant_id, db_obj=settings, obj_in=settings_in)
 
 # Enhanced user listing with filtering and sorting
+# Sortable columns of the platform user list (anything else is refused, not guessed)
+USER_SORTS = {
+    "name": (User.last_name, User.first_name),
+    "email": (User.email,),
+    "username": (User.username,),
+    "last_login": (User.last_login,),
+    "created_at": (User.created_at,),
+    "school": (TenantModel.name,),
+}
+MAX_USER_PAGE = 100
+
+
 @router.get("/users", response_model=PaginatedResponse[UserWithRoles])
 async def get_all_users(
     *,
     db: Session = Depends(get_super_admin_db),
     _: UserSchema = Depends(require_super_admin()),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1),
-    email: Optional[str] = None,
+    limit: int = Query(25, ge=1, le=MAX_USER_PAGE),
+    q: Optional[str] = Query(None, max_length=100, description="Name, email or username"),
+    email: Optional[str] = Query(None, description="Deprecated: use q"),
     is_active: Optional[bool] = None,
     tenant_id: Optional[UUID] = None,
-    sort_by: str = Query("email", description="Field to sort by"),
-    sort_order: str = Query("asc", description="Sort order (asc or desc)")
+    role: Optional[str] = Query(None, description="Role name, e.g. admin, teacher"),
+    sort_by: str = Query("name", description="name, email, username, last_login, created_at or school"),
+    sort_order: str = Query("asc", pattern="^(asc|desc)$"),
 ) -> Any:
-    """Get all users across all tenants with filtering and sorting (super-admin only)."""
-    # Use joinedload to eagerly load roles and their permissions
-    query = db.query(User).options(
-        joinedload(User.roles).joinedload(UserRoleModel.permissions),
-        joinedload(User.tenant)
-    )
-    
-    # Apply filters
-    if email:
-        query = query.filter(User.email.ilike(f"%{email}%"))
-    if is_active is not None:
-        query = query.filter(User.is_active == is_active)
-    
+    """Users across all schools, paged on the server (super-admin only).
+
+    Search, filters and sorting run in the database; `counts` gives totals across every page
+    (all / active / inactive) for the current search and school/role filters.
+    """
+    if sort_by not in USER_SORTS:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail=f"sort_by must be one of: {', '.join(USER_SORTS)}")
+
+    base = db.query(User).outerjoin(TenantModel, TenantModel.id == User.tenant_id)
+    term = (q or email or "").strip().lower()
+    if term:
+        like = f"%{term}%"
+        base = base.filter(or_(
+            func.lower(func.concat(User.first_name, " ", User.last_name)).like(like),
+            func.lower(User.email).like(like),
+            func.lower(User.username).like(like),
+        ))
     if tenant_id:
-        query = query.filter(User.tenant_id == tenant_id)
-    
-    # Get total count before pagination
-    total = query.count()
-    
-    # Apply sorting
-    if hasattr(User, sort_by):
-        sort_field = getattr(User, sort_by)
-        if sort_order.lower() == "desc":
-            query = query.order_by(sort_field.desc())
-        else:
-            query = query.order_by(sort_field.asc())
-    
-    # Apply pagination
-    users = query.offset(skip).limit(limit).all()
-    
+        base = base.filter(User.tenant_id == tenant_id)
+    if role:
+        base = base.filter(User.roles.any(UserRoleModel.name == role))
+
+    # Totals before the status filter, so the header can show active and inactive together
+    all_count, active_count = base.with_entities(
+        func.count(User.id), func.sum(case((User.is_active == True, 1), else_=0))  # noqa: E712
+    ).one()
+    counts = {"all": all_count or 0, "active": int(active_count or 0)}
+    counts["inactive"] = counts["all"] - counts["active"]
+
+    filtered = base if is_active is None else base.filter(User.is_active == is_active)
+    total = filtered.with_entities(func.count(User.id)).scalar() or 0
+
+    order = [c.desc().nulls_last() if sort_order == "desc" else c.asc().nulls_last() for c in USER_SORTS[sort_by]]
+    users = (
+        filtered.options(joinedload(User.roles).joinedload(UserRoleModel.permissions), joinedload(User.tenant))
+        .order_by(*order, User.id)  # id breaks ties so pages never overlap or skip
+        .offset(skip).limit(limit).all()
+    )
     return PaginatedResponse(
-        items=users,
-        total=total,
-        skip=skip,
-        limit=limit,
-        has_next=skip + limit < total,
-        has_prev=skip > 0
+        items=users, total=total, skip=skip, limit=limit,
+        has_next=skip + limit < total, has_prev=skip > 0, counts=counts,
     )
 
 # Enhanced reports implementation

@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import ConfirmationModal from '@/components/common/ConfirmationModal';
 import UserEditModal from '@/components/common/UserEditModal';
 import { PasswordResetDialog } from '@/components/common/PasswordResetDialog';
-import { Edit, UserCheck, UserX, Plus, RefreshCw, KeyRound, UserPlus, Search } from 'lucide-react';
+import { Edit, UserCheck, UserX, RefreshCw, KeyRound, UserPlus, Search, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { UserUpdate, UserCreateCrossTenant } from '@/services/api/super-admin-service';
 import UserCreateModal from '@/components/common/UserCreateModal';
 import { toast } from 'sonner';
@@ -17,9 +17,12 @@ import { toast } from 'sonner';
 import {
   useSuperAdminUserList,
   useSuperAdminCreateUser,
-  useSuperAdminUpdateUser
+  useSuperAdminUpdateUser,
+  useSuperAdminTenants
 } from '@/hooks/queries/super-admin';
-import { useQueryState, parseAsString, parseAsInteger } from 'nuqs';
+import type { UserListParams } from '@/services/api/super-admin-service';
+import { Pagination } from '@/components/ui/pagination';
+import { useQueryState, parseAsString, parseAsInteger, parseAsStringLiteral } from 'nuqs';
 import {
   useReactTable,
   getCoreRowModel,
@@ -27,12 +30,58 @@ import {
   createColumnHelper,
 } from '@tanstack/react-table';
 
+const STATUSES = ['all', 'active', 'inactive'] as const;
+const ORDERS = ['asc', 'desc'] as const;
+const SORTABLE = ['name', 'email', 'school', 'last_login'] as const;
+type SortColumn = (typeof SORTABLE)[number];
+
+/** Column header that sorts the list on the server */
+function SortHeader({ column, label, sortBy, sortOrder, onSort }: {
+  column: SortColumn; label: string; sortBy: SortColumn; sortOrder: 'asc' | 'desc'; onSort: (column: SortColumn) => void;
+}) {
+  const active = sortBy === column;
+  const Icon = !active ? ArrowUpDown : sortOrder === 'asc' ? ArrowUp : ArrowDown;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(column)}
+      className="inline-flex items-center gap-1 font-medium hover:text-gray-900"
+      aria-label={`Sort by ${label.toLowerCase()}${active ? `, now ${sortOrder === 'asc' ? 'ascending' : 'descending'}` : ''}`}
+    >
+      {label}
+      <Icon className={`h-3.5 w-3.5 ${active ? 'text-gray-900' : 'text-gray-400'}`} aria-hidden />
+    </button>
+  );
+}
+
 export default function UserManagementPage() {
-  // nuqs URL state
-  const [emailQuery, setEmailQuery] = useQueryState('email', parseAsString.withDefault(''));
+  // The whole view lives in the URL (search, school, status, sort, page, page size)
+  const [searchQuery, setSearchQuery] = useQueryState('q', parseAsString.withDefault(''));
   const [tenantQuery, setTenantQuery] = useQueryState('tenant_id', parseAsString.withDefault(''));
+  const [statusQuery, setStatusQuery] = useQueryState('status', parseAsStringLiteral(STATUSES).withDefault('all'));
+  const [sortBy, setSortBy] = useQueryState('sort', parseAsStringLiteral(SORTABLE).withDefault('name'));
+  const [sortOrder, setSortOrder] = useQueryState('order', parseAsStringLiteral(ORDERS).withDefault('asc'));
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
-  const pageSize = 10;
+  const [pageSize, setPageSize] = useQueryState('size', parseAsInteger.withDefault(25));
+
+  // Search waits until typing stops, then starts again from page 1
+  const [searchInput, setSearchInput] = useState(searchQuery);
+  useEffect(() => { setSearchInput(searchQuery); }, [searchQuery]);
+  useEffect(() => {
+    const value = searchInput.trim();
+    if (value === searchQuery) return;
+    const timer = setTimeout(() => { setSearchQuery(value || null); setPage(1); }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput, searchQuery, setSearchQuery, setPage]);
+
+  const { data: tenantData } = useSuperAdminTenants({ skip: 0, limit: 100 });
+  const schools = tenantData?.items ?? [];
+
+  const toggleSort = (column: SortColumn) => {
+    if (sortBy === column) setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    else { setSortBy(column); setSortOrder('asc'); }
+    setPage(1);
+  };
 
   // Manual loading state for async operations
   const [isManualLoading, setIsManualLoading] = useState(false);
@@ -42,16 +91,26 @@ export default function UserManagementPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   // TanStack Query Hooks
-  const { data: userData, isLoading, refetch } = useSuperAdminUserList({
-    email: emailQuery || undefined,
+  const listParams: UserListParams = {
+    q: searchQuery || undefined,
     tenant_id: tenantQuery || undefined,
+    is_active: statusQuery === 'all' ? undefined : statusQuery === 'active',
+    sort_by: sortBy,
+    sort_order: sortOrder,
     skip: (page - 1) * pageSize,
     limit: pageSize,
-  });
+  };
+  const { data: userData, isLoading, isFetching, isPlaceholderData, refetch } = useSuperAdminUserList(listParams);
 
   const users = userData?.items || [];
   const totalCount = userData?.total || 0;
-  const totalPages = Math.ceil(totalCount / pageSize);
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const counts = userData?.counts;
+
+  // A page past the end (e.g. after deactivating the last user on it): go to the last page
+  useEffect(() => {
+    if (userData && page > totalPages) setPage(totalPages);
+  }, [userData, page, totalPages, setPage]);
 
   const createUser = useSuperAdminCreateUser();
   const updateUser = useSuperAdminUpdateUser();
@@ -181,11 +240,12 @@ export default function UserManagementPage() {
   const columns = [
     columnHelper.accessor(row => `${row.first_name} ${row.last_name}`, {
       id: 'name',
-      header: 'Name',
+      header: () => <SortHeader column="name" label="Name" sortBy={sortBy} sortOrder={sortOrder} onSort={toggleSort} />,
       cell: info => <span className="font-medium">{info.getValue()}</span>,
     }),
     columnHelper.accessor('email', {
-      header: 'Email',
+      header: () => <SortHeader column="email" label="Email" sortBy={sortBy} sortOrder={sortOrder} onSort={toggleSort} />,
+      cell: info => info.getValue() || <span className="text-gray-400">No email</span>,
     }),
     columnHelper.accessor('roles', {
       header: 'Roles',
@@ -208,11 +268,11 @@ export default function UserManagementPage() {
       ),
     }),
     columnHelper.accessor('tenant_name', {
-      header: 'Tenant',
+      header: () => <SortHeader column="school" label="School" sortBy={sortBy} sortOrder={sortOrder} onSort={toggleSort} />,
       cell: info => <span className="text-sm text-gray-600">{info.getValue() || info.row.original.tenant_domain || 'Global'}</span>,
     }),
     columnHelper.accessor('last_login', {
-      header: 'Last Login',
+      header: () => <SortHeader column="last_login" label="Last sign-in" sortBy={sortBy} sortOrder={sortOrder} onSort={toggleSort} />,
       cell: info => <span className="text-sm text-gray-600">{info.getValue() ? new Date(info.getValue()!).toLocaleString() : 'Never'}</span>,
     }),
     columnHelper.display({
@@ -291,35 +351,43 @@ export default function UserManagementPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="relative">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
-              <Input
-                placeholder="Search by email..."
-                className="pl-8"
-                value={emailQuery}
-                onChange={(e) => {
-                  setEmailQuery(e.target.value);
-                  setPage(1);
-                }}
-              />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <Input
-              placeholder="Filter by Tenant ID or Name..."
-              value={tenantQuery}
-              onChange={(e) => {
-                setTenantQuery(e.target.value);
-                setPage(1);
-              }}
-            />
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-1 gap-4 mb-6 md:grid-cols-3">
+        <div className="relative">
+          <label htmlFor="user-search" className="sr-only">Search users</label>
+          <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" aria-hidden />
+          <Input
+            id="user-search"
+            placeholder="Search by name, email or username"
+            className="h-10 pl-9"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+        </div>
+        <div>
+          <label htmlFor="user-school" className="sr-only">School</label>
+          <select
+            id="user-school"
+            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            value={tenantQuery}
+            onChange={(e) => { setTenantQuery(e.target.value || null); setPage(1); }}
+          >
+            <option value="">All schools</option>
+            {schools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="user-status" className="sr-only">Status</label>
+          <select
+            id="user-status"
+            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            value={statusQuery}
+            onChange={(e) => { setStatusQuery(e.target.value as (typeof STATUSES)[number]); setPage(1); }}
+          >
+            <option value="all">All statuses{counts ? ` (${counts.all})` : ''}</option>
+            <option value="active">Active{counts ? ` (${counts.active})` : ''}</option>
+            <option value="inactive">Inactive{counts ? ` (${counts.inactive})` : ''}</option>
+          </select>
+        </div>
       </div>
 
       <Card className="mb-6">
@@ -330,48 +398,27 @@ export default function UserManagementPage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
               <p className="text-sm text-blue-600 font-medium">Total Users</p>
-              <p className="text-2xl font-bold text-blue-800">{totalCount}</p>
+              <p className="text-2xl font-bold text-blue-800">{counts?.all ?? totalCount}</p>
             </div>
             <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-              <p className="text-sm text-green-600 font-medium">Active (this view)</p>
-              <p className="text-2xl font-bold text-green-800">{users.filter(u => u.is_active).length}</p>
+              <p className="text-sm text-green-600 font-medium">Active</p>
+              <p className="text-2xl font-bold text-green-800">{counts?.active ?? '—'}</p>
             </div>
             <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-              <p className="text-sm text-red-600 font-medium">Inactive (this view)</p>
-              <p className="text-2xl font-bold text-red-800">{users.filter(u => !u.is_active).length}</p>
+              <p className="text-sm text-red-600 font-medium">Inactive</p>
+              <p className="text-2xl font-bold text-red-800">{counts?.inactive ?? '—'}</p>
             </div>
             <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
               <p className="text-sm text-purple-600 font-medium">Current Page</p>
-              <p className="text-2xl font-bold text-purple-800">{page} / {totalPages || 1}</p>
+              <p className="text-2xl font-bold text-purple-800">{page} / {totalPages}</p>
             </div>
           </div>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>User List ({totalCount} users)</CardTitle>
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <span>Page {page} of {totalPages || 1}</span>
-            <div className="flex gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page <= 1 || isLoading}
-              >
-                Prev
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages || isLoading}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
+        <CardHeader>
+          <CardTitle>Users ({totalCount})</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading && users.length === 0 ? (
@@ -382,12 +429,12 @@ export default function UserManagementPage() {
           ) : users.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-gray-500 mb-4">No users found matching your filters</p>
-              <Button onClick={() => { setEmailQuery(''); setTenantQuery(''); setPage(1); }}>
-                Clear Filters
+              <Button onClick={() => { setSearchInput(''); setSearchQuery(null); setTenantQuery(null); setStatusQuery('all'); setPage(1); }}>
+                Clear filters
               </Button>
             </div>
           ) : (
-            <div className="rounded-md border">
+            <div className={`rounded-md border transition-opacity ${isPlaceholderData ? 'opacity-60' : ''}`} aria-busy={isFetching}>
               <Table>
                 <TableHeader>
                   {table.getHeaderGroups().map(headerGroup => (
@@ -415,6 +462,19 @@ export default function UserManagementPage() {
                 </TableBody>
               </Table>
             </div>
+          )}
+          {totalCount > 0 && (
+            <Pagination
+              className="mt-4"
+              page={page}
+              pageSize={pageSize}
+              total={totalCount}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+              pageSizeOptions={[10, 25, 50, 100]}
+              itemLabel="users"
+              disabled={isFetching && isPlaceholderData}
+            />
           )}
         </CardContent>
       </Card>
