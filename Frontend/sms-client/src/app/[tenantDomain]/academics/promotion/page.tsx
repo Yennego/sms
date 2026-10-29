@@ -239,7 +239,7 @@ export default function PromotionDashboard() {
                                                     <TableCell>
                                                         {sections.find(s => s.id === res.section_id)?.name || 'Unknown'}
                                                     </TableCell>
-                                                    <TableCell>{res.total_score}%</TableCell>
+                                                    <TableCell>{res.status === 'Not graded' ? '—' : `${res.total_score}%`}</TableCell>
                                                     <TableCell>
                                                         <Badge
                                                             variant={res.status === 'Eligible' ? 'default' : res.status === 'Repeating' ? 'destructive' : 'secondary'}
@@ -247,16 +247,20 @@ export default function PromotionDashboard() {
                                                             {res.status === 'Eligible' ? <UserCheck className="w-3 h-3 mr-1" /> : <UserX className="w-3 h-3 mr-1" />}
                                                             {res.status}
                                                         </Badge>
+                                                        {res.status === 'Not graded' && (
+                                                            <p className="mt-1 text-xs text-muted-foreground">No grades recorded yet</p>
+                                                        )}
                                                     </TableCell>
-                                                    <TableCell>{res.failed_subject_ids?.length || 0}</TableCell>
+                                                    <TableCell>{res.status === 'Not graded' ? '—' : (res.failed_subject_ids?.length || 0)}</TableCell>
                                                     <TableCell>
-                                                        <Input
+                                                        {/* Scaling only makes sense once there are marks to scale */}
+                                                        {res.status !== 'Not graded' && <Input
                                                             type="number"
                                                             placeholder="+/- points"
                                                             className="h-8 text-sm"
                                                             value={scalingInput[res.enrollment_id] || ''}
                                                             onChange={(e) => setScalingInput(prev => ({ ...prev, [res.enrollment_id]: parseFloat(e.target.value) }))}
-                                                        />
+                                                        />}
                                                     </TableCell>
                                                     <TableCell className="text-right">
                                                         <div className="flex justify-end gap-2">

@@ -13,7 +13,9 @@ from src.schemas.academics.enrollment import (
     EnrollmentWithStudent,
     EnrollmentListResponse, 
 )
-from src.core.middleware.tenant import get_tenant_from_request
+from src.core.middleware.tenant import get_tenant_from_request, get_tenant_id_from_request
+from src.services.academics.graduation_service import GraduationService
+from pydantic import BaseModel
 from src.core.auth.dependencies import has_any_role, get_current_user, has_permission
 from src.schemas.auth import User
 from src.core.exceptions.business import (
@@ -133,6 +135,34 @@ async def create_enrollment(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create enrollment: {str(e)}"
         )
+
+class GraduateRequest(BaseModel):
+    academic_year_id: UUID
+    student_ids: List[UUID]
+
+
+# Declared before /enrollments/{enrollment_id} so the fixed paths win
+@router.get("/enrollments/graduation-candidates")
+def get_graduation_candidates(
+    academic_year_id: UUID,
+    db: Session = Depends(get_db),
+    tenant_id: UUID = Depends(get_tenant_id_from_request),
+    current_user: User = Depends(has_permission("promote_students")),
+) -> Any:
+    """Active students of the school's final grade level in this school year."""
+    return GraduationService(db=db, tenant_id=tenant_id).candidates(academic_year_id)
+
+
+@router.post("/enrollments/graduate")
+def graduate_students(
+    body: GraduateRequest,
+    db: Session = Depends(get_db),
+    tenant_id: UUID = Depends(get_tenant_id_from_request),
+    current_user: User = Depends(has_permission("promote_students")),
+) -> Any:
+    """Graduate the given candidates (others in the list are skipped, never graduated)."""
+    return GraduationService(db=db, tenant_id=tenant_id).graduate(body.academic_year_id, body.student_ids)
+
 
 @router.get("/enrollments/{enrollment_id}", response_model=Enrollment)
 async def get_enrollment(

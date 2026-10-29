@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { useTenantNavigation } from '@/hooks/use-tenant';
 import { isPlatformPath } from '@/config/reserved-slugs';
+import { currentSchoolSlug } from '@/utils/tenant-utils';
 
 function normalizeRole(user: any): string | null {
   if (!user) return null;
@@ -41,10 +42,18 @@ export default function SessionExpiredPage() {
       userRole === 'student' ||
       userRole === 'parent');
 
-  const loginPath = useMemo(() => {
-    if (isSuperAdmin) return '/platform/login';
-    if (isTenantRole) return createTenantPath('/login');
-    return '/login';
+  // The session is gone, so the user (and their role) usually is too: send people back to the
+  // sign-in page of the school in the address (/{school}/session-expired) or the last school
+  // they used. Worked out after mount so server and browser render the same first.
+  const [loginPath, setLoginPath] = useState('/login');
+  useEffect(() => {
+    if (isSuperAdmin) {
+      setLoginPath('/platform/login');
+      return;
+    }
+    const slug = currentSchoolSlug();
+    if (slug) setLoginPath(`/${slug}/login`);
+    else if (isTenantRole) setLoginPath(createTenantPath('/login'));
   }, [isSuperAdmin, isTenantRole, createTenantPath]);
 
   useEffect(() => {

@@ -114,3 +114,35 @@ Response: `{"valid": bool, "created": 0, "rows": [{"row": 2, "ok": true, "errors
 "credentials": [...]}`. Row numbers count the header as row 1. With `dry_run` nothing is saved.
 Without it, all rows are saved if every row is valid; otherwise nothing is saved and the row
 errors are returned (`valid: false`, `created: 0`).
+
+## 3. Roster and class placement: `/academics/class-placement`
+
+Built for thousands of students: the server filters, searches, sorts and pages; the browser
+holds one page. Measured on PostgreSQL with 3,000 students: 50–105 ms per page.
+
+### `GET /academics/class-placement/roster` (permission `view_students`)
+Query: `academic_year_id` (default: current year), `placement` = `all` | `placed` | `unplaced`,
+`class_id`, `grade_id`, `section_id`, `student_status` (default `active`; empty = everyone),
+`q` (name, username or admission number, case-insensitive), `sort` = `name` | `admission_number` |
+`class`, `page` (from 1), `page_size` (1–100, default 25).
+
+```json
+{
+  "academic_year": {"id": "…", "name": "2026/2027"},
+  "items": [{"student_id": "…", "name": "Esi Dahn", "first_name": "Esi", "last_name": "Dahn",
+             "username": "esi.dahn", "email": null, "admission_number": "STU0042", "student_status": "active",
+             "enrollment": {"id": "…", "class_id": "…", "class_name": "Grade 1 - A", "grade_id": "…",
+                            "grade_name": "Grade 1", "section_id": "…", "section_name": "A", "status": "active"}}],
+  "total": 312, "page": 1, "page_size": 25, "pages": 13,
+  "counts": {"all": 340, "placed": 312, "unplaced": 28}
+}
+```
+`enrollment` is `null` for a student not placed this year. `counts` apply the search and status
+filters but not the placement/class filters (they label the "All / Placed / Not placed" tabs).
+
+### `POST /academics/class-placement` (permission `manage_enrollment`)
+Body `{"class_id": "…", "student_ids": ["…"]}` (1–200). Places students without a class this
+year, moves students who are in another class, leaves the rest. All or nothing: if any student
+can't be placed (not in this school, graduated, withdrawn…), nothing changes and the answer is 409
+`{"detail": {"message": "No one was placed. Fix these students first.", "problems": [{"student_id", "name", "detail"}]}}`.
+Success: `{"placed": n, "moved": n, "unchanged": n, "class_id", "class_name", "enrolled", "capacity", "over_capacity"}`.

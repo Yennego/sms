@@ -296,7 +296,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       // Get tenant domain BEFORE clearing auth state
       const currentContext = getCurrentContext();
-      const tenantDomain = contextualCookies.get('currentTenantDomain', currentContext) || localStorage.getItem('currentTenantDomain');
+      // The school in the address first, then the one remembered from sign-in
+      const tenantDomain = currentSchoolSlug()
+        || contextualCookies.get('currentTenantDomain', currentContext) || localStorage.getItem('currentTenantDomain');
       const isSA = isPlatformPath(window.location.pathname);
 
       clearAuthState();

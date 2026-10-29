@@ -17,6 +17,10 @@ from src.db.session import get_db
 
 PromotionType = Literal["semester", "grade", "graduation"]
 
+
+# Evaluation status for a student with no grades recorded: no promotion decision yet
+NOT_GRADED = "Not graded"
+
 class PromotionService(TenantBaseService):
     """Enhanced service for handling semester and grade promotions."""
     
@@ -30,7 +34,8 @@ class PromotionService(TenantBaseService):
         from src.services.academics.remedial_service import RemedialService
         from src.db.models.academics.enrollment import Enrollment as EnrollmentModel
         
-        results = {"promoted": [], "remedial": [], "errors": []}
+        # Students without grades aren't judged: they're listed as skipped, not held back
+        results = {"promoted": [], "remedial": [], "skipped": [], "errors": []}
         
         # 1. Get all active enrollments for the year
         enrollments = self.db.query(EnrollmentModel).filter(
@@ -50,8 +55,10 @@ class PromotionService(TenantBaseService):
             try:
                 # Evaluate eligibility
                 eval_res = await self.evaluate_eligibility(en.id)
-                
-                if eval_res["status"] == "Eligible":
+
+                if eval_res["status"] == NOT_GRADED:
+                    results["skipped"].append({"student_id": en.student_id, "reason": eval_res["notes"]})
+                elif eval_res["status"] == "Eligible":
                     # Promote
                     promo_res = await self._promote_to_next_grade(
                         en, target_year_name, grade_sequence, max_sequence
@@ -265,10 +272,10 @@ class PromotionService(TenantBaseService):
         else:
             total_score = avg_subject_score
 
-        # 4. Determine Status
+        # 4. Determine Status. No grades means nothing to judge yet: "Not graded", never "Repeating"
         if not grades and (not weighting_schema or float(weighting_schema.get('attendance', 0)) == 0):
-            status = "Repeating"
-            notes = "No grades recorded"
+            status = NOT_GRADED
+            notes = "No grades recorded yet"
         else:
             status = "Eligible"
             notes = ""
@@ -295,7 +302,9 @@ class PromotionService(TenantBaseService):
             "total_score": round(total_score, 2),
             "notes": notes,
         }
-        await PromotionStatusService(tenant=self.tenant_id, db=self.db).upsert_status_from_eval(result)
+        # Only a real decision is saved; "Not graded" is re-evaluated once marks exist
+        if status != NOT_GRADED:
+            await PromotionStatusService(tenant=self.tenant_id, db=self.db).upsert_status_from_eval(result)
         return result
 
     async def apply_manual_scaling(self, enrollment_id: UUID, scaling_points: float, notes: Optional[str] = None) -> Dict[str, Any]:

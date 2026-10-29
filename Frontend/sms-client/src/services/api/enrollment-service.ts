@@ -6,6 +6,22 @@ import {
 import { useMemo } from 'react';
 import type { ApiClient } from './api-client';
 
+
+export interface GraduationCandidate {
+  student_id: string;
+  enrollment_id: string;
+  name: string;
+  admission_number: string;
+  class_name: string | null;
+  /** The promotion evaluation's decision, if one was made ("Eligible", "Repeating", ...) */
+  promotion_status: string | null;
+}
+
+export interface GraduationCandidates {
+  final_grade: { id: string; name: string } | null;
+  candidates: GraduationCandidate[];
+}
+
 export function useEnrollmentService() {
   const { apiClient, isLoading: apiLoading } = useApiClientWithLoading();
   // Memoize the waiter function to ensure stability
@@ -282,21 +298,16 @@ export function useEnrollmentService() {
       const resp = await client.put<any>(`/academics/enrollments/${id}/status`, payload);
       return mapEnrollment(resp);
     },
-    getGraduationCandidates: async (academicYearName: string): Promise<{ student_id: string; enrollment_id: string }[]> => {
+    // Active students of the final grade level this school year (the server decides who qualifies)
+    getGraduationCandidates: async (academicYearId: string): Promise<GraduationCandidates> => {
       const client: ApiClient = await waitForApiClientReady();
-      // Use the implemented enrollments endpoint with filters.
-      const params = new URLSearchParams({
-        academic_year: academicYearName,
-        status: 'active',
-        semester: '2'
-      });
-      const enrollments = await client.get<Enrollment[]>(`/academics/enrollments?${params.toString()}`);
-      return enrollments.map(e => ({ student_id: e.student_id, enrollment_id: e.id }));
+      return client.get<GraduationCandidates>(
+        `/academics/enrollments/graduation-candidates?academic_year_id=${encodeURIComponent(academicYearId)}`
+      );
     },
-    graduateStudents: async (academicYearId: string, studentIds: string[]): Promise<void> => {
+    graduateStudents: async (academicYearId: string, studentIds: string[]): Promise<{ graduated: number; skipped: number }> => {
       const client: ApiClient = await waitForApiClientReady();
-      // Graduation is terminal on student status rather than enrollment move
-      await client.post<void>('/academics/enrollments/graduate', {
+      return client.post<{ graduated: number; skipped: number }>('/academics/enrollments/graduate', {
         academic_year_id: academicYearId,
         student_ids: studentIds
       });
