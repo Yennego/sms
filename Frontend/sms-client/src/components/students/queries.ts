@@ -5,12 +5,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTenant } from '@/hooks/use-tenant';
 import { useStudentRecordsService, type StudentRecordUpdate } from '@/services/api/student-records-service';
 import { useAdmissionsService, type AdmissionRequest, type AdmissionRow } from '@/services/api/admissions-service';
+import { classPlacementKeys } from '@/components/class-placement/queries';
 
 export const studentAreaKeys = {
   all: (school: string | null) => ['students-area', school] as const,
-  directory: (school: string | null) => [...studentAreaKeys.all(school), 'directory'] as const,
-  currentEnrollments: (school: string | null, ids: string[]) =>
-    [...studentAreaKeys.all(school), 'current-enrollments', ids] as const,
   student: (school: string | null, id: string) => [...studentAreaKeys.all(school), 'student', id] as const,
   enrollments: (school: string | null, id: string) => [...studentAreaKeys.student(school, id), 'enrollments'] as const,
   guardians: (school: string | null, id: string) => [...studentAreaKeys.student(school, id), 'guardians'] as const,
@@ -25,28 +23,6 @@ export const studentAreaKeys = {
 export function useSchoolKey() {
   const { tenantKey } = useTenant();
   return tenantKey;
-}
-
-export function useDirectoryStudents() {
-  const service = useStudentRecordsService();
-  const school = useSchoolKey();
-  return useQuery({
-    queryKey: studentAreaKeys.directory(school),
-    queryFn: () => service.listAllStudents(),
-    enabled: Boolean(school),
-    staleTime: 60 * 1000,
-  });
-}
-
-export function useCurrentEnrollments(ids: string[]) {
-  const service = useStudentRecordsService();
-  const school = useSchoolKey();
-  return useQuery({
-    queryKey: studentAreaKeys.currentEnrollments(school, ids),
-    queryFn: () => service.getCurrentEnrollments(ids),
-    enabled: Boolean(school) && ids.length > 0,
-    staleTime: 60 * 1000,
-  });
 }
 
 export function useStudentRecord(id: string) {
@@ -140,7 +116,8 @@ export function useUpdateStudentRecord(id: string) {
     mutationFn: (data: StudentRecordUpdate) => service.updateStudent(id, data),
     onSuccess: (student) => {
       qc.setQueryData(studentAreaKeys.student(school, id), student);
-      qc.invalidateQueries({ queryKey: studentAreaKeys.directory(school) });
+      // The directory and class placement read the roster: refresh it
+      qc.invalidateQueries({ queryKey: classPlacementKeys.all(school) });
       qc.invalidateQueries({ queryKey: ['students', school] });
     },
   });

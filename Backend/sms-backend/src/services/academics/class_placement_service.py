@@ -45,6 +45,11 @@ class ClassPlacementService:
             )
         return year
 
+    def _current_year_or_none(self) -> Optional[AcademicYear]:
+        return self.db.query(AcademicYear).filter(
+            AcademicYear.tenant_id == self.tenant_id, AcademicYear.is_current == True  # noqa: E712
+        ).first()
+
     # --- roster ---------------------------------------------------------------------------------
 
     def roster(
@@ -58,7 +63,8 @@ class ClassPlacementService:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="sort must be name, admission_number or class")
         page = max(page, 1)
         page_size = min(max(page_size, 1), MAX_PAGE_SIZE)
-        year = self._year(academic_year_id)
+        # A school without a current year still has students: list them all as not placed
+        year = self._year(academic_year_id) if academic_year_id else self._current_year_or_none()
 
         # The student's active enrollment this year, if any (at most one per student and year)
         enr = aliased(Enrollment)
@@ -67,7 +73,7 @@ class ClassPlacementService:
             self.db.query(Student)
             .outerjoin(enr, and_(
                 enr.student_id == Student.id, enr.tenant_id == self.tenant_id,
-                enr.academic_year_id == year.id, enr.status == "active",
+                enr.academic_year_id == (year.id if year else None), enr.status == "active",
             ))
             .filter(Student.tenant_id == self.tenant_id)
         )
@@ -135,7 +141,7 @@ class ClassPlacementService:
                 },
             })
         return {
-            "academic_year": {"id": year.id, "name": year.name},
+            "academic_year": {"id": year.id, "name": year.name} if year else None,
             "items": items, "total": total, "page": page, "page_size": page_size,
             "pages": (total + page_size - 1) // page_size, "counts": counts,
         }

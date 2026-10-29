@@ -104,7 +104,11 @@ def test_roster_and_placement_are_scoped_to_the_school(env):
     client, ids = env
     s = _seed(ids, students=3)
     other = headers(ids, "admin_b")
-    assert client.get(ROSTER, headers=other).status_code == 404  # school B has no current year
+    # School B has no current year: its own students, none placed, nothing from school A
+    roster = client.get(ROSTER, headers=other).json()
+    assert roster["academic_year"] is None and roster["counts"]["placed"] == 0
+    assert str(ids["student_b"]) in {i["student_id"] for i in roster["items"]}
+    assert not {i["student_id"] for i in roster["items"]} & {str(x) for x in s["students"]}
     resp = client.post("/api/v1/academics/class-placement", headers=other,
                        json={"class_id": str(s["c1"]), "student_ids": [str(s["students"][0])]})
     assert resp.status_code == 404
