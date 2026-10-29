@@ -127,9 +127,9 @@ class ExamService(TenantBaseService[Exam, ExamCreate, ExamUpdate]):
         # Create the exam
         return await super().create(obj_in=obj_in)
     
-    def update_publication_status(self, id: UUID, is_published: bool) -> Exam:
+    async def update_publication_status(self, id: UUID, is_published: bool) -> Exam:
         """Update an exam's publication status."""
-        exam = self.get(id=id)
+        exam = await self.get(id=id)
         if not exam:
             raise EntityNotFoundError("Exam", id)
         

@@ -28,6 +28,7 @@ class PromotionService(TenantBaseService):
         tenant_id = tenant.id if hasattr(tenant, "id") else tenant
         self.tenant_id = tenant_id
         self.db = db
+        self._results_cache = {}  # class id -> ClassResults, shared by evaluations in one request
 
     async def process_year_end_transition(self, current_year_id: UUID, target_year_name: str) -> Dict[str, Any]:
         """Processes year-end transitions: Promoting passing students and flagging failures for remedial."""
@@ -228,20 +229,13 @@ class PromotionService(TenantBaseService):
         section = self.db.query(Section).filter(Section.id == enrollment.section_id).first()
         section_name = section.name if section else "Unknown"
 
-        # 2. Get Grades
-        grades = (
-            self.db.query(Grade)
-            .filter(Grade.tenant_id == self.tenant_id, Grade.enrollment_id == enrollment_id)
-            .all()
+        # 2. Published yearly averages per subject (phase4-design.md §1): a subject fails when its
+        # yearly average is below the pass mark (school setting, overridden by the criteria)
+        from src.services.academics.results_service import subject_outcomes
+        passing_mark, subject_avg, overall = subject_outcomes(
+            self.db, self.tenant_id, enrollment, cache=self._results_cache
         )
-        
-        from collections import defaultdict
-        subject_percentages = defaultdict(list)
-        for g in grades:
-            subject_percentages[g.subject_id].append(g.percentage)
-        
-        subject_avg = {sid: (sum(vals) / len(vals)) for sid, vals in subject_percentages.items()}
-        avg_subject_score = sum(subject_avg.values()) / max(len(subject_avg), 1)
+        avg_subject_score = overall if overall is not None else 0.0
         failed_subject_ids = [sid for sid, avg in subject_avg.items() if avg < passing_mark]
 
         # 3. Calculate Total Score (Weighted or Average)
@@ -272,10 +266,11 @@ class PromotionService(TenantBaseService):
         else:
             total_score = avg_subject_score
 
-        # 4. Determine Status. No grades means nothing to judge yet: "Not graded", never "Repeating"
-        if not grades and (not weighting_schema or float(weighting_schema.get('attendance', 0)) == 0):
+        # 4. Determine Status. No published results means nothing to judge yet: "Not graded",
+        # never "Repeating"
+        if not subject_avg:
             status = NOT_GRADED
-            notes = "No grades recorded yet"
+            notes = "No published results yet"
         else:
             status = "Eligible"
             notes = ""
@@ -332,8 +327,9 @@ class PromotionService(TenantBaseService):
         criteria = criteria_service.get_by_year_and_grade(
             academic_year_id=ps.academic_year_id, grade_id=grade_id
         )
-        passing_mark = criteria.passing_mark if criteria else 70
-        
+        from src.services.academics.results_service import pass_mark_for
+        passing_mark = pass_mark_for(self.db, self.tenant_id, ps.academic_year_id, grade_id)
+
         new_status = ps.status
         if new_score >= passing_mark and ps.status in ["Repeating", "Conditional"]:
             new_status = "Eligible"

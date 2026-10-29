@@ -130,13 +130,12 @@ class AcademicDashboardService:
 
         # 1. GPA Calculation
         # Use Grade model (src.db.models.academics.grade)
-        assessment_grades = self.db.query(Grade).filter(
-            Grade.student_id == student_id,
-            Grade.tenant_id == self.tenant_id
-        ).all()
-        
-        valid_grades = [g for g in assessment_grades if g.percentage is not None]
-        gpa_raw = sum(g.percentage for g in valid_grades) / len(valid_grades) if valid_grades else 0.0
+        # Published results only (phase 4): the overall yearly average on a 4.0 scale
+        gpa_raw = 0.0
+        if active_enrollment is not None:
+            from src.services.academics.results_service import subject_outcomes
+            _, _, overall = subject_outcomes(self.db, self.tenant_id, active_enrollment)
+            gpa_raw = overall or 0.0
         gpa = round((gpa_raw / 100) * 4.0, 1) # Simple 4.0 scale
 
         # 2. Active Courses

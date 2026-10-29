@@ -9,7 +9,10 @@ from src.services.academics import ExamService, SuperAdminExamService
 from src.db.session import get_db
 from src.schemas.academics.exam import Exam, ExamCreate, ExamUpdate, ExamWithDetails
 from src.core.middleware.tenant import get_tenant_from_request
-from src.core.auth.dependencies import has_any_role, get_current_user, has_permission
+from src.core.auth.dependencies import has_any_role, get_current_user, has_permission, holds_any_permission
+
+# Who may see unpublished exams; everyone else with view_exam sees published ones only
+EXAM_STAFF = ["create_exam", "update_exam", "manage_academic_data", "view_academic_data"]
 from src.schemas.auth import User
 from src.core.exceptions.business import (
     BusinessLogicError,
@@ -51,9 +54,12 @@ async def get_exams(
     academic_year_id: Optional[UUID] = None,
     period_id: Optional[UUID] = Query(None, description="Optional filter by period"),
     semester_id: Optional[UUID] = Query(None, description="Optional filter by semester"),
-    is_published: Optional[bool] = None
+    is_published: Optional[bool] = None,
+    current_user: User = Depends(has_permission("view_exam"))
 ) -> Any:
     """Get all exams for a tenant with optional filtering."""
+    if not holds_any_permission(current_user, EXAM_STAFF):
+        is_published = True
     filters = {}
     if subject_id:
         filters["subject_id"] = subject_id
@@ -78,10 +84,13 @@ async def get_exams(
 async def get_exam(
     *,
     exam_service: ExamService = Depends(),
-    exam_id: UUID
+    exam_id: UUID,
+    current_user: User = Depends(has_permission("view_exam"))
 ) -> Any:
     """Get a specific exam by ID."""
     exam = await exam_service.get(id=exam_id)
+    if exam and not exam.is_published and not holds_any_permission(current_user, EXAM_STAFF):
+        exam = None
     if not exam:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -105,7 +114,7 @@ async def update_exam(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Exam with ID {exam_id} not found"
             )
-        return await exam_service.update(db_obj=exam, obj_in=exam_in)
+        return await exam_service.update(id=exam_id, obj_in=exam_in)
     except BusinessRuleViolationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

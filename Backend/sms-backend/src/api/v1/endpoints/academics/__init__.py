@@ -27,6 +27,7 @@ from src.api.v1.endpoints.academics import (
     class_placement_api,
     dashboard_api,
     grading_api,
+    gradebook_api,
     submissions
 )
 
@@ -52,17 +53,18 @@ router.include_router(class_enrollment.router, tags=["class-enrollments"])  # mo
 router.include_router(promotion_api.router, tags=["promotions"])
 router.include_router(remedial_api.router, tags=["remedial"])
 router.include_router(assignment.router, tags=["assignments"])  # NEW
-router.include_router(grade_api.router, tags=["grades"])  # NEW
+# Retired in phase 4: /grades* (old marks table) and /assessments (old assessment CRUD) are
+# replaced by /gradebook (score_entries, published results only for students and parents).
 router.include_router(promotion_api.alias_router, tags=["promotions"])  # NEW alias include
 router.include_router(teacher_assignment.router, prefix="/teacher-subject-assignments", tags=["teacher-assignments"])  # NEW
 router.include_router(semester_api.router, tags=["semesters"])
 router.include_router(period_api.router, tags=["periods"])
-router.include_router(assessment.router, tags=["assessments"])
 router.include_router(setup_api.router, tags=["setup"])
 router.include_router(year_setup_api.router, tags=["year-setup"])
 router.include_router(class_placement_api.router, tags=["class-placement"])
 router.include_router(dashboard_api.router, prefix="/dashboard", tags=["Dashboard"])
 router.include_router(grading_api.router, tags=["grading"])
+router.include_router(gradebook_api.router, tags=["gradebook"])
 router.include_router(submissions.router, prefix="/submissions", tags=["submissions"])
 
 # Export individual routers for reference

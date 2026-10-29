@@ -10,7 +10,7 @@ from src.db.session import get_db
 from src.services.academics.remedial_service import RemedialService
 from src.services.academics.promotion_service import PromotionService
 from src.services.academics.promotion_status_service import PromotionStatusService
-from src.core.security.permissions import has_permission
+from src.core.security.permissions import has_permission, has_any_permission
 
 # Changing remedial plans affects promotion decisions
 CAN_MANAGE = [Depends(has_permission("promote_students"))]
@@ -108,7 +108,8 @@ from fastapi import Query
 
 from src.schemas.academics.promotion import RemedialSession
 
-@router.get("/sessions", response_model=List[RemedialSession])
+@router.get("/sessions", response_model=List[RemedialSession],
+            dependencies=[Depends(has_any_permission(["promote_students", "view_academic_data", "manage_academic_data"]))])
 async def list_sessions(
     enrollment_id: Optional[UUID] = Query(None),
     skip: int = Query(0),

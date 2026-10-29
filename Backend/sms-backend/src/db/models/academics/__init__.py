@@ -22,6 +22,7 @@ from src.db.models.academics.grading_schema import GradingSchema, GradingCategor
 from src.db.models.academics.promotion_criteria import PromotionCriteria
 from src.db.models.academics.promotion_status import PromotionStatus
 from src.db.models.academics.remedial_session import RemedialSession
+from src.db.models.academics.gradebook import ScoreEntry, ResultPublication, GradingSettings
 
 __all__ = [
     "AcademicGrade",
@@ -54,4 +55,7 @@ __all__ = [
     "PromotionCriteria",
     "PromotionStatus",
     "RemedialSession",
+    "ScoreEntry",
+    "ResultPublication",
+    "GradingSettings",
 ]

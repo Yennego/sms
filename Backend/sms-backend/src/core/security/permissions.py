@@ -36,6 +36,27 @@ def has_permission(required_permission: str):
     return dependency
 
 
+def has_any_permission(permissions: List[str]):
+    """Dependency: the user needs at least one of the permissions (super-admins always pass)."""
+    async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
+        if _is_super_admin(current_user):
+            return current_user
+        held = {p.name for role in current_user.roles for p in role.permissions}
+        if not held & set(permissions):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"User needs one of these permissions: {', '.join(permissions)}"
+            )
+        return current_user
+    return dependency
+
+
+def holds_any_permission(user: User, permissions: List[str]) -> bool:
+    if _is_super_admin(user):
+        return True
+    return bool({p.name for role in user.roles for p in role.permissions} & set(permissions))
+
+
 def has_role(required_role: str):
     """Dependency to check if user has a specific role."""
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
