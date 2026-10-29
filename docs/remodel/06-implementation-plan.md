@@ -55,6 +55,8 @@ Exit: every role reaches its home and menu items on phone and desk; no links to 
 
 ## Phase 3: School year and enrollment (2–3 weeks)
 
+**Status (Oct 2026): built, not yet tried with a pilot school.** One enrollment table (`class_enrollments` merged into `enrollments.class_id`, with the database keeping each enrollment's year, grade and section equal to its class's); one class per level and section per year enforced; sign-in with email or username (email optional); year setup wizard (`/{school}/academics/setup`, API in `phase3-api.md` §1) with copy-from-last-year; Students area (directory, profile with tabs, admit-and-enroll, spreadsheet import with check-then-save); Staff area (directory, profile, add). Still open: the academic cleanup in schema plan §4 (semester date columns on `academic_years`, sponsor stored three ways, `schedules.class_id` rename) and `enrollment_terms`; student list search/class filter on the server; a per-student fees endpoint; per-student ID card view.
+
 - Schema plan steps 5–6: enrollment unification, academic cleanup.
 - Year setup wizard with "copy last year".
 - Students area: directory, profile with tabs, admit-and-enroll form, spreadsheet import with preview, year-end promotion.

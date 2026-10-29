@@ -48,6 +48,7 @@ const STUDENTS: NavArea = {
   tabs: [
     tab('Directory', '/students'),
     tab('Admit', '/students/new'),
+    tab('Import', '/students/import'),
     tab('Enrollments', '/academics/enrollments'),
     tab('Class placement', '/academics/student-assignments'),
     tab('Promotion', '/academics/promotion'),
