@@ -220,8 +220,8 @@ export function StudentProfile({ school, studentId, tab }: { school: string; stu
         title={isActive ? `Deactivate ${name}?` : `Reactivate ${name}?`}
         description={
           isActive
-            ? "Their current class enrollment ends and they leave class lists and attendance. Their records are kept, and you can reactivate them later."
-            : "They show as active again. Enroll them in a class from the Enrollment tab to put them back on a class list."
+            ? "They can no longer sign in, and their current class enrollment ends so they leave class lists and attendance. Their records are kept, and you can reactivate them later."
+            : "They can sign in again and show as active. Place them in a class to put them back on a class list."
         }
         confirmLabel={isActive ? "Deactivate student" : "Reactivate student"}
         destructive={isActive}

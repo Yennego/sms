@@ -7,6 +7,10 @@ from src.schemas.people.student import StudentCreate, StudentUpdate
 from src.core.security.password import get_password_hash, generate_default_password
 
 
+# Student statuses that end sign-in (a former student keeps no access to the school's data)
+NO_SIGN_IN_STATUSES = ("inactive", "withdrawn", "transferred")
+
+
 class CRUDStudent(TenantCRUDBase[Student, StudentCreate, StudentUpdate]):
     """CRUD operations for Student model."""
     
@@ -34,6 +38,12 @@ class CRUDStudent(TenantCRUDBase[Student, StudentCreate, StudentUpdate]):
         student.status = status
         if status == "withdrawn" and reason:
             student.withdrawal_reason = reason
+        # Sign-in follows the status (every request re-checks is_active, so it applies at once).
+        # Graduates keep access to see their final results.
+        if status in NO_SIGN_IN_STATUSES:
+            student.is_active = False
+        elif status == "active":
+            student.is_active = True
             
         db.add(student)
         db.flush()  # committed once per request (get_db)

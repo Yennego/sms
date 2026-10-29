@@ -373,3 +373,15 @@ def test_existing_capitalised_slug_is_lower_cased_on_edit(env):
     resp = client.put(url, json={"name": "School B renamed", "domain": "Legacy"}, headers=h)
     assert resp.status_code == 200 and resp.json()["domain"] == "legacy"
     assert client.put(url, json={"domain": "Legacy 2"}, headers=h).status_code == 422
+
+
+def test_deactivated_student_can_no_longer_sign_in(env):
+    client, ids = env
+    h_admin = headers(ids, "admin_a")
+    h_student = headers(ids, "student_a")
+    assert client.get("/api/v1/auth/me", headers=h_student).status_code == 200
+    resp = client.put(f"/api/v1/people/students/{ids['student_a']}/status?status=inactive", headers=h_admin)
+    assert resp.status_code == 200, resp.text
+    assert client.get("/api/v1/auth/me", headers=h_student).status_code == 401  # existing session ends
+    client.put(f"/api/v1/people/students/{ids['student_a']}/status?status=active", headers=h_admin)
+    assert client.get("/api/v1/auth/me", headers=h_student).status_code == 200
