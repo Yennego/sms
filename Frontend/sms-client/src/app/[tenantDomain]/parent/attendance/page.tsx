@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { AlertTriangle, ClipboardList, Loader2, Send } from 'lucide-react';
 
 import { DailyAttendanceHistory } from '@/components/attendance/DailyAttendanceHistory';
+import { ChildSwitcher } from '@/components/parent/child-switcher';
 import { Textarea } from '@/components/ui/textarea';
 import { useDailyAttendanceService } from '@/services/api/daily-attendance-service';
 import { ChildSummary, DailyAttendanceRecord } from '@/types/daily-attendance';
@@ -41,7 +42,9 @@ export default function ParentAttendancePage() {
     getMyChildren()
       .then(list => {
         setChildren(list);
-        if (list.length > 0) setChildId(list[0].student_id);
+        // Links from the parent home carry ?child=
+        const wanted = new URLSearchParams(window.location.search).get('child');
+        if (list.length > 0) setChildId(list.find(c => c.student_id === wanted)?.student_id ?? list[0].student_id);
       })
       .catch((err: unknown) => {
         setChildren([]);
@@ -103,15 +106,7 @@ export default function ParentAttendancePage() {
               {child ? `${child.name}${child.class_name ? ` · ${child.class_name}` : ''}` : 'Your children’s school-day attendance'}
             </p>
           </div>
-          {children && children.length > 1 && (
-            <select
-              value={childId}
-              onChange={e => setChildId(e.target.value)}
-              className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 outline-none focus:border-indigo-500"
-            >
-              {children.map(c => <option key={c.student_id} value={c.student_id}>{c.name}</option>)}
-            </select>
-          )}
+          {children && <ChildSwitcher items={children} value={childId} onChange={setChildId} />}
         </div>
 
         {children === null ? (

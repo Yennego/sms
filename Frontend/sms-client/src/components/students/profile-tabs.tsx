@@ -6,7 +6,7 @@ import * as React from "react"
 import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { BookOpen, CalendarCheck, IdCard, KeyRound, Loader2, Phone, Printer, Receipt, RefreshCw, Users } from "lucide-react"
+import { BookOpen, CalendarCheck, IdCard, KeyRound, Loader2, Phone, Printer, RefreshCw, Users } from "lucide-react"
 
 import { IdCardPrintRoot, IdCardStyles, IdCardView, useIdCardPrint } from "@/components/attendance/id-card"
 import { Button } from "@/components/ui/button"
@@ -40,6 +40,7 @@ import {
 } from "./queries"
 import { ResultsView } from "@/components/results/results-view"
 import { useResultYears } from "@/components/results/year-select"
+import { FeesSummary } from "@/components/fees/fees-summary"
 
 function LoadError({ error, onRetry, what }: { error: unknown; onRetry: () => void; what: string }) {
   return (
@@ -292,19 +293,10 @@ export function ResultsTab({ studentId }: { studentId: string }) {
 
 // --- Fees -----------------------------------------------------------------------------------
 
-export function FeesTab({ school }: { school: string }) {
-  return (
-    <EmptyState
-      icon={Receipt}
-      title="Fees for one student aren't shown here yet"
-      description="Look up this student's invoices and payments in the Fees area for now."
-      action={
-        <Button asChild variant="outline">
-          <Link href={`/${school}/finance/fees`}>Open fees</Link>
-        </Button>
-      }
-    />
-  )
+/** Read-only summary of the student's fee statement for the year in ?year= (link to the full statement). */
+export function FeesTab({ school, studentId }: { school: string; studentId: string }) {
+  const { yearId } = useResultYears()
+  return <FeesSummary school={school} studentId={studentId} yearId={yearId} />
 }
 
 // --- Guardians ------------------------------------------------------------------------------

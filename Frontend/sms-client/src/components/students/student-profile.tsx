@@ -190,7 +190,7 @@ export function StudentProfile({ school, studentId, tab }: { school: string; stu
       {tab === "enrollment" ? <EnrollmentTab studentId={studentId} school={school} /> : null}
       {tab === "attendance" ? <AttendanceTab studentId={studentId} school={school} /> : null}
       {tab === "results" ? <ResultsTab studentId={studentId} /> : null}
-      {tab === "fees" ? <FeesTab school={school} /> : null}
+      {tab === "fees" ? <FeesTab school={school} studentId={studentId} /> : null}
       {tab === "guardians" ? (
         <GuardiansTab
           studentId={studentId}

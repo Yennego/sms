@@ -4,10 +4,12 @@ import { useState, useMemo } from 'react';
 import {
     useExpenditures,
     useExpenseCategories,
-    useCreateExpenditure,
-    useUpdateExpenditure,
+    useSaveExpenditure,
     useDeleteExpenditure
-} from '@/hooks/queries/finance';
+} from '@/components/fees/queries';
+import { centsToDecimal, formatAmount, toCents } from '@/components/fees/money';
+import { PageShell } from '@/components/ui/page-shell';
+import type { Expenditure } from '@/services/api/fees-service';
 import { Button } from '@/components/ui/button';
 import {
     Table,
@@ -35,10 +37,6 @@ import {
     Badge,
     Flex,
     Icon,
-    TabGroup,
-    TabList,
-    Tab,
-    Color
 } from '@tremor/react';
 import {
     Loader2,
@@ -49,8 +47,7 @@ import {
     Wallet,
     Calendar,
     Search,
-    Filter,
-    ArrowUpRight
+    Filter
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, isWithinInterval, subMonths } from 'date-fns';
 import { toast } from 'sonner';
@@ -59,8 +56,8 @@ export default function ExpenditurePage() {
     const { data: expenditures, isLoading: loadingExps } = useExpenditures();
     const { data: categories, isLoading: loadingCats } = useExpenseCategories();
 
-    const createExpMutation = useCreateExpenditure();
-    const updateExpMutation = useUpdateExpenditure();
+    const createExpMutation = useSaveExpenditure();
+    const updateExpMutation = createExpMutation;
     const deleteExpMutation = useDeleteExpenditure();
 
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -83,7 +80,7 @@ export default function ExpenditurePage() {
         setEditingId(null);
     };
 
-    const handleOpenEdit = (exp: any) => {
+    const handleOpenEdit = (exp: Expenditure) => {
         setEditingId(exp.id);
         setAmount(exp.amount.toString());
         setDate(new Date(exp.date).toISOString().split('T')[0]);
@@ -98,7 +95,8 @@ export default function ExpenditurePage() {
         if (!amount || !categoryId || !date) return;
 
         const payload = {
-            amount: Number(amount),
+            // Money goes to the server as a decimal string, never a float.
+            amount: amount.trim(),
             expense_category_id: categoryId,
             date,
             payee,
@@ -107,7 +105,7 @@ export default function ExpenditurePage() {
 
         if (editingId) {
             updateExpMutation.mutate(
-                { id: editingId, data: payload },
+                { id: editingId, input: payload },
                 {
                     onSuccess: () => {
                         toast.success('Expenditure updated successfully');
@@ -117,7 +115,7 @@ export default function ExpenditurePage() {
                 }
             );
         } else {
-            createExpMutation.mutate(payload, {
+            createExpMutation.mutate({ input: payload }, {
                 onSuccess: () => {
                     toast.success('Expenditure recorded successfully');
                     setIsModalOpen(false);
@@ -136,26 +134,26 @@ export default function ExpenditurePage() {
 
     // Analytics Calculation
     const stats = useMemo(() => {
-        if (!expenditures) return { total: 0, thisMonth: 0, trend: [] };
+        if (!expenditures) return { total: '0.00', thisMonth: '0.00', trend: [] };
 
         const now = new Date();
         const thisMonthRange = { start: startOfMonth(now), end: endOfMonth(now) };
+        // Amounts are decimal strings: add them up in whole cents, not floats.
+        const sum = (list: Expenditure[]) =>
+            centsToDecimal(list.reduce((acc, curr) => acc + (toCents(curr.amount) ?? BigInt(0)), BigInt(0)));
 
-        const total = expenditures.reduce((acc, curr) => acc + Number(curr.amount), 0);
-        const thisMonth = expenditures
-            .filter(exp => isWithinInterval(new Date(exp.date), thisMonthRange))
-            .reduce((acc, curr) => acc + Number(curr.amount), 0);
+        const total = sum(expenditures);
+        const thisMonth = sum(expenditures.filter(exp => isWithinInterval(new Date(exp.date), thisMonthRange)));
 
         // Simple monthly trend for last 6 months
         const trend = Array.from({ length: 6 }).map((_, i) => {
             const d = subMonths(now, 5 - i);
             const range = { start: startOfMonth(d), end: endOfMonth(d) };
-            const mTotal = expenditures
-                .filter(exp => isWithinInterval(new Date(exp.date), range))
-                .reduce((acc, curr) => acc + Number(curr.amount), 0);
+            const mTotal = sum(expenditures.filter(exp => isWithinInterval(new Date(exp.date), range)));
             return {
                 Month: format(d, 'MMM'),
-                'Amount Spent': mTotal
+                // The chart needs a number; it is only drawn, never added up.
+                'Amount Spent': Number(mTotal)
             };
         });
 
@@ -180,6 +178,7 @@ export default function ExpenditurePage() {
     }, {} as Record<string, string>) || {};
 
     return (
+        <PageShell title="Expenses" description="Money the school spends. Amounts are shown as entered, without a currency.">
         <div className="space-y-8 animate-in fade-in duration-700">
             {/* Stats Overview */}
             <Grid numItemsSm={1} numItemsLg={3} className="gap-6">
@@ -187,7 +186,7 @@ export default function ExpenditurePage() {
                     <Flex alignItems="start">
                         <div>
                             <Text className="text-gray-500 font-medium tracking-tight">Total Expenditures</Text>
-                            <Metric className="mt-1 font-bold">${stats.total.toLocaleString()}</Metric>
+                            <Metric className="mt-1 font-bold">{formatAmount(stats.total)}</Metric>
                         </div>
                         <Icon icon={Wallet} color="rose" variant="light" size="lg" />
                     </Flex>
@@ -196,7 +195,7 @@ export default function ExpenditurePage() {
                     <Flex alignItems="start">
                         <div>
                             <Text className="text-gray-500 font-medium tracking-tight">Spent This Month</Text>
-                            <Metric className="mt-1 font-bold">${stats.thisMonth.toLocaleString()}</Metric>
+                            <Metric className="mt-1 font-bold">{formatAmount(stats.thisMonth)}</Metric>
                         </div>
                         <Icon icon={TrendingDown} color="amber" variant="light" size="lg" />
                     </Flex>
@@ -221,7 +220,7 @@ export default function ExpenditurePage() {
                     index="Month"
                     categories={['Amount Spent']}
                     colors={['rose']}
-                    valueFormatter={(num) => `$${num.toLocaleString()}`}
+                    valueFormatter={(num) => formatAmount(num)}
                     showAnimation={true}
                 />
             </Card>
@@ -286,7 +285,7 @@ export default function ExpenditurePage() {
                                         </TableCell>
                                         <TableCell className="text-right">
                                             <span className="text-rose-600 font-bold bg-rose-50 px-2.5 py-1 rounded-md text-sm border border-rose-100">
-                                                ${Number(exp.amount).toLocaleString()}
+                                                {formatAmount(exp.amount)}
                                             </span>
                                         </TableCell>
                                         <TableCell className="text-right">
@@ -358,15 +357,14 @@ export default function ExpenditurePage() {
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-semibold text-gray-700">Amount ($)</label>
+                                <label className="text-sm font-semibold text-gray-700">Amount</label>
                                 <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
-                                    <input
+                                                                        <input
                                         type="number"
                                         step="0.01"
                                         min="0"
                                         required
-                                        className="w-full pl-7 pr-3 py-2.5 rounded-lg border border-gray-200 bg-white/50 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+                                        className="w-full px-3 py-2.5 rounded-lg border border-gray-200 bg-white/50 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
                                         value={amount}
                                         onChange={(e) => setAmount(e.target.value)}
                                         placeholder="0.00"
@@ -423,5 +421,6 @@ export default function ExpenditurePage() {
                 </DialogContent>
             </Dialog>
         </div>
+        </PageShell>
     );
 }

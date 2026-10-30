@@ -17,6 +17,8 @@ export interface NavTab {
   path: string;
   /** Hidden unless the school has this feature switched on */
   feature?: string;
+  /** Other pages that belong to this tab (e.g. a record's detail page) */
+  also?: string[];
 }
 
 export interface NavArea {
@@ -39,7 +41,7 @@ export interface RoleNavigation {
   signs?: boolean;
 }
 
-const tab = (label: string, path: string, feature?: string): NavTab => ({ label, path, feature });
+const tab = (label: string, path: string, feature?: string, also?: string[]): NavTab => ({ label, path, feature, also });
 
 // --- Areas ------------------------------------------------------------------------------------
 
@@ -115,12 +117,12 @@ const FEES: NavArea = {
   key: 'fees', label: 'Fees', icon: Receipt, feature: 'enable_finance',
   tabs: [
     tab('Overview', '/finance'),
-    tab('Student fees', '/finance/fees'),
-    tab('Installments', '/finance/installments'),
-    tab('Fee structures', '/finance/structures'),
-    tab('Categories', '/finance/categories'),
-    tab('Revenue', '/finance/revenue'),
+    tab('Student accounts', '/finance/fees', undefined, ['/finance/accounts']),
+    tab('Payments', '/finance/payments'),
+    tab('Fee setup', '/finance/structures'),
+    tab('Reports', '/finance/reports'),
     tab('Expenses', '/finance/expenditure'),
+    tab('Settings', '/finance/settings'),
   ],
 };
 
@@ -193,10 +195,12 @@ const ROLES: Record<string, RoleNavigation> = {
     ],
   },
   parent: {
-    home: '/parent/attendance',
+    home: '/parent',
     areas: [
+      HOME('/parent'),
       { key: 'attendance', label: 'Attendance', icon: ClipboardCheck, tabs: [tab('Attendance', '/parent/attendance')] },
       { key: 'results', label: 'Results', icon: Award, tabs: [tab('Results', '/parent/results')] },
+      { key: 'fees', label: 'Fees', icon: Receipt, tabs: [tab('Fees', '/parent/fees')] },
     ],
   },
   'attendance-scanner': {
@@ -297,10 +301,14 @@ function matches(relative: string, tabPath: string): boolean {
  */
 export function locate(areas: NavArea[], relative: string): { area: NavArea; tab: NavTab } | null {
   let best: { area: NavArea; tab: NavTab } | null = null;
+  let bestLength = -1;
   for (const area of areas) {
     for (const t of area.tabs) {
-      if (matches(relative, t.path) && (!best || t.path.length > best.tab.path.length)) {
-        best = { area, tab: t };
+      for (const path of [t.path, ...(t.also ?? [])]) {
+        if (matches(relative, path) && (!best || path.length > bestLength)) {
+          best = { area, tab: t };
+          bestLength = path.length;
+        }
       }
     }
   }
