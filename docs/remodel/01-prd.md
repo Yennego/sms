@@ -91,7 +91,7 @@ Done. Keep: QR ID cards, gate scanning, sponsor marking, excuses with documents,
 ### 5.5 Grades and report cards
 - P0: One gradebook per class and subject: columns are assessments (tests, assignments, exams), rows are students; totals use the school's grading schema.
 - P0: Sponsors and admins review, then publish results per period; students and parents see only published results.
-- P0: Report cards per period and semester, printable on A4, with attendance and the sponsor's remark.
+- P0: Report cards per period and semester, printable on A4, with the school's logo, name and seal, attendance, and the class sponsor's and principal's signatures (uploaded once by each person, fixed when results are published). Written remarks are filled in by hand for now.
 - P1: Remedial plans for failing students that feed promotion decisions.
 
 ### 5.6 Fees

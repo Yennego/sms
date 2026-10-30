@@ -5,6 +5,9 @@
 // Shared by the staff report cards page and the student / parent results screens:
 //   <ReportCard card={card} school={{ name: tenant.name, logo: tenant.logo }} />
 // Print it with <ReportCardPrintRoot> (print-root.tsx), which hides the app around it.
+// The school heading prefers `card.school` (name, logo, address, motto, contacts, seal) over the
+// `school` prop. Signatures (`card.signatures`, fixed at publication) and the seal are data URLs,
+// so they print without another request.
 //
 // Failing grades (below the pass mark) are red AND carry a "*" marker, never colour alone.
 // For staff, columns that aren't published yet show "—" with a small "not published" note
@@ -19,10 +22,12 @@ import {
   type ReportCardData,
   type ReportCardSchool,
   type ReportCardSemester,
+  type ReportCardSignature,
 } from '@/services/api/results-service';
 
 export interface ReportCardProps {
   card: ReportCardData;
+  /** Fallback school details (tenant context); `card.school` is preferred when present. */
   school: ReportCardSchool;
   /** Show "—" for columns the server flags as not published (staff). Default true. */
   hideUnpublished?: boolean;
@@ -115,19 +120,81 @@ function RuledLines({ text, lines = 2 }: { text?: string | null; lines?: number 
   );
 }
 
-function SignatureLine({ label }: { label: string }) {
+/**
+ * A signature line. The signature image (a data URL fixed at publication) sits on the line with
+ * the person's name and title under it; with no image the line is left blank to sign by hand.
+ * The seal, when given, is printed beside the signature, overlapping it like a stamp.
+ * `pendingHint` adds a screen-only note for staff previewing unpublished results.
+ */
+function SignatureLine({
+  signature,
+  fallbackName,
+  fallbackTitle,
+  seal,
+  pendingHint,
+}: {
+  signature: ReportCardSignature | null | undefined;
+  fallbackName?: string | null;
+  fallbackTitle: string;
+  seal?: string | null;
+  pendingHint?: boolean;
+}) {
+  const name = signature?.name || fallbackName || null;
+  const title = signature?.title || fallbackTitle;
+  const image = signature?.image ?? null;
   return (
-    <div className="flex flex-col gap-1">
-      <div className="h-8 border-b border-neutral-800" />
-      <div className="flex justify-between text-[10px] text-neutral-700">
-        <span>{label}</span>
-        <span>Date: ____________</span>
+    <div className="flex flex-col gap-1 break-inside-avoid">
+      <div className="relative flex h-14 items-end justify-center">
+        {image ? (
+          // eslint-disable-next-line @next/next/no-img-element -- data URL; must print as is
+          <img
+            src={image}
+            alt={name ? `Signature of ${name}` : `${title}'s signature`}
+            className="relative z-10 max-h-14 max-w-[70%] object-contain"
+          />
+        ) : pendingHint ? (
+          <span className="mb-1 text-center text-[9px] italic text-neutral-500 print:hidden">
+            Signature appears when results are published
+          </span>
+        ) : null}
+        {seal ? (
+          // eslint-disable-next-line @next/next/no-img-element -- data URL; must print as is
+          <img
+            src={seal}
+            alt="School seal"
+            className="absolute right-0 bottom-0 z-0 size-[20mm] object-contain opacity-90 mix-blend-multiply"
+          />
+        ) : null}
+      </div>
+      <div className="border-b border-neutral-800" />
+      <div className="flex justify-between gap-2 text-[10px] text-neutral-700">
+        <span className="min-w-0">
+          {name ? <span className="font-semibold text-black">{name}</span> : null}
+          {name ? <br /> : null}
+          {title}
+        </span>
+        <span className="shrink-0 self-end">Date: ____________</span>
       </div>
     </div>
   );
 }
 
-export function ReportCard({ card, school, hideUnpublished = true, className }: ReportCardProps) {
+/** The card's own school details win; the tenant context fills what the card leaves empty. */
+function mergeSchool(fromCard: ReportCardSchool | null | undefined, fallback: ReportCardSchool): ReportCardSchool {
+  if (!fromCard) return fallback;
+  return {
+    name: fromCard.name || fallback.name,
+    logo: fromCard.logo || fallback.logo || null,
+    address: fromCard.address || fallback.address || null,
+    motto: fromCard.motto || fallback.motto || null,
+    phone: fromCard.phone || fallback.phone || null,
+    email: fromCard.email || fallback.email || null,
+    seal: fromCard.seal || fallback.seal || null,
+  };
+}
+
+export function ReportCard({ card, school: schoolProp, hideUnpublished = true, className }: ReportCardProps) {
+  const school = mergeSchool(card.school, schoolProp);
   const passMark = card.pass_mark;
   const semesterNumbers = Array.from(
     {
@@ -160,6 +227,11 @@ export function ReportCard({ card, school, hideUnpublished = true, className }: 
   });
   const anyUnpublishedSemester = columns.some((c) => c.exam === 'unpublished');
   const allSemestersUnpublished = columns.every((c) => c.exam === 'unpublished');
+  // Staff responses carry `published` flags; a staff preview with unpublished columns gets the
+  // screen-only "Signature appears when results are published" note where a signature is missing.
+  const staffPreviewUnpublished =
+    card.subjects.some((s) => s.semesters.some((sem) => sem.published)) &&
+    columns.some((c) => c.exam === 'unpublished' || c.periods.includes('unpublished'));
 
   const passedCount = card.subjects.filter((s) =>
     s.passed !== null ? s.passed : s.yearly_average !== null && !isFailing(s.yearly_average, passMark)
@@ -196,6 +268,9 @@ export function ReportCard({ card, school, hideUnpublished = true, className }: 
         <div className="min-w-0 flex-1 text-center">
           <p className="text-lg font-bold uppercase tracking-wide">{school.name}</p>
           {school.address ? <p className="text-[10px]">{school.address}</p> : null}
+          {school.phone || school.email ? (
+            <p className="text-[10px]">{[school.phone, school.email].filter(Boolean).join(' · ')}</p>
+          ) : null}
           {school.motto ? <p className="text-[10px] italic">&ldquo;{school.motto}&rdquo;</p> : null}
           <p className="mt-1 text-sm font-semibold uppercase tracking-wider">Student report card</p>
           {card.year.name ? <p className="text-[11px]">Academic year {card.year.name}</p> : null}
@@ -412,8 +487,18 @@ export function ReportCard({ card, school, hideUnpublished = true, className }: 
 
       {/* Signatures */}
       <section className="mt-5 grid grid-cols-2 gap-8" aria-label="Signatures">
-        <SignatureLine label="Class sponsor" />
-        <SignatureLine label="Principal" />
+        <SignatureLine
+          signature={card.signatures?.sponsor}
+          fallbackName={card.class.sponsor_name}
+          fallbackTitle="Class sponsor"
+          pendingHint={staffPreviewUnpublished}
+        />
+        <SignatureLine
+          signature={card.signatures?.principal}
+          fallbackTitle="Principal"
+          seal={school.seal}
+          pendingHint={staffPreviewUnpublished}
+        />
       </section>
     </article>
   );

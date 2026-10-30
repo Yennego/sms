@@ -61,7 +61,7 @@ Make the app feel like one calm, predictable tool that office staff can learn in
 6. Gradebook grid (desk) and mark entry (phone).
 7. Parent home with child switcher (phone).
 8. Record payment and printed receipt.
-9. Report card (print).
+9. Report card (print): school logo, name, address, motto and seal; signatures of the class sponsor and principal fixed when results are published (phase4-design.md §6).
 10. Scan screen.
 
 ## 7. Content style

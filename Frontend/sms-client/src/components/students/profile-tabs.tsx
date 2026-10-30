@@ -5,8 +5,10 @@
 import * as React from "react"
 import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
-import { BookOpen, CalendarCheck, IdCard, KeyRound, Loader2, Phone, Receipt, RefreshCw, Users } from "lucide-react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { BookOpen, CalendarCheck, IdCard, KeyRound, Loader2, Phone, Printer, Receipt, RefreshCw, Users } from "lucide-react"
 
+import { IdCardPrintRoot, IdCardStyles, IdCardView, useIdCardPrint } from "@/components/attendance/id-card"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { DataTable } from "@/components/ui/data-table"
@@ -14,6 +16,8 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusBadge, type StatusBadgeStatus } from "@/components/ui/status-badge"
 import { notify } from "@/components/ui/toaster"
+import { useTenant } from "@/hooks/use-tenant"
+import { useIdCardService } from "@/services/api/id-card-service"
 import type { GuardianRecord, StudentEnrollment, StudentRecord } from "@/services/api/student-records-service"
 import type { DailyStatus } from "@/types/daily-attendance"
 import {
@@ -26,8 +30,10 @@ import {
   isoDay,
 } from "./format"
 import {
+  studentAreaKeys,
   useCurrentYear,
   useReissueIdCard,
+  useSchoolKey,
   useStudentAttendance,
   useStudentEnrollments,
   useStudentGuardians,
@@ -382,11 +388,36 @@ export function GuardiansTab({
 
 // --- ID card --------------------------------------------------------------------------------
 
+/** This student's card from GET /academics/attendance/id-cards/{student_id}. */
+function useStudentIdCard(studentId: string) {
+  const service = useIdCardService()
+  const school = useSchoolKey()
+  return useQuery({
+    queryKey: [...studentAreaKeys.student(school, studentId), "id-card"],
+    queryFn: () => service.getStudentIdCard(studentId),
+    enabled: Boolean(school && studentId),
+    retry: (count, error) => {
+      const status = (error as { statusCode?: number } | null)?.statusCode
+      return status !== 403 && status !== 404 && count < 2
+    },
+  })
+}
+
 export function IdCardTab({ student, school }: { student: StudentRecord; school: string }) {
+  const { tenant } = useTenant()
+  const schoolKey = useSchoolKey()
+  const qc = useQueryClient()
+  const q = useStudentIdCard(student.id)
   const reissue = useReissueIdCard()
   const [confirm, setConfirm] = React.useState(false)
+  const { printing, print } = useIdCardPrint()
+  const schoolName = tenant?.name && tenant.name !== "Loading..." ? tenant.name : null
+  const card = q.data
+  const status = (q.error as { statusCode?: number } | null)?.statusCode
+
   return (
     <section className="flex max-w-2xl flex-col gap-4 rounded-xl border p-4 md:p-6">
+      <IdCardStyles />
       <div className="flex gap-3">
         <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
           <IdCard className="size-6" aria-hidden="true" />
@@ -394,31 +425,66 @@ export function IdCardTab({ student, school }: { student: StudentRecord; school:
         <div>
           <h2 className="text-base font-semibold">Student ID card</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            The card carries a QR code the gate scans for attendance. Print cards for a whole class from the ID cards page.
-            If a card is lost, issue a new one: the old card stops working.
+            The QR code on the card is what the gate scans for attendance. If the card is lost or stolen, issue a new one:
+            the old card stops working at the gate.
           </p>
         </div>
       </div>
+
+      {q.isLoading ? (
+        <Skeleton className="h-[54mm] w-full max-w-[85.6mm] rounded-xl" />
+      ) : q.isError ? (
+        status === 404 ? (
+          <EmptyState
+            icon={IdCard}
+            title="No card for this student yet"
+            description="A card is made once the student is enrolled in a class this school year."
+          />
+        ) : (
+          <LoadError error={q.error} onRetry={() => q.refetch()} what="the ID card" />
+        )
+      ) : card ? (
+        <div className="max-w-full overflow-x-auto">
+          <IdCardView card={card} schoolName={schoolName} />
+          <p className="mt-2 text-sm text-muted-foreground">
+            {card.card_version > 1 ? `Card ${card.card_version}` : "First card"}
+            {card.card_issued_at ? ` · issued ${formatDate(card.card_issued_at)}` : ""}
+          </p>
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-2 sm:flex-row [&>*]:min-h-11 md:[&>*]:min-h-9">
-        <Button asChild>
-          <Link href={`/${school}/attendance/id-cards`}>Open ID cards</Link>
+        <Button type="button" onClick={print} disabled={!card}>
+          <Printer aria-hidden="true" />
+          Print card
         </Button>
-        <Button type="button" variant="outline" onClick={() => setConfirm(true)} disabled={reissue.isPending}>
-          {reissue.isPending ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+        <Button type="button" variant="outline" onClick={() => setConfirm(true)} disabled={reissue.isPending || q.isLoading}>
+          {reissue.isPending ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
           Issue a new card
         </Button>
+        <Button asChild variant="link" className="justify-start px-0">
+          <Link href={`/${school}/attendance/id-cards`}>Print cards for a whole class</Link>
+        </Button>
       </div>
+
+      {printing && card ? <IdCardPrintRoot cards={[card]} schoolName={schoolName} /> : null}
+
       <ConfirmDialog
         open={confirm}
         onOpenChange={setConfirm}
         title={`Issue a new card for ${fullName(student)}?`}
-        description="The current card stops working at the gate straight away. Print the new card from the ID cards page."
+        description="The current card stops working at the gate straight away. Print the new card and collect the old one."
         confirmLabel="Issue new card"
         destructive
         onConfirm={async () => {
           try {
-            const card = await reissue.mutateAsync(student.id)
-            notify.success(`New card issued (version ${card.card_version}). Print it from the ID cards page.`)
+            const fresh = await reissue.mutateAsync(student.id)
+            qc.setQueryData([...studentAreaKeys.student(schoolKey, student.id), "id-card"], {
+              ...fresh,
+              class_name: fresh.class_name ?? card?.class_name ?? null,
+              academic_year: fresh.academic_year ?? card?.academic_year ?? null,
+            })
+            notify.success(`New card issued (card ${fresh.card_version}). Print it now; the old card no longer works.`)
           } catch (error) {
             notify.error(`${errorMessage(error, "The card wasn't reissued.")} Try again.`)
             throw error

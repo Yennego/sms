@@ -2,7 +2,8 @@ from typing import Any, List, Optional
 from uuid import UUID
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Body, File, UploadFile
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from pydantic import BaseModel
@@ -615,6 +616,36 @@ async def read_users_me(current_user: User = Depends(get_current_active_user)):
     # No hardcoding needed - it's already in current_user.tenant_id
     
     return user_dict
+
+def _signatures(db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request),
+                current_user: User = Depends(get_current_active_user)):
+    from src.services.academics.report_identity_service import SignatureService
+    return SignatureService(db, tenant_id, current_user)
+
+
+@router.get("/me/signature")
+def get_my_signature(service=Depends(_signatures)) -> Any:
+    """The signed-in staff member's current signature (phase4-design.md §6)."""
+    return service.get()
+
+
+@router.put("/me/signature")
+async def put_my_signature(file: UploadFile = File(...), service=Depends(_signatures)) -> Any:
+    """Upload (or draw) the signed-in staff member's own signature; PNG or JPEG, at most 1 MB."""
+    from src.services.academics.report_identity_service import image_error
+    from src.utils.report_images import ImageRejected, read_upload
+    try:
+        raw = await read_upload(file)
+    except ImageRejected as err:
+        raise image_error(err)
+    return await run_in_threadpool(service.set, raw)
+
+
+@router.delete("/me/signature")
+def delete_my_signature(service=Depends(_signatures)) -> Any:
+    """Stop using the current signature; cards already published keep showing it."""
+    return service.clear()
+
 
 @router.get("/admin-dashboard")
 async def admin_dashboard(current_user: User = Depends(has_any_role(["admin", "super-admin"]))):

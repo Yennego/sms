@@ -35,6 +35,8 @@ export interface RoleNavigation {
   settings?: NavTab[];
   /** Full-screen tools (the gate scanner) render without menus */
   bare?: boolean;
+  /** Staff who may sign report cards get "My signature" in the user menu */
+  signs?: boolean;
 }
 
 const tab = (label: string, path: string, feature?: string): NavTab => ({ label, path, feature });
@@ -124,6 +126,7 @@ const FEES: NavArea = {
 
 const SCHOOL_SETTINGS: NavTab[] = [
   tab('School settings', '/settings'),
+  tab('School profile', '/settings/school-profile'),
   tab('Users', '/admin/users'),
   tab('Roles', '/admin/roles'),
   tab('Role assignment', '/admin/role-assignment'),
@@ -135,6 +138,7 @@ const SCHOOL_SETTINGS: NavTab[] = [
 
 const ADMIN: RoleNavigation = {
   home: '/admin-dashboard',
+  signs: true,
   areas: [HOME('/admin-dashboard'), STUDENTS, STAFF, CLASSES, ATTENDANCE, GRADES, FEES],
   settings: SCHOOL_SETTINGS,
 };
@@ -144,10 +148,12 @@ const ROLES: Record<string, RoleNavigation> = {
   'tenant-admin': ADMIN,
   'academic-admin': {
     home: '/admin-dashboard',
+    signs: true,
     areas: [HOME('/admin-dashboard'), STUDENTS, STAFF, CLASSES, ATTENDANCE, GRADES],
   },
   registrar: {
     home: '/admin-dashboard',
+    signs: true,
     areas: [HOME('/admin-dashboard'), STUDENTS, CLASSES, ATTENDANCE],
   },
   accountant: { home: '/finance', areas: [{ ...FEES, feature: undefined }, STUDENTS_READ_ONLY] },
@@ -155,6 +161,7 @@ const ROLES: Record<string, RoleNavigation> = {
   counselor: { home: '/students', areas: [STUDENTS_READ_ONLY] },
   teacher: {
     home: '/teacher/dashboard',
+    signs: true,
     areas: [
       HOME('/teacher/dashboard'),
       { key: 'my-classes', label: 'My classes', icon: BookOpen, tabs: [tab('My classes', '/teacher/classes')] },

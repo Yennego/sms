@@ -89,14 +89,35 @@ export interface ReportCardData {
   overall: ReportCardOverall;
   attendance: ReportCardAttendance | null;
   remarks: { sponsor: string | null; principal?: string | null } | null;
+  /** The school as the server prints it (school record + school profile). Preferred over the tenant context. */
+  school?: ReportCardSchool | null;
+  /** Signatures fixed at the latest publication; null each when not published yet or none on file. */
+  signatures?: ReportCardSignatures | null;
 }
 
-/** What the report card shows about the school (from the tenant context). */
+/** What the report card shows about the school (from the card, else the tenant context). */
 export interface ReportCardSchool {
   name: string;
   logo?: string | null;
   address?: string | null;
   motto?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  /** data URL of the school seal, printed next to the principal's signature. */
+  seal?: string | null;
+}
+
+export interface ReportCardSignature {
+  name: string | null;
+  /** "Class sponsor", "Principal", "Headmaster", ... */
+  title: string | null;
+  /** data URL (PNG), or null when the person had no signature on file. */
+  image: string | null;
+}
+
+export interface ReportCardSignatures {
+  sponsor: ReportCardSignature | null;
+  principal: ReportCardSignature | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +323,37 @@ function normaliseCard(raw: unknown): ReportCardData {
         }
       : null,
     remarks: remarks ? { sponsor: str(remarks.sponsor), principal: str(remarks.principal) } : null,
+    school: normaliseSchool(o.school),
+    signatures: isObj(o.signatures)
+      ? { sponsor: normaliseSignature(o.signatures.sponsor), principal: normaliseSignature(o.signatures.principal) }
+      : null,
+  };
+}
+
+function normaliseSchool(raw: unknown): ReportCardSchool | null {
+  if (!isObj(raw)) return null;
+  const text = (v: unknown) => {
+    const s = str(v);
+    return s && s.trim() !== '' ? s : null;
+  };
+  return {
+    name: text(raw.name) ?? '',
+    logo: text(first(raw, 'logo', 'logo_url')),
+    address: text(raw.address),
+    motto: text(raw.motto),
+    phone: text(raw.phone),
+    email: text(raw.email),
+    seal: text(first(raw, 'seal', 'seal_image')),
+  };
+}
+
+function normaliseSignature(raw: unknown): ReportCardSignature | null {
+  if (!isObj(raw)) return null;
+  const image = str(raw.image);
+  return {
+    name: personName(first(raw, 'name', 'user')),
+    title: str(raw.title),
+    image: image && image.trim() !== '' ? image : null,
   };
 }
 

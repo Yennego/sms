@@ -31,6 +31,7 @@ from src.db.models.academics.gradebook import SCORE_STATUSES, GradingSettings, R
 from src.db.models.academics.grading_schema import GradingCategory, GradingSchema
 from src.db.models.academics.period import Period
 from src.db.models.academics.semester import Semester
+from src.services.academics import report_identity_service as ri
 from src.services.academics import results_service as rs
 from src.services.academics.attendance_access import class_sponsor_id
 
@@ -557,9 +558,11 @@ class GradebookService:
         ).first()
         if existing:
             return self._publication_out(existing)
+        # The sponsor's and principal's signatures in use now are fixed on the publication (§6)
+        signers = ri.signers_snapshot(self.db, self.tenant_id, class_sponsor_id(self.db, cls))
         p = ResultPublication(tenant_id=self.tenant_id, class_id=cls.id, period_id=period_id,
                               semester_id=semester_id, published_by=self.user.id,
-                              published_at=datetime.now(UTC))
+                              published_at=datetime.now(UTC), **signers)
         self.db.add(p)
         self.db.flush()
         return self._publication_out(p)
@@ -622,12 +625,19 @@ class GradebookService:
             parent_student.c.parent_id == self.user.id, parent_student.c.student_id == student_id
         ).first() is not None
 
-    def _card(self, results, enrollment, year, student):
+    def _identity(self, cls) -> Dict[str, Any]:
+        """School block and signatures (§6), the same for every card of the class."""
+        return {"school": ri.school_block(self.db, self.tenant_id),
+                "signatures": ri.card_signatures(self.db, self.tenant_id, cls.id)}
+
+    def _card(self, results, enrollment, year, student, identity=None):
         from src.db.models.auth.user import User
         sponsor_id = class_sponsor_id(self.db, results.cls)
         sponsor = self.db.query(User).filter(User.id == sponsor_id).first() if sponsor_id else None
         pass_mark = rs.pass_mark_for(self.db, self.tenant_id, year.id, results.cls.grade_id)
-        return rs.report_card(results, enrollment, student=student, year=year, pass_mark=pass_mark, sponsor=sponsor)
+        card = rs.report_card(results, enrollment, student=student, year=year, pass_mark=pass_mark, sponsor=sponsor)
+        card.update(identity if identity is not None else self._identity(results.cls))
+        return card
 
     def student_report_card(self, student_id, academic_year_id: Optional[UUID]) -> Dict[str, Any]:
         from src.db.models.people.student import Student
@@ -658,7 +668,8 @@ class GradebookService:
         results = rs.ClassResults(self.db, self.tenant_id, cls, published_only=False)
         students = {s.id: s for s in self.db.query(Student).filter(
             Student.id.in_([e.student_id for e in results.roster] or [None]))}
-        cards = [self._card(results, e, year, students[e.student_id])
+        identity = self._identity(cls)
+        cards = [self._card(results, e, year, students[e.student_id], identity)
                  for e in results.roster if e.student_id in students]
         cards.sort(key=lambda c: (c["student"]["name"] or "").lower())
         return {"items": cards}

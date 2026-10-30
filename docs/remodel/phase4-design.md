@@ -21,6 +21,16 @@ applied, and no checks on who may enter marks (see the October 2026 review).
   out of averages) or **absent** (counts as 0). Results are shown rounded to whole numbers;
   stored and computed with full precision.
 
+### Confirmed by the school owner (October 2026)
+- Teachers see unpublished marks only for the class subjects they teach and the classes they
+  sponsor (the teacher role no longer has `view_academic_data`).
+- The one pre-Phase-4 "EXAM"-type assessment became a period test under the Exam category; the
+  semester exam is its own report-card column.
+- Report cards label periods 1st–6th (Liberian paper style). Period names are school data, so a
+  school that wants other labels can rename its periods; showing the period's own name on the card
+  is a small follow-up.
+- Written remarks stay blank lines filled in by hand for now.
+
 ## 2. Data model
 
 New and changed tables (one migration; existing data is small and is moved across):
@@ -212,3 +222,109 @@ and the old `/academics/assessments` CRUD.
 The Grades area tabs become: Gradebook · Review and publish · Report cards · Grading settings ·
 Remedial. Old pages (`grading-hub`, `assessments`, `exams`, `assignments` grading, period
 toggles) redirect to the gradebook.
+
+## 6. Signatures, seal and school profile on report cards (added October 2026)
+
+Report cards carry the school's identity and the signatures of the class sponsor and the
+principal, as paper cards do.
+
+### Decisions
+- **A signature belongs to the person**, not to a report card: each staff member uploads theirs
+  once (Profile → My signature) — a photo or scan, or drawn with a finger on a phone. Only the
+  owner can set or remove it.
+- **The school names its principal** in a School profile (who, and the title printed under the
+  signature: "Principal", "Headmaster", …), with address, motto, phone, email and an optional
+  **school seal** image. Logo and name stay on the school record.
+- **Signatures are fixed at publication.** Publishing a class's results records the sponsor's and
+  the principal's signature *in use at that moment* on the publication. A published report card
+  shows the signatures of its latest publication; later changes (new principal, new signature)
+  don't alter cards already published. Unpublished previews (staff) show "Signature appears when
+  results are published".
+- **Signatures are never public files.** They are stored privately (in the database until object
+  storage arrives, Phase 6) and only returned inside a report card to someone allowed to see it.
+  Each upload is kept as a version (older versions stay valid for cards already published).
+
+### Data
+- `user_signatures (tenant_id, id, user_id, image (PNG, normalised), width, height, sha256,
+  created_at, is_current)` — one current per user; old versions kept.
+- `school_profiles (tenant_id unique, address, motto, phone, email, principal_user_id,
+  principal_title default 'Principal', seal_image (PNG, nullable), updated_at)`.
+- `result_publications` gains `sponsor_user_id`, `sponsor_signature_id`, `principal_user_id`,
+  `principal_signature_id` (all nullable: a missing signature prints a blank line).
+
+### Upload rules
+PNG or JPEG, at most 1 MB uploaded; the server checks the real file type, strips metadata,
+converts to PNG, trims empty margins and scales to at most 600×200 px (seal: 400×400). A drawn
+signature is sent as a PNG.
+
+### API
+- `GET /api/v1/auth/me/signature` → `{has_signature, image (data URL), updated_at}`;
+  `PUT` (multipart `file`); `DELETE`.
+- `GET /api/v1/tenants/self/profile` / `PUT` (permission `manage_tenant_settings`): address,
+  motto, phone, email, principal_user_id, principal_title; `PUT /tenants/self/profile/seal`
+  (multipart) / `DELETE`.
+- Report card responses gain:
+  ```json
+  "school": {"name", "logo", "address", "motto", "phone", "email", "seal"},
+  "signatures": {"sponsor": {"name", "title": "Class sponsor", "image"} | null,
+                 "principal": {"name", "title", "image"} | null}
+  ```
+  (images as data URLs; `null` when not yet published or no signature on file).
+
+### As built (October 2026, migration `e7d2c4a9b1f6`)
+- Upload errors: 413 `{"detail": "The image is larger than 1 MB."}`; 422 with a message for
+  anything that isn't a decodable PNG/JPEG (GIF, WebP, SVG, PDF, text renamed `.png`, truncated
+  files), an empty/blank image, or more than 25 million pixels. The file name and declared
+  content type are ignored. JPEG orientation is applied; all metadata is dropped. Signatures:
+  near-white and transparent margins trimmed (4 px kept); seal: transparent margins trimmed.
+  Images are only shrunk, never enlarged.
+- `GET/PUT/DELETE /auth/me/signature` → `{has_signature, image, updated_at}` (`DELETE` returns
+  the same shape with `has_signature: false`). Students and parents get 403. Uploading the same
+  picture again doesn't create a new version.
+- `GET /tenants/self/profile` also needs `manage_tenant_settings` and returns `{address, motto,
+  phone, email, principal_user_id, principal_name, principal_title, principal_has_signature,
+  seal, updated_at}`; `PUT` takes any subset of the fields (null or "" clears one; a blank title
+  becomes "Principal"); `PUT/DELETE /seal` return the profile. The principal must be an active
+  staff user (not a student or parent) of the school, otherwise 422.
+- On publish, the sponsor is the class sponsor shown on the card (`classes.class_teacher_id`,
+  else the section's sponsor). Re-posting an existing publication doesn't take a new snapshot.
+  The card uses the class's latest publication (`published_at`); the principal's *title* is read
+  from the current profile (only the people and signatures are fixed). Unpublishing the latest
+  column falls back to the previous publication's signatures.
+- `school.logo` is the tenant's `logo` URL; `school` and `signatures` are repeated on every card
+  of `GET /report-cards/classes/{id}`.
+- Deleting a user removes their signatures and clears only that column on publications and
+  profiles. Signature and seal uploads are written to the audit log without their bodies.
+
+## 7. Report card verification QR (added October 2026)
+
+A printed report card carries a QR code. Anyone (another school, an employer, a parent) can scan
+it to check the card is genuine and unchanged; a forged or edited paper copy won't match.
+
+### Decisions
+- **One verification record per issued report card**: when a report card with published results
+  is produced for a student and year, the server stores a snapshot of what it shows (subject
+  averages per published column, semester and yearly averages, rank, pass/fail) and a random,
+  unguessable code (128-bit, URL-safe). The same snapshot reuses the same code; if the published
+  results change (a correction after unpublishing), a new record is made and the old one shows as
+  **superseded**.
+- **The QR encodes** `{FRONTEND_URL}/verify/{code}`; the card also prints the code in short form
+  for typing.
+- **The public check page** (`/verify/{code}`, no sign-in) shows: school name and logo, student
+  full name, admission number, class, school year, issue date, and the snapshot's averages, with a
+  clear status — "Valid", "Superseded by a newer report card issued on …", or "Not found". It shows
+  nothing else about the student (no contact details, no attendance, no other years).
+- Only published results are ever snapshotted; drafts never get a code.
+- The public endpoint is rate-limited (per IP), returns the same "Not found" for unknown and
+  malformed codes, and is in `PUBLIC_ROUTES`.
+
+### Data and API
+- `report_card_verifications (tenant_id, id, code (unique), student_id, academic_year_id,
+  snapshot JSONB, snapshot_hash, issued_at, superseded_at)`.
+- Report card responses (student and class, when anything is published) gain
+  `"verification": {"code", "url", "qr_svg"}`.
+- `GET /api/v1/verify/report-cards/{code}` (public) →
+  `{"status": "valid"|"superseded"|"not_found", "school": {"name","logo"}, "student": {"name",
+  "admission_number"}, "class_name", "year_name", "issued_at", "superseded_at", "subjects":
+  [{"name","semester_averages","yearly_average","passed"}], "overall": {...}}`.
+- `verify` is a reserved slug.

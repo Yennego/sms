@@ -1,8 +1,10 @@
 from typing import Any, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, File, HTTPException, status, Query, UploadFile
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy import func
 
 from src.db.crud import tenant as tenant_crud
@@ -103,6 +105,55 @@ def update_own_tenant(
             detail="Tenant not found"
         )
     return tenant_crud.update(db, db_obj=tenant_obj, obj_in=tenant_in.model_dump(exclude_unset=True))
+
+# School profile for report cards (phase4-design.md §6): always the caller's own school
+class SchoolProfileIn(BaseModel):
+    address: Optional[str] = Field(None, max_length=500)
+    motto: Optional[str] = Field(None, max_length=255)
+    phone: Optional[str] = Field(None, max_length=50)
+    email: Optional[EmailStr] = None
+    principal_user_id: Optional[UUID] = None
+    principal_title: Optional[str] = Field(None, max_length=100)
+
+    @field_validator("email", "principal_user_id", mode="before")
+    @classmethod
+    def _blank_is_null(cls, value):
+        return None if isinstance(value, str) and not value.strip() else value
+
+
+def _profile(db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request),
+             current_user: User = Depends(has_permission("manage_tenant_settings"))):
+    from src.services.academics.report_identity_service import SchoolProfileService
+    return SchoolProfileService(db, tenant_id)
+
+
+@router.get("/self/profile")
+def get_school_profile(service=Depends(_profile)) -> Any:
+    return service.out()
+
+
+@router.put("/self/profile")
+def update_school_profile(body: SchoolProfileIn, service=Depends(_profile)) -> Any:
+    """Fields left out stay as they are; null clears one."""
+    return service.update(body.model_dump(exclude_unset=True))
+
+
+@router.put("/self/profile/seal")
+async def put_school_seal(file: UploadFile = File(...), service=Depends(_profile)) -> Any:
+    """The school seal printed on report cards; PNG or JPEG, at most 1 MB."""
+    from src.services.academics.report_identity_service import image_error
+    from src.utils.report_images import ImageRejected, read_upload
+    try:
+        raw = await read_upload(file)
+    except ImageRejected as err:
+        raise image_error(err)
+    return await run_in_threadpool(service.set_seal, raw)
+
+
+@router.delete("/self/profile/seal")
+def delete_school_seal(service=Depends(_profile)) -> Any:
+    return service.clear_seal()
+
 
 @router.put("/{tenant_id}", response_model=Tenant)
 def update_tenant(

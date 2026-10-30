@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react';
 import {
-  ChevronDown, KeyRound, LogOut, MoreHorizontal, School, Settings, ShieldCheck, UserCog, type LucideIcon,
+  ChevronDown, KeyRound, LogOut, MoreHorizontal, PenLine, School, Settings, ShieldCheck, UserCog, type LucideIcon,
 } from 'lucide-react';
 import { Sheet } from '@/components/ui/sheet';
 import { useAuth } from '@/hooks/use-auth';
@@ -282,6 +282,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const userMenu: MenuLink[] = [
     { label: 'Your profile', href: linkFor('/settings/user'), icon: UserCog },
     { label: 'Change password', href: linkFor('/change-password'), icon: KeyRound },
+    ...(nav.signs ? [{ label: 'My signature', href: linkFor('/settings/signature'), icon: PenLine }] : []),
     ...(nav.settings ?? []).map((s) => ({ label: s.label, href: linkFor(s.path), icon: Settings })),
   ];
 

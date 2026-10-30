@@ -81,7 +81,11 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
             return "update", "user"
 
         # Determine entity type from path
-        if "/users" in path:
+        if "/auth/me/signature" in path:
+            entity_type = "signature"
+        elif "/tenants/self/profile" in path:
+            entity_type = "school_profile"
+        elif "/users" in path:
             entity_type = "user"
         elif "/tenants" in path:
             entity_type = "tenant"
@@ -134,11 +138,19 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
     
     # Session endpoints change no school data, so they aren't audit events
     SESSION_PATHS = ("/auth/login", "/auth/token", "/auth/refresh", "/auth/logout", "/auth/me")
+    # Image uploads (signatures, school seal): the change is audited, the file never is
+    NO_BODY_PATHS = ("/auth/me/signature", "/tenants/self/profile/seal")
+
+    def is_no_body_path(self, request: Request) -> bool:
+        path = str(request.url.path).rstrip("/")
+        return any(path.endswith(p) for p in self.NO_BODY_PATHS)
 
     def should_log_request(self, request: Request) -> bool:
         """Only data changes (create/update/delete) are audited; reads are not."""
         if request.method.lower() not in ["post", "put", "patch", "delete"]:
             return False
+        if self.is_no_body_path(request):
+            return True
         path = str(request.url.path)
         return not any(path.endswith(p) or f"{p}/" in path for p in self.SESSION_PATHS)
 
@@ -186,7 +198,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         
         # Capture request body for state-changing operations
         request_body = None
-        if request.method.lower() in ["post", "put", "patch", "delete"]:
+        if request.method.lower() in ["post", "put", "patch", "delete"] and not self.is_no_body_path(request):
             try:
                 # IMPORTANT: Consuming request.body() exhausts the stream.
                 # We must replace it so downstream handlers (like FastAPI route handlers) can read it.
@@ -264,8 +276,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                         
             except Exception as e:
                 # Log the error but don't fail the request
-                print(f"Audit logging error: {e}")
-        
+                print(f"Audit logging error: {e}")        
         return response
 
     def extract_entity_id_from_path(self, request: Request) -> Optional[UUID]:

@@ -8,6 +8,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 
 from src.db.models.base import TenantModel
+from src.db.models.tenant.school_profile import UserSignature  # noqa: F401  target of the signature keys
 
 SCORE_STATUSES = ("scored", "absent", "excused")
 
@@ -48,6 +49,11 @@ class ResultPublication(TenantModel):
     semester_id = Column(UUID(as_uuid=True), ForeignKey("semesters.id", ondelete="CASCADE"), nullable=True)
     published_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
     published_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    # Who signs the cards and with which signature, fixed at publication (§6)
+    sponsor_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    sponsor_signature_id = Column(UUID(as_uuid=True), ForeignKey("user_signatures.id", ondelete="SET NULL"), nullable=True)
+    principal_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    principal_signature_id = Column(UUID(as_uuid=True), ForeignKey("user_signatures.id", ondelete="SET NULL"), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "class_id", "period_id", name="uq_result_publications_class_period"),

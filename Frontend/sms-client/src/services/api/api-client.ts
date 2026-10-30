@@ -139,7 +139,8 @@ export class ApiClient {
           // the refresh route once and retry; if that fails too the session is over
           // (login/refresh/me handle their own 401s)
           if (status === 401) {
-            const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/refresh') || url.includes('/auth/me');
+            // Only the session endpoints themselves; /auth/me/signature etc. refresh like any other call
+            const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/refresh') || /\/auth\/me(\?|$)/.test(url);
 
             if (!isAuthEndpoint && typeof window !== 'undefined') {
               if (!originalRequest._retry) {

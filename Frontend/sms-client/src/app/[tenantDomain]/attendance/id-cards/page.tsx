@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { IdCard as IdCardIcon, Loader2, Printer, RefreshCcw } from 'lucide-react';
 
+import { ID_CARD_CSS, IdCardView } from '@/components/attendance/id-card';
 import PermissionGuard from '@/components/auth/permission-guard';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -23,9 +24,7 @@ const PRINT_CSS = `
   #id-card-sheet { position: absolute; left: 0; top: 0; width: 100%; }
   .id-card-actions { display: none !important; }
 }
-.id-card { width: 85.6mm; height: 54mm; break-inside: avoid; page-break-inside: avoid; }
-.id-card-qr svg { width: 100%; height: 100%; }
-`;
+${ID_CARD_CSS}`;
 
 export default function IdCardsPage() {
   const { tenant } = useTenant();
@@ -105,31 +104,7 @@ export default function IdCardsPage() {
           <div id="id-card-sheet" className="grid grid-cols-1 md:grid-cols-2 gap-6 justify-items-start">
             {cards.map(card => (
               <div key={card.student_id} className="space-y-2">
-                <div className="id-card flex overflow-hidden rounded-xl border border-gray-300 bg-white text-gray-900 shadow-sm">
-                  <div className="flex flex-1 flex-col justify-between p-3 min-w-0">
-                    <div className="text-[11px] font-bold uppercase tracking-wide text-indigo-700 truncate">{tenant?.name ?? 'Student ID'}</div>
-                    <div className="flex items-center gap-2">
-                      {card.photo ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={card.photo} alt="" className="h-14 w-12 rounded object-cover border" />
-                      ) : (
-                        <div className="h-14 w-12 rounded bg-gray-100 flex items-center justify-center text-sm font-bold text-gray-500">
-                          {card.student_name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                        </div>
-                      )}
-                      <div className="min-w-0">
-                        <div className="text-sm font-bold leading-tight line-clamp-2">{card.student_name}</div>
-                        <div className="text-[10px] text-gray-600">No. {card.admission_number || '-'}</div>
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-gray-600 leading-tight">
-                      <div className="truncate">{card.class_name ?? ''}</div>
-                      <div className="truncate">{card.academic_year ?? ''}{card.card_version > 1 ? ` · Card ${card.card_version}` : ''}</div>
-                    </div>
-                  </div>
-                  {/* Server-generated SVG of the signed token (no user content) */}
-                  <div className="id-card-qr h-full aspect-square p-1.5" dangerouslySetInnerHTML={{ __html: card.qr_svg }} />
-                </div>
+                <IdCardView card={card} schoolName={tenant?.name} />
                 <div className="id-card-actions">
                   <button
                     onClick={() => onReissue(card)}
