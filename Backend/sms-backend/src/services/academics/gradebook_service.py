@@ -664,6 +664,12 @@ class GradebookService:
         staff = self.staff_reader() or (cls is not None and self.is_sponsor_of(cls))
         if not staff and not own:
             raise _403()
+        if not staff:
+            # Fees hold (phase5-design.md §1): only the student's and parents' view; staff and the
+            # public verification page are unaffected
+            from src.services.finance.fee_service import HOLD_MESSAGE, report_card_held
+            if report_card_held(self.db, self.tenant_id, student.id, year.id):
+                raise _403(HOLD_MESSAGE)
         if enrollment is None:
             raise _404("Enrollment for this school year")
         results = rs.ClassResults(self.db, self.tenant_id, cls, published_only=not staff)

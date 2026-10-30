@@ -122,3 +122,26 @@ def test_composite_keys_reject_links_between_schools(schools, AppSession):
     finally:
         db.rollback()
         db.close()
+
+
+FINANCE_TABLES = ("fee_schedules", "installment_plans", "student_fee_accounts", "invoices", "invoice_lines",
+                  "fee_adjustments", "payments", "payment_allocations", "receipt_counters", "finance_settings")
+
+
+def test_fee_tables_have_row_level_security_and_composite_keys():
+    admin = create_engine(ADMIN_URL)
+    try:
+        with admin.connect() as c:
+            rows = c.execute(text("""
+                SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = ANY(:t)
+            """), {"t": list(FINANCE_TABLES)}).all()
+            assert {r[0] for r in rows} == set(FINANCE_TABLES)
+            assert all(r[1] and r[2] for r in rows)
+            policies = c.execute(text("SELECT count(*) FROM pg_policies WHERE policyname = 'tenant_isolation' "
+                                      "AND tablename = ANY(:t)"), {"t": list(FINANCE_TABLES)}).scalar()
+            assert policies == len(FINANCE_TABLES)
+            keys = {r[0] for r in c.execute(text("SELECT conname FROM pg_constraint WHERE conname LIKE 'fk_tn_%'"))}
+            assert {"fk_tn_payments_account_id", "fk_tn_payment_allocations_invoice_id",
+                    "fk_tn_student_fee_accounts_student_id", "fk_tn_parent_student_student_id"} <= keys
+    finally:
+        admin.dispose()

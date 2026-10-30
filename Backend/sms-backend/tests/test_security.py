@@ -260,8 +260,10 @@ def test_custom_role_named_like_super_admin_grants_nothing():
 
 def test_finance_is_staff_only(env):
     client, ids = env
-    assert client.get("/api/v1/finance/fees/categories", headers=headers(ids, "student_a")).status_code == 403
-    assert client.get("/api/v1/finance/fees/student-fees/export/xlsx", headers=headers(ids, "student_a")).status_code == 403
+    assert client.get("/api/v1/finance/categories", headers=headers(ids, "student_a")).status_code == 403
+    assert client.get("/api/v1/finance/accounts", headers=headers(ids, "student_a")).status_code == 403
+    assert client.post("/api/v1/finance/payments", json={}, headers=headers(ids, "student_a")).status_code in (403, 422)
+    assert client.get("/api/v1/finance/expenses", headers=headers(ids, "student_a")).status_code == 403
     assert client.get("/api/v1/super-admin/dashboard/tenant-stats", headers=headers(ids, "admin_a")).status_code == 403
 
 
