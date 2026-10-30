@@ -200,7 +200,7 @@ const ROLES: Record<string, RoleNavigation> = {
       HOME('/parent'),
       { key: 'attendance', label: 'Attendance', icon: ClipboardCheck, tabs: [tab('Attendance', '/parent/attendance')] },
       { key: 'results', label: 'Results', icon: Award, tabs: [tab('Results', '/parent/results')] },
-      { key: 'fees', label: 'Fees', icon: Receipt, tabs: [tab('Fees', '/parent/fees')] },
+      { key: 'fees', label: 'Fees', icon: Receipt, feature: 'enable_finance', tabs: [tab('Fees', '/parent/fees')] },
     ],
   },
   'attendance-scanner': {

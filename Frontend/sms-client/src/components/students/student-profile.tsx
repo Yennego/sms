@@ -14,7 +14,9 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { PageShell } from "@/components/ui/page-shell"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusBadge } from "@/components/ui/status-badge"
+import { FeatureGate } from "@/components/ui/feature-gate"
 import { notify } from "@/components/ui/toaster"
+import { useTenantFeatures } from "@/hooks/use-tenant-features"
 import { CredentialsDialog, type Credential } from "./credentials"
 import { EditStudentSheet } from "./edit-student-sheet"
 import { enrollmentClassName, errorMessage, fullName, isNotFound, studentStatusBadge } from "./format"
@@ -50,6 +52,7 @@ export function StudentProfile({ school, studentId, tab }: { school: string; stu
   const enrollmentsQ = useStudentEnrollments(studentId)
   const setStatus = useSetStudentStatus(studentId)
   const resetPassword = useResetPassword()
+  const financeOn = useTenantFeatures().isFeatureEnabled("enable_finance")
 
   const [editing, setEditing] = React.useState(false)
   const [confirmStatus, setConfirmStatus] = React.useState(false)
@@ -179,7 +182,7 @@ export function StudentProfile({ school, studentId, tab }: { school: string; stu
           }
         />
       }
-      tabs={PROFILE_TABS.map((t) => ({
+      tabs={PROFILE_TABS.filter((t) => t.key !== "fees" || financeOn).map((t) => ({
         label: t.label,
         href: `/${school}/students/${studentId}?tab=${t.key}`,
         active: t.key === tab,
@@ -190,7 +193,11 @@ export function StudentProfile({ school, studentId, tab }: { school: string; stu
       {tab === "enrollment" ? <EnrollmentTab studentId={studentId} school={school} /> : null}
       {tab === "attendance" ? <AttendanceTab studentId={studentId} school={school} /> : null}
       {tab === "results" ? <ResultsTab studentId={studentId} /> : null}
-      {tab === "fees" ? <FeesTab school={school} studentId={studentId} /> : null}
+      {tab === "fees" ? (
+        <FeatureGate feature="enable_finance" label="Fees" page={false}>
+          <FeesTab school={school} studentId={studentId} />
+        </FeatureGate>
+      ) : null}
       {tab === "guardians" ? (
         <GuardiansTab
           studentId={studentId}

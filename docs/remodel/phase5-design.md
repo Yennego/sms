@@ -113,6 +113,12 @@ The migration grants `record_payments`, `create_invoices`, `approve_financial_tr
 
 ### As built (backend, October 2026)
 
+- **Feature switch.** Every `/finance` route needs the school's `enable_finance` feature (tenant
+  settings, set by the platform operator; off by default) and answers 403 "Fees is turned off for this
+  school..." otherwise. The exception is `GET /family/students`, which the parent portal's child
+  switcher uses: with finance off it returns the children with `finance_enabled: false` and no fee
+  figures. With finance off, report cards are never held for fees.
+
 Migration `a5d1e8c3f7b2_phase5_fees`. Code: `src/db/models/finance/fees.py`,
 `src/services/finance/{ledger,fee_service}.py`, `src/api/v1/endpoints/finance/{fees,family}.py`.
 Tests: `tests/test_finance.py`.

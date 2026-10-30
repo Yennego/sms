@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic';
 // Top-level routers in Backend/sms-backend/src/api/v1/api.py
 const BACKEND_AREAS = new Set([
   'tenants', 'auth', 'people', 'academics', 'communication', 'logging',
-  'resources', 'super-admin', 'specialized', 'finance', 'verify',
+  'resources', 'super-admin', 'finance', 'verify',
 ]);
 
 // Public areas outside any school (report card verification): sent without the session or a

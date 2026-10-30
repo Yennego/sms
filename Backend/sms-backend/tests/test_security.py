@@ -24,6 +24,7 @@ from src.db.models.auth.user_role import UserRole
 from src.db.models.base import Base
 from src.db.models.people.student import Student
 from src.db.models.tenant.tenant import Tenant
+from src.db.models.tenant.tenant_settings import TenantSettings
 from src.db.session import get_db, request_session
 
 ADMIN_PERMISSIONS = [
@@ -62,6 +63,10 @@ def env(monkeypatch):
     b = Tenant(name="School B", code="SCB", domain="school-b")
     db.add_all([admin_role, student_role, sa_role, a, b, *perms.values()])
     db.flush()
+    # Finance is a feature switch (off by default); both schools have it on so the finance tests
+    # exercise permissions
+    for t in (a, b):
+        db.add(TenantSettings(tenant_id=t.id, settings={"features": {"enable_finance": True}}))
 
     def make(cls, tenant, role, **extra):
         n = uuid4().hex[:8]

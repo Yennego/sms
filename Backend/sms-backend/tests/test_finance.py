@@ -19,6 +19,7 @@ from src.db.models.auth.user_role import UserRole
 from src.db.models.finance.fees import ReceiptCounter, StudentFeeAccount
 from src.db.models.people.parent import Parent, parent_student
 from src.db.models.people.student import Student
+from src.db.models.tenant.tenant_settings import TenantSettings
 from src.db.session import get_db
 from src.services.finance import fee_service, ledger
 from src.services.finance.fee_service import FeeService, amount_in_words
@@ -464,6 +465,35 @@ def test_report_card_hold(env, clock):
     # paying what is overdue lifts the hold
     _pay(client, ids, s, amount="75")
     assert client.get(url, headers=headers(ids, "parent")).status_code == 200
+
+
+def test_finance_switched_off(env, clock):
+    """With the school's enable_finance switch off, every finance route answers 403 and report cards
+    are never held for fees."""
+    client, ids = env
+    s = _seed(ids)
+    _setup(client, ids, s)
+    h = headers(ids, "admin_a")
+    client.put(f"{F}/settings", json={"hold_report_cards_on_arrears": True}, headers=h)
+    clock(2026, 10, 20, 9)  # first installment overdue
+    url = f"/api/v1/academics/gradebook/report-cards/students/{s['pupils'][0]}"
+    assert client.get(url, headers=headers(ids, "parent")).status_code == 403
+
+    gen, db = _db()
+    row = db.query(TenantSettings).filter(TenantSettings.tenant_id == ids["tenant_a"]).one()
+    row.settings = {**row.settings, "features": {"enable_finance": False}}
+    next(gen, None)
+
+    for path, who in (("/accounts", "admin_a"), ("/payments", "cashier"), ("/expenses", "admin_a"),
+                      (f"/family/accounts/{s['pupils'][0]}", "parent")):
+        r = client.get(f"{F}{path}", headers=headers(ids, who))
+        assert r.status_code == 403 and "turned off" in r.json()["detail"], (path, r.text)
+    assert client.get(url, headers=headers(ids, "parent")).status_code == 200
+    # the parent portal still lists the children, without fee figures
+    kids = client.get(f"{F}/family/students", headers=headers(ids, "parent"))
+    assert kids.status_code == 200 and kids.json()[0]["finance_enabled"] is False and kids.json()[0]["balance"] == {}
+    # the other school is unaffected
+    assert client.get(f"{F}/categories", headers=headers(ids, "admin_b")).status_code == 200
 
 
 # --- lists and reports ----------------------------------------------------------------------------------

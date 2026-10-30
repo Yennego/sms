@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends
 
 from src.api.v1.endpoints import tenant, auth, people, super_admin, academics, communication, logging, resources, finance, verify
-from src.api.v1.endpoints.specialized import financial_academic
 from src.core.security.auth import authenticate_request
 
 # Authenticated by default: every route requires a valid session and is bound to the
@@ -18,6 +17,5 @@ api_router.include_router(communication.router, prefix="/communication", tags=["
 api_router.include_router(logging.router, prefix="/logging", tags=["logging"])
 api_router.include_router(resources.router, prefix="/resources", tags=["resources"])
 api_router.include_router(super_admin.router, prefix="/super-admin", tags=["super-admin"])
-api_router.include_router(financial_academic.router, prefix="/specialized", tags=["specialized"])
 api_router.include_router(finance.router, prefix="/finance", tags=["finance"])
 api_router.include_router(verify.router, prefix="/verify", tags=["verify"])  # public (PUBLIC_ROUTES)

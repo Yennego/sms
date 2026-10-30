@@ -35,6 +35,7 @@ import { PageShell } from '@/components/ui/page-shell';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge, type StatusBadgeStatus } from '@/components/ui/status-badge';
 import { useCurrentAcademicYearDetail } from '@/hooks/queries/academic-years';
+import { useTenantFeatures } from '@/hooks/use-tenant-features';
 import { cn } from '@/lib/utils';
 import { hasAmount, isZeroAmount } from '@/services/api/family-service';
 import { formatScore, isFailing } from '@/services/api/results-service';
@@ -283,6 +284,7 @@ function ParentHomeScreen() {
   const { tenantDomain } = useParams<{ tenantDomain: string }>();
   const { query, kids, childId, child, setChildId } = useSelectedChild();
   const year = useCurrentAcademicYearDetail();
+  const financeOn = useTenantFeatures().isFeatureEnabled('enable_finance');
   const yearId = year.data?.id;
 
   const base = `/${tenantDomain}/parent`;
@@ -308,13 +310,15 @@ function ParentHomeScreen() {
             yearLoading={year.isLoading}
             href={withChild('/results')}
           />
-          <FeesCard
-            key={`fees-${childId}`}
-            childId={childId}
-            yearId={yearId}
-            yearLoading={year.isLoading}
-            href={withChild('/fees')}
-          />
+          {financeOn ? (
+            <FeesCard
+              key={`fees-${childId}`}
+              childId={childId}
+              yearId={yearId}
+              yearLoading={year.isLoading}
+              href={withChild('/fees')}
+            />
+          ) : null}
         </div>
       </>
     );

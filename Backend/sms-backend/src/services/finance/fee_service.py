@@ -1284,8 +1284,10 @@ class FeeService:
             raise _404("School year")
         students = self.db.query(Student).filter(Student.tenant_id == self.tenant_id, Student.id.in_(ids or [None])).all()
         info = self._enrollment_info(year.id, ids) if year else {}
+        from src.services.tenant.features import feature_enabled
+        finance_on = feature_enabled(self.db, self.tenant_id, "enable_finance")
         accounts, calcs = {}, {}
-        if year:
+        if year and finance_on:
             led = self._ledger(year.id, [a.id for a in self.db.query(StudentFeeAccount).filter(
                 StudentFeeAccount.tenant_id == self.tenant_id, StudentFeeAccount.academic_year_id == year.id,
                 StudentFeeAccount.student_id.in_(ids or [None]))])
@@ -1297,7 +1299,8 @@ class FeeService:
             item = {"student_id": s.id, "name": f"{s.first_name} {s.last_name}",
                     "admission_number": s.admission_number, "class_name": info.get(s.id, {}).get("class_name"),
                     "academic_year_id": year.id if year else None, "currency": None, "currencies": [],
-                    "balance": {}, "overdue": {}, "next_due": None, "report_cards_held": False}
+                    "balance": {}, "overdue": {}, "next_due": None, "report_cards_held": False,
+                    "finance_enabled": finance_on}
             if account is not None:
                 st = self.statement(s.id, year.id)
                 nxt = next((i for i in st["installments"] if i["status"] == "due"), None)
@@ -1332,7 +1335,10 @@ def report_card_held(db: Session, tenant_id, student_id, academic_year_id) -> bo
     """Whether a student's (or parent's) report card for the year is held for overdue fees
     (design §1): the school's setting is on, the student owes an overdue amount for that year,
     and the school hasn't allowed this student."""
+    from src.services.tenant.features import feature_enabled
     tenant_id = _uuid(tenant_id)
+    if not feature_enabled(db, tenant_id, "enable_finance"):
+        return False
     setting = db.query(FinanceSettings.hold_report_cards_on_arrears).filter(FinanceSettings.tenant_id == tenant_id).first()
     if not setting or not setting[0]:
         return False
