@@ -9,6 +9,7 @@ import { normalizeBaseUrl } from '@/app/api/_lib/http';
 import { clearSessionCookies, readRefreshToken, setSessionFromTokens } from '@/app/api/_lib/auth-cookies';
 import { refreshTokens, type TokenPair } from '@/app/api/_lib/backend-session';
 import { rejectCrossSite } from '@/app/api/_lib/csrf';
+import { trustedClientHeaders } from '@/app/api/_lib/client-ip';
 import { cookieName, getSession, preferredNamespace } from '@/lib/session';
 
 export const runtime = 'nodejs';
@@ -17,8 +18,12 @@ export const dynamic = 'force-dynamic';
 // Top-level routers in Backend/sms-backend/src/api/v1/api.py
 const BACKEND_AREAS = new Set([
   'tenants', 'auth', 'people', 'academics', 'communication', 'logging',
-  'resources', 'super-admin', 'specialized', 'finance',
+  'resources', 'super-admin', 'specialized', 'finance', 'verify',
 ]);
+
+// Public areas outside any school (report card verification): sent without the session or a
+// school, so a signed-in visitor checks another school's card exactly like anyone else
+const PUBLIC_AREAS = new Set(['verify']);
 
 // Frontend paths that name a backend path differently (prefix → prefix)
 const PATH_REWRITES: [string, string][] = [
@@ -59,9 +64,11 @@ async function proxy(request: NextRequest, { params }: Params) {
   // Buffer the body once so the request can be replayed after a token refresh
   const body = method === 'GET' || method === 'HEAD' ? undefined : await request.arrayBuffer();
 
-  const session = getSession(request.cookies, preferredNamespace(request.headers));
+  const isPublicArea = PUBLIC_AREAS.has(segments[0]);
+  const session = isPublicArea ? null : getSession(request.cookies, preferredNamespace(request.headers));
   const headers = new Headers();
   for (const name of REQUEST_HEADERS) {
+    if (isPublicArea && name === 'x-tenant-id') continue;
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
@@ -69,6 +76,9 @@ async function proxy(request: NextRequest, { params }: Params) {
     const tenantId = request.cookies.get(cookieName('tenantId', session.namespace))?.value || session.tenantId;
     if (tenantId) headers.set('x-tenant-id', tenantId);
   }
+  // The visitor's address for the backend's per-address limits (only with PROXY_SHARED_SECRET)
+  const clientHeaders = trustedClientHeaders(request);
+  for (const [name, value] of Object.entries(clientHeaders)) headers.set(name, value);
 
   const send = (token: string | undefined) => {
     if (token) headers.set('authorization', `Bearer ${token}`);
@@ -76,20 +86,20 @@ async function proxy(request: NextRequest, { params }: Params) {
     return fetch(url, { method, headers, body, cache: 'no-store' });
   };
 
-  const refreshToken = readRefreshToken(request, session?.namespace);
+  const refreshToken = isPublicArea ? undefined : readRefreshToken(request, session?.namespace);
   let rotated: TokenPair | null = null;
   let refreshFailed = false;
 
   try {
     // Expired already: refresh first instead of spending a round trip on a certain 401
     if (session?.expired && refreshToken) {
-      rotated = await refreshTokens(refreshToken);
+      rotated = await refreshTokens(refreshToken, clientHeaders);
       refreshFailed = !rotated;
     }
 
     let upstream = await send(rotated?.access_token ?? session?.token);
     if (upstream.status === 401 && !rotated && !refreshFailed && refreshToken) {
-      rotated = await refreshTokens(refreshToken);
+      rotated = await refreshTokens(refreshToken, clientHeaders);
       refreshFailed = !rotated;
       if (rotated) upstream = await send(rotated.access_token);
     }

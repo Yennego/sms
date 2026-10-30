@@ -19,8 +19,6 @@ class Subject(TenantModel):
     
     # Relationships to other models
     assignments = relationship("Assignment", back_populates="subject")
-    exams = relationship("Exam", back_populates="subject")
-    grades = relationship("Grade", back_populates="subject")
     
     def __repr__(self):
         return f"<Subject {self.name} - {self.code}>"

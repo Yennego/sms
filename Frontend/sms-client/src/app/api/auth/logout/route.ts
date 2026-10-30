@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { normalizeBaseUrl } from '@/app/api/_lib/http';
 import { clearSessionCookies, readRefreshToken } from '@/app/api/_lib/auth-cookies';
 import { rejectCrossSite } from '@/app/api/_lib/csrf';
+import { trustedClientHeaders } from '@/app/api/_lib/client-ip';
 import { getSession } from '@/lib/session';
 import type { CookieNamespace } from '@/utils/cookie-manager';
 
@@ -25,6 +26,7 @@ export async function POST(request: NextRequest) {
         headers: {
           'Content-Type': 'application/json',
           ...(session && { Authorization: `Bearer ${session.token}` }),
+          ...trustedClientHeaders(request),
         },
         body: JSON.stringify({ refresh_token: refreshToken ?? null }),
         cache: 'no-store',

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from src.core.security.auth import is_super_admin, resolve_requested_tenant
+from src.core.security.client_ip import client_ip
 from src.core.security.password import get_password_hash
 from src.core.security.password_policy import PasswordPolicy
 from src.db.crud import user as user_crud
@@ -71,7 +72,7 @@ async def _limit(store, key: str, limit: int) -> None:
 
 
 def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    return client_ip(request)
 
 
 def _school(request: Request, db: Session):

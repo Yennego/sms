@@ -2,6 +2,7 @@
 // No cookies or tokens are forwarded; only the school and the JSON body.
 import { NextRequest, NextResponse } from 'next/server';
 import { normalizeBaseUrl } from '@/app/api/_lib/http';
+import { trustedClientHeaders } from '@/app/api/_lib/client-ip';
 
 // A school id (UUID), code or domain, as it appears in the page URL
 const SCHOOL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
@@ -32,8 +33,13 @@ export async function forwardPublicAuthPost(
   path: string,
   body: Record<string, string>,
   tenant: string,
+  request: NextRequest,
 ): Promise<NextResponse> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Tenant-ID': tenant };
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Tenant-ID': tenant,
+    ...trustedClientHeaders(request),
+  };
   try {
     const upstream = await fetch(`${normalizeBaseUrl(process.env.BACKEND_API_URL)}/${path}`, {
       method: 'POST',

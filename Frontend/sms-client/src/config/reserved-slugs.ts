@@ -9,6 +9,8 @@ export const RESERVED_SLUGS: readonly string[] = [
   // Sign-in and account pages that also exist outside a school
   'login', 'logout', 'register', 'session-expired', 'forgot-password', 'reset-password',
   'change-password', 'profile',
+  // Public pages outside any school (report card verification: /verify/{code})
+  'verify',
   // Area names (today's and the remodel's), so /{area} is never mistaken for a school
   'dashboard', 'home', 'academics', 'admin', 'students', 'student', 'teachers', 'teacher', 'staff',
   'parents', 'parent', 'classes', 'attendance', 'scan', 'grades', 'gradebook', 'results', 'exams',

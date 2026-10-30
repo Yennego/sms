@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     # Defaults to the first CORS origin.
     FRONTEND_URL: str = (os.getenv("FRONTEND_URL") or os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")[0]).strip().rstrip("/")
 
+    # Shared with the Next.js server (BFF). Only a request carrying X-Proxy-Secret equal to this
+    # may name the browser's address in X-Client-IP (per-IP rate limits); empty = never trusted.
+    PROXY_SHARED_SECRET: str = os.getenv("PROXY_SHARED_SECRET", "")
+
     # Debug mode: tracebacks and /docs. Off unless explicitly enabled (DEBUG=true in local .env)
     DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
 

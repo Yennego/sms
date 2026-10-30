@@ -82,7 +82,6 @@ class Student(User):
     
     # Relationships
     enrollments = relationship("Enrollment", back_populates="student", lazy="dynamic")
-    grades = relationship("Grade", back_populates="student", lazy="dynamic", foreign_keys="[Grade.student_id]")
     attendances = relationship("Attendance", back_populates="student")
     
     # Helper methods to get current grade/section information

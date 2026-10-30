@@ -20,5 +20,5 @@ export async function POST(request: NextRequest) {
   if (!token || !newPassword) {
     return NextResponse.json({ detail: 'The reset link and a new password are required.' }, { status: 400 });
   }
-  return forwardPublicAuthPost('auth/reset-password', { token, new_password: newPassword }, tenant);
+  return forwardPublicAuthPost('auth/reset-password', { token, new_password: newPassword }, tenant, request);
 }

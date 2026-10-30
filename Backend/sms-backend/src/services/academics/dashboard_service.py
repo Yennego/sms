@@ -11,12 +11,9 @@ from src.db.models.academics.section import Section
 from src.db.models.academics.subject import Subject
 from src.db.models.academics.class_model import Class
 from src.db.models.academics.enrollment import Enrollment
-from src.db.models.academics.exam import Exam
 from src.db.models.academics.class_subject import ClassSubject
 from src.db.models.academics.assignment import Assignment
 from src.db.models.academics.submission import Submission
-from src.db.models.academics.assessment import Assessment
-from src.db.models.academics.grade import Grade
 from src.db.models.people.student import Student
 from src.db.models.people.teacher import Teacher
 from src.schemas.academics.dashboard import AcademicDashboardStats
@@ -129,7 +126,6 @@ class AcademicDashboardService:
             print(f"DEBUG: Found active enrollment: {active_enrollment.id}, Status: {active_enrollment.status}, Grade ID: {active_enrollment.grade_id}")
 
         # 1. GPA Calculation
-        # Use Grade model (src.db.models.academics.grade)
         # Published results only (phase 4): the overall yearly average on a 4.0 scale
         gpa_raw = 0.0
         if active_enrollment is not None:
@@ -184,46 +180,9 @@ class AcademicDashboardService:
             ).all()
             submitted_ids = {s[0] for s in submitted_ids}
             
-            p_assignments = len([a for a in all_assignments if a.id not in submitted_ids])
-            pending_tasks += p_assignments
-
-            # B. Assessments (Quizzes, Tests, Projects, etc.)
-            # Non-assignment assessments that are published and not yet graded for this student
-            all_assessments = self.db.query(Assessment).filter(
-                Assessment.grade_id == active_enrollment.grade_id,
-                Assessment.is_published == True,
-                Assessment.tenant_id == self.tenant_id
-            ).all()
-
-            # Get assessment_ids that already have grades for this student
-            from src.db.models.academics.grade import GradeType
-            assessment_ids_with_grades = self.db.query(Grade.assessment_id).filter(
-                Grade.student_id == student_id,
-                Grade.assessment_type.in_([
-                    GradeType.QUIZ, GradeType.TEST, GradeType.PROJECT, 
-                    GradeType.PARTICIPATION, GradeType.OTHER
-                ]),
-                Grade.tenant_id == self.tenant_id
-            ).all()
-            assessment_ids_with_grades = {g[0] for g in assessment_ids_with_grades}
-            
-            pending_tasks += len([a for a in all_assessments if a.id not in assessment_ids_with_grades])
-
-            # C. Exams
-            all_exams = self.db.query(Exam).filter(
-                Exam.grade_id == active_enrollment.grade_id,
-                Exam.is_published == True,
-                Exam.tenant_id == self.tenant_id
-            ).all()
-
-            exam_ids_with_grades = self.db.query(Grade.assessment_id).filter(
-                Grade.student_id == student_id,
-                Grade.assessment_type == GradeType.EXAM,
-                Grade.tenant_id == self.tenant_id
-            ).all()
-            exam_ids_with_grades = {g[0] for g in exam_ids_with_grades}
-
-            pending_tasks += len([e for e in all_exams if e.id not in exam_ids_with_grades])
+            # Gradebook assessments (tests, quizzes, the semester exam) are columns teachers fill
+            # in, not tasks the student hands in, so only unsubmitted homework counts.
+            pending_tasks += len([a for a in all_assignments if a.id not in submitted_ids])
 
         # 4. Attendance Rate: school-day records this academic year, same formula as everywhere else
         from src.db.models.academics.attendance import calculate_attendance_rate

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import '@/app/api/_lib/undici';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
+import { trustedClientHeaders } from '@/app/api/_lib/client-ip';
 import { getSession, preferredNamespace } from '@/lib/session';
 
 type MeRole = { name?: string; permissions?: (string | { name?: string })[]; [key: string]: unknown };
@@ -26,6 +27,7 @@ export async function GET(request: NextRequest) {
       headers: {
         Authorization: `Bearer ${session.token}`,
         ...(tenantId && tenantId !== 'undefined' && { 'X-Tenant-ID': tenantId }),
+        ...trustedClientHeaders(request),
       },
       cache: 'no-store',
       signal,

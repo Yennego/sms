@@ -417,11 +417,33 @@ def test_exam_rules(env):
     assert [(a["kind"], a["entered"], a["students"]) for a in listed] == [("exam", 0, 3)]
 
 
+def test_categories_status_counts_gradebook_assessments(env):
+    client, ids = env
+    s = _seed(ids)
+    _assessment(client, ids, s, max_score=20)
+    _assessment(client, ids, s, max_score=15)
+    _assessment(client, ids, s, period=1, max_score=30)  # another period
+    _assessment(client, ids, s, cs="cs_eng", who="eng_t", max_score=5)  # another subject
+    _exam(client, ids, s)  # no category
+
+    def status(**scope):
+        q = "&".join(f"{k}={v}" for k, v in scope.items())
+        r = client.get(f"/api/v1/academics/categories-status?class_id={s['class']}&subject_id={s['math']}&{q}",
+                       headers=headers(ids, "math_t"))
+        assert r.status_code == 200, r.text
+        return {c["name"]: (c["allocated_marks"], c["remaining_marks"]) for c in r.json()}
+
+    assert status(period_id=s["periods"][0])["Tests"] == (35, 5)
+    assert status(period_id=s["periods"][0])["Quizzes"] == (0, 20)
+    assert status(semester_id=s["sem"][0])["Tests"] == (65, 0)
+    assert status(semester_id=s["sem"][1])["Tests"] == (0, 40)
+
+
 def test_old_grade_reads_are_closed(env):
     client, ids = env
     h = headers(ids, "student_a")
     assert client.get("/api/v1/academics/grades", headers=h).status_code == 404  # retired
-    assert client.get("/api/v1/academics/exams", headers=h).status_code == 403  # no view_exam
+    assert client.get("/api/v1/academics/exams", headers=h).status_code == 404  # retired
     assert client.get("/api/v1/academics/assignments", headers=h).status_code == 403
     assert client.get("/api/v1/academics/promotions/criteria", headers=h).status_code == 403
     assert client.get("/api/v1/academics/remedial/sessions", headers=h).status_code == 403

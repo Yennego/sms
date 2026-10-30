@@ -7,7 +7,8 @@
 // Print it with <ReportCardPrintRoot> (print-root.tsx), which hides the app around it.
 // The school heading prefers `card.school` (name, logo, address, motto, contacts, seal) over the
 // `school` prop. Signatures (`card.signatures`, fixed at publication) and the seal are data URLs,
-// so they print without another request.
+// so they print without another request. When results are published the card carries a
+// verification QR (`card.verification`, phase4-design.md section 7) in the bottom corner.
 //
 // Failing grades (below the pass mark) are red AND carry a "*" marker, never colour alone.
 // For staff, columns that aren't published yet show "—" with a small "not published" note
@@ -23,6 +24,8 @@ import {
   type ReportCardSchool,
   type ReportCardSemester,
   type ReportCardSignature,
+  type ReportCardVerification,
+  formatVerificationCode,
 } from '@/services/api/results-service';
 
 export interface ReportCardProps {
@@ -176,6 +179,32 @@ function SignatureLine({
         <span className="shrink-0 self-end">Date: ____________</span>
       </div>
     </div>
+  );
+}
+
+/**
+ * The verification QR, small in the bottom corner. The SVG comes from our server and is shown
+ * only through a data URL <img> (never inserted as markup), so nothing in it can run.
+ */
+function VerificationQr({ verification }: { verification: ReportCardVerification }) {
+  if (!verification.qr_svg?.startsWith('<svg')) return null;
+  const src = `data:image/svg+xml;utf8,${encodeURIComponent(verification.qr_svg)}`;
+  const code = formatVerificationCode(verification.code);
+  return (
+    <footer className="mt-3 flex items-end justify-end gap-2 break-inside-avoid" aria-label="Verification">
+      <div className="text-right text-[9px] leading-tight text-neutral-700">
+        <p className="font-semibold text-black">Scan to verify</p>
+        <p>
+          Code <span className="font-mono font-semibold tracking-wider text-black">{code}</span>
+        </p>
+      </div>
+      {/* eslint-disable-next-line @next/next/no-img-element -- data URL; must print as is */}
+      <img
+        src={src}
+        alt={`QR code to verify this report card (code ${code})`}
+        className="size-[20mm] shrink-0 bg-white [image-rendering:pixelated]"
+      />
+    </footer>
   );
 }
 
@@ -500,6 +529,8 @@ export function ReportCard({ card, school: schoolProp, hideUnpublished = true, c
           pendingHint={staffPreviewUnpublished}
         />
       </section>
+
+      {card.verification?.qr_svg ? <VerificationQr verification={card.verification} /> : null}
     </article>
   );
 }

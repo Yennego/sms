@@ -22,8 +22,6 @@ from src.db.crud.people import student as student_crud
 from src.db.crud.academics.class_crud import class_crud
 from src.db.crud.academics.schedule_crud import schedule_crud
 from src.db.crud.academics.academic_year_crud import academic_year_crud
-from src.db.crud.academics.grade import grade as grade_crud
-from src.db.models.academics.grade import Grade, GradeType
 from src.services.academics.attendance_access import (
     check_class_marking_permission, check_enrollment, resolve_viewable_student_id
 )
@@ -246,9 +244,6 @@ class AttendanceService(TenantBaseService[Attendance, AttendanceCreate, Attendan
             raise
         for record in results:
             self.db.refresh(record)
-
-        # Attendance grades are produced per subject by sync_assessment_attendance when an
-        # ATTENDANCE assessment is created; a Grade can't exist without subject/enrollment.
         return results
     
     def resolve_viewable_student_id(self, current_user: Any, student_id: Optional[UUID]) -> Optional[UUID]:
@@ -471,96 +466,6 @@ class AttendanceService(TenantBaseService[Attendance, AttendanceCreate, Attendan
         if end_date:
             query = query.filter(DailyAttendance.date <= end_date)
         return query.order_by(DailyAttendance.date.asc()).all()
-    
-    async def sync_assessment_attendance(
-        self,
-        assessment: Any,
-        marked_by: UUID
-    ) -> int:
-        """Automatically populate grades for an ATTENDANCE assessment for all students in the target class/section."""
-        from src.db.models.academics.enrollment import Enrollment
-        from src.db.crud.academics.grade import grade as grade_crud
-        from src.schemas.academics.grade import GradeCreate
-        
-        # 1. Get all students enrolled in the class/grade for this academic year
-        query = self.db.query(Enrollment).filter(
-            Enrollment.tenant_id == self.tenant_id,
-            Enrollment.academic_year_id == assessment.academic_year_id,
-            Enrollment.is_active == True
-        )
-        
-        if assessment.section_id:
-            query = query.filter(Enrollment.section_id == assessment.section_id)
-        else:
-            query = query.filter(Enrollment.grade_id == assessment.grade_id)
-            
-        enrollments = query.all()
-        
-        # Helper for letter grade
-        def get_letter_grade(pct: float) -> str:
-            if pct >= 90: return 'A'
-            if pct >= 80: return 'B'
-            if pct >= 70: return 'C'
-            if pct >= 60: return 'D'
-            return 'F'
-
-        count = 0
-        for enrollment in enrollments:
-            # 2. Get attendance percentage for this student
-            ay = academic_year_crud.get_by_id(self.db, self.tenant_id, assessment.academic_year_id)
-            
-            attendance_pct = await self.get_student_attendance_percentage(
-                student_id=enrollment.student_id,
-                start_date=ay.start_date if ay else None,
-                end_date=assessment.assessment_date
-            )
-            
-            # 3. Calculate score based on assessment max_score
-            score = (attendance_pct / 100.0) * assessment.max_score
-            
-            # 4. Upsert Grade
-            existing_grade = self.db.query(Grade).filter(
-                Grade.tenant_id == self.tenant_id,
-                Grade.student_id == enrollment.student_id,
-                Grade.assessment_type == GradeType.ATTENDANCE,
-                Grade.assessment_id == assessment.id
-            ).first()
-            
-            if existing_grade:
-                grade_crud.update(
-                    self.db,
-                    tenant_id=self.tenant_id,
-                    db_obj=existing_grade,
-                    obj_in={
-                        "score": score,
-                        "percentage": attendance_pct,
-                        "letter_grade": get_letter_grade(attendance_pct),
-                        "graded_date": date.today(),
-                        "graded_by": marked_by
-                    }
-                )
-            else:
-                grade_data = GradeCreate(
-                    student_id=enrollment.student_id,
-                    enrollment_id=enrollment.id,
-                    subject_id=assessment.subject_id,
-                    graded_by=marked_by,
-                    academic_year_id=assessment.academic_year_id,
-                    assessment_type=GradeType.ATTENDANCE,
-                    assessment_id=assessment.id,
-                    assessment_name=assessment.title,
-                    assessment_date=assessment.assessment_date,
-                    score=score,
-                    max_score=assessment.max_score,
-                    percentage=attendance_pct,
-                    letter_grade=get_letter_grade(attendance_pct),
-                    grading_category_id=assessment.grading_category_id,
-                    comments="Auto-generated from daily attendance records"
-                )
-                grade_crud.create(self.db, tenant_id=self.tenant_id, obj_in=grade_data)
-            count += 1
-            
-        return count
     
     async def get_class_attendance_trends(
         self, 

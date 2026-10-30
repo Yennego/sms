@@ -38,7 +38,7 @@ from src.schemas.academics.enrollment import Enrollment as EnrollmentSchema
 from src.services.academics.enrollment import EnrollmentService
 from src.services.academics.attendance_service import AttendanceService
 from src.services.academics.attendance_access import has_daily_attendance_history
-from src.db.models.academics.grade import Grade
+from src.db.models.academics.gradebook import ScoreEntry
 from src.db.models.academics.enrollment import Enrollment as EnrollmentModel
 from src.utils.uuid_utils import ensure_uuid
 from src.db.models.people.student import Student as StudentModel
@@ -262,7 +262,7 @@ async def bulk_delete_students(
             has_human_data = False
 
             # Grades check
-            if student_service.db.query(Grade).filter(Grade.student_id == student_id, Grade.tenant_id == tenant_id).count() > 0:
+            if student_service.db.query(ScoreEntry).filter(ScoreEntry.student_id == student_id, ScoreEntry.tenant_id == tenant_id).count() > 0:
                 has_human_data = True
             
             # Attendance check
@@ -318,7 +318,7 @@ async def delete_student(
     # 1. Check for "Human" Data (Grades, Attendance) - These BLOCK deletion
 
     # Grades check
-    if db.query(Grade).filter(Grade.student_id == student_id, Grade.tenant_id == tenant_id).count() > 0:
+    if db.query(ScoreEntry).filter(ScoreEntry.student_id == student_id, ScoreEntry.tenant_id == tenant_id).count() > 0:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Cannot delete student: The student has existing grade records. These must be preserved; consider archiving instead."
@@ -659,9 +659,12 @@ async def delete_teacher(*, db: Session = Depends(get_db), tenant_id: UUID = Dep
             detail="Cannot delete teacher. They have created assessments/assignments. Remove these assignments first."
         )
 
-    # 5. Check for grades given by this teacher
-    from src.db.models.academics.grade import Grade
-    grades_given = db.query(Grade).filter(Grade.tenant_id == tenant_id, Grade.graded_by == teacher_id).all()
+    # 5. Check for marks entered or gradebook assessments created by this teacher
+    from src.db.models.academics.assessment import Assessment
+    grades_given = (
+        db.query(ScoreEntry.id).filter(ScoreEntry.tenant_id == tenant_id, ScoreEntry.entered_by == teacher_id).first()
+        or db.query(Assessment.id).filter(Assessment.tenant_id == tenant_id, Assessment.created_by == teacher_id).first()
+    )
     if grades_given:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

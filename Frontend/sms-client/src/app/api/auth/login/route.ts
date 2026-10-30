@@ -4,6 +4,7 @@ import { getNamespacedKey } from '@/utils/cookie-manager';
 import { isValidUUID, getTenantUUIDByDomain } from '@/lib/cookies';
 import { decodeJwtPayload, setSessionFromTokens } from '@/app/api/_lib/auth-cookies';
 import { rejectCrossSite } from '@/app/api/_lib/csrf';
+import { trustedClientHeaders } from '@/app/api/_lib/client-ip';
 
 export async function POST(request: NextRequest) {
   const blocked = rejectCrossSite(request);
@@ -69,6 +70,7 @@ export async function POST(request: NextRequest) {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           ...(tenantHeaderToSend && { 'X-Tenant-ID': tenantHeaderToSend }),
+          ...trustedClientHeaders(request),
         },
         timeout: 95000,
       }

@@ -30,6 +30,11 @@ function getContextFromPath(pathname: string): CookieNamespace {
   if (segments.length === 1 && topLevelNonTenant.includes(segments[0])) {
     return 'DEFAULT';
   }
+
+  // Public pages outside any school: /verify/{code} (report card verification)
+  if (segments[0] === 'verify') {
+    return 'DEFAULT';
+  }
   
   // Any path with a first segment that looks like a tenant domain/id is TENANT
   // e.g. /foundation/dashboard, /34624041-.../finance/fees
@@ -169,6 +174,16 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Report card verification is public and belongs to no school: no session, no school lookup,
+  // no school cookies (like the public sign-in pages, but without a school in the address)
+  if (pathname === '/verify' || pathname.startsWith('/verify/') || pathname.startsWith('/api/v1/verify/')) {
+    if (pathname.startsWith('/api/')) {
+      const blocked = rejectCrossSite(request);
+      if (blocked) return blocked;
+    }
+    return NextResponse.next();
+  }
+
   const context = getContextFromPath(pathname);
   console.log(`[Middleware] Processing ${context} request for: ${pathname}`);
 
@@ -243,6 +258,8 @@ export async function middleware(request: NextRequest) {
     '/api/auth/login', '/api/auth/logout', '/api/auth/me',
     '/api/auth/forgot-password', '/api/auth/reset-password',
     '/api/auth/refresh', '/api/tenants/public', '/api/tenants',
+    // Report card verification: the page and its API call, no sign-in, outside any school
+    '/verify/', '/api/v1/verify/',
   ].some(route => pathname.startsWith(route));
 
   const isTenantPublicRoute = /^\/[^/]+\/(login|session-expired|register|forgot-password|reset-password)$/.test(pathname);

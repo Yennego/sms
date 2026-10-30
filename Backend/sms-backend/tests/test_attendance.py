@@ -134,45 +134,7 @@ def test_teacher_filter_passes_through(school):
     assert school["service"].resolve_viewable_student_id(school["sponsor"], None) is None
 
 
-# --- Attendance -> grade sync (schema GradeType was missing ATTENDANCE) -------------
-
-def test_attendance_assessment_creates_grades(school, db, monkeypatch):
-    from types import SimpleNamespace
-    import src.db.crud.base.base as crud_base
-
-    # TenantCRUDBase.create stringifies UUIDs via jsonable_encoder; PostgreSQL accepts
-    # that, SQLite's UUID type doesn't. Keep native types for this test only.
-    monkeypatch.setattr(crud_base, "jsonable_encoder", lambda obj: obj.model_dump())
-    from src.db.models.academics.subject import Subject
-    from src.db.models.academics.grade import Grade, GradeType
-
-    from datetime import UTC, datetime
-    from src.schemas.academics.daily_attendance import DailyBulkSet
-    from src.services.academics.daily_attendance_service import DailyAttendanceService
-
-    s0, s1 = school["students"][:2]
-    # Grades follow school-day attendance (Phase 4); period marks no longer count
-    run(school["service"].bulk_mark_attendance(_bulk(school, [(s0, "absent"), (s1, "present")])))
-    daily = DailyAttendanceService(tenant=school["tenant_id"], db=db)
-    daily.now_utc = lambda: datetime(TODAY.year, TODAY.month, TODAY.day, 9, tzinfo=UTC)
-    daily.bulk_set(DailyBulkSet(class_id=school["cls"].id, date=TODAY, entries=[
-        {"student_id": s0.id, "status": "present"}, {"student_id": s1.id, "status": "absent"},
-    ]), school["sponsor"])
-
-    subject = Subject(tenant_id=school["tenant_id"], name="Math", code="MTH")
-    db.add(subject)
-    db.commit()
-    cls = school["cls"]
-    assessment = SimpleNamespace(
-        id=uuid4(), academic_year_id=school["ay"].id, section_id=cls.section_id, grade_id=cls.grade_id,
-        subject_id=subject.id, max_score=10, title="Attendance", assessment_date=TODAY,
-        grading_category_id=None,
-    )
-    count = run(school["service"].sync_assessment_attendance(assessment, school["sponsor"].id))
-    assert count == 2
-    scores = {g.student_id: g.score for g in db.query(Grade).filter(Grade.assessment_type == GradeType.ATTENDANCE)}
-    assert scores == {s0.id: 10.0, s1.id: 0.0}
-
+# Attendance no longer writes marks: participation is an ordinary gradebook category.
 
 # --- B1–B4: endpoints that used to crash --------------------------------------------
 

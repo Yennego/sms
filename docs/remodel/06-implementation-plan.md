@@ -108,4 +108,5 @@ Exit: a school can be put on a plan, invoiced and suspended for non-payment from
 - Database: after the first `alembic upgrade head` (owner login), run `scripts/create_app_db_role.sql` once and give the API the `sms_app` login.
 - Services: backend (`alembic upgrade head` on release, then uvicorn), frontend (Next.js), Postgres, Redis, cron (`python -m scripts.close_attendance_days` every 30 minutes), object storage bucket.
 - New secrets generated for Railway (`SECRET_KEY`, `ATTENDANCE_QR_SECRET`, database and storage credentials); none of the values from the old `.env` files.
+- `PROXY_SHARED_SECRET`: one random value set on both the backend and the frontend service; the host in front of the frontend must overwrite `X-Forwarded-For`.
 - `DEBUG` unset in production; `CORS_ORIGINS` set to the frontend URL only.

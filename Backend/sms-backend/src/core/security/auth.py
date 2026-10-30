@@ -42,6 +42,8 @@ PUBLIC_ROUTES = {
     ("GET", "/api/v1/tenants/"),
     ("GET", "/api/v1/tenants/by-domain/"),
     ("GET", "/api/v1/tenants/{tenant_id}"),
+    # Report card check from a printed QR (rate-limited; returns only that card's listed fields)
+    ("GET", "/api/v1/verify/report-cards/{code}"),
 }
 
 # While a user still has an admin-issued password (is_first_login), only these work

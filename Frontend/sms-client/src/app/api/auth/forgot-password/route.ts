@@ -19,5 +19,5 @@ export async function POST(request: NextRequest) {
   if (!email) {
     return NextResponse.json({ detail: 'Enter your email address.' }, { status: 400 });
   }
-  return forwardPublicAuthPost('auth/forgot-password', { email }, tenant);
+  return forwardPublicAuthPost('auth/forgot-password', { email }, tenant, request);
 }

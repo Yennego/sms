@@ -64,7 +64,7 @@ These are hard rules. Every pull request is reviewed against them, and the isola
 - Secrets come only from the environment. `.env` files are never committed (`.env` and `.env.bak` were removed from tracking in Oct 2026; the values in git history must be treated as leaked and never reused).
 - `DEBUG` defaults to off. API docs (`/docs`) are served only when `DEBUG=true`.
 - 500 responses carry a generic message; details go to logs only.
-- Required variables: `SECRET_KEY`, `DATABASE_URL` (the restricted `sms_app` login), `ALEMBIC_DATABASE_URL` (owner login, migrations only), `REDIS_URL`, `ATTENDANCE_QR_SECRET`, `CORS_ORIGINS`, object storage credentials, SMTP credentials (SMS credentials only when SMS is switched on).
+- Required variables: `SECRET_KEY`, `DATABASE_URL` (the restricted `sms_app` login), `ALEMBIC_DATABASE_URL` (owner login, migrations only), `PROXY_SHARED_SECRET` (same value on backend and frontend: lets the frontend server pass on the visitor's address for per-IP rate limits), `REDIS_URL`, `ATTENDANCE_QR_SECRET`, `CORS_ORIGINS`, object storage credentials, SMTP credentials (SMS credentials only when SMS is switched on).
 
 ## 7. Data integrity
 

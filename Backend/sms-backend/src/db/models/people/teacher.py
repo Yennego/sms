@@ -91,8 +91,6 @@ class Teacher(User):
         self.resignation_reason = None
 
     
-    # Relationships
-    grades = relationship("Grade", back_populates="teacher", foreign_keys="[Grade.graded_by]")
     
     def __repr__(self):
         return f"<Teacher {self.email} - {self.employee_id}>"

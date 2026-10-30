@@ -29,6 +29,7 @@ from src.core.security.password import generate_default_password
 from src.services.logging import AuditLoggingService
 from src.services.auth.token_blacklist import TokenBlacklistService
 from src.core.redis import cache, REDIS_AVAILABLE
+from src.core.security.client_ip import client_ip
 
 # Define the oauth2_scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -419,10 +420,11 @@ async def rate_limit_login(request: Request):
     if not client:
         return
     form = await request.form()
+    ip_key = f"login_attempts:{client_ip(request)}"
     try:
         async with client.pipeline() as pipe:
-            await pipe.incr(f"login_attempts:{request.client.host}")
-            await pipe.expire(f"login_attempts:{request.client.host}", LOGIN_WINDOW_SECONDS)
+            await pipe.incr(ip_key)
+            await pipe.expire(ip_key, LOGIN_WINDOW_SECONDS)
             await pipe.get(_account_key(form.get("username", "")))
             ip_count, _, account_failures = await pipe.execute()
     except Exception as e:

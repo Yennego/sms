@@ -12,12 +12,10 @@ class Period(TenantModel):
     period_number = Column(Integer, nullable=False)  # 1 to 6
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
-    is_published = Column(Boolean, default=False)  # Global publication flag
     is_active = Column(Boolean, default=True)
-    
-    # Relationships
+
+    # Relationships (publication is per class: result_publications)
     semester = relationship("Semester", back_populates="periods")
-    grades = relationship("Grade", back_populates="period_obj")
     
     def __repr__(self):
         return f"<Period {self.name} ({self.period_number})>"

@@ -9,7 +9,6 @@ class SemesterBase(BaseModel):
     semester_number: int = Field(..., description="Semester number (1 or 2)")
     start_date: date = Field(..., description="Semester start date")
     end_date: date = Field(..., description="Semester end date")
-    is_published: bool = Field(default=False, description="Global publication flag")
     is_active: bool = Field(default=True, description="Whether this semester is active")
 
 class SemesterCreate(SemesterBase):
@@ -20,7 +19,6 @@ class SemesterUpdate(BaseModel):
     semester_number: Optional[int] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    is_published: Optional[bool] = None
     is_active: Optional[bool] = None
 
 class SemesterInDB(SemesterBase, TenantSchema):

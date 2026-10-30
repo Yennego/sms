@@ -70,14 +70,6 @@ class Assignment(TenantModel):
     attachment_url = Column(String(255), nullable=True)
     rubric = Column(JSONB, nullable=True)
     
-    # Fix the relationship to Grade - use remote_side parameter
-    grades = relationship(
-        "Grade",
-        primaryjoin="and_(Grade.assessment_type=='assignment', Grade.assessment_id==Assignment.id)",
-        foreign_keys="[Grade.assessment_id]",  # Specify the foreign key as a string
-        viewonly=True  # Make this a read-only relationship
-    )
-    
     @property
     def subject_name(self) -> str:
         return self.subject.name if self.subject else "Unknown"

@@ -49,7 +49,8 @@ New and changed tables (one migration; existing data is small and is moved acros
 
 Unique: one `exam` per class subject and semester.
 Legacy columns (`type`, `teacher_id`, `grade_id`, `section_id`, `class_id`, `academic_year_id`,
-`is_published`) stay until the old pages are gone, filled from `class_subject_id`.
+`is_published`) were dropped in the cleanup (migration `b3e9d2f7a1c4`); `subject_id` stays, copied
+from the class subject.
 
 ### `score_entries` (replaces `grades` as the mark table)
 `tenant_id, id, assessment_id (FK, ON DELETE CASCADE), student_id, enrollment_id, score
@@ -81,6 +82,18 @@ unpublishes.
   (not the semester exam). Exams/assignments keep their ids as assessment ids. Rows that can't be
   placed are copied to `assessments_unmigrated` (RLS on) instead of being lost. A semester
   publication is migrated only when all its periods are published.
+- Cleanup (October 2026, migration `b3e9d2f7a1c4`): `grades` and `exams` are dropped (the migration
+  first copies any `grades` row still missing from `score_entries` and stops, listing them, if a
+  mark or an exam has nowhere to go), as are the legacy `assessments` columns,
+  `periods.is_published`, `semesters.is_published` and the `gradetype` enum. Downgrade recreates
+  them empty (the data can't come back). Code removed with them: the `Grade`/`Exam` models,
+  `/academics/exams`, the old `/academics/assessments` and `/grades` modules, the old report card
+  service (`grade_calculation`), `POST /periods/{id}/toggle-published` and
+  `/semesters/{id}/toggle-published`, attendance → ATTENDANCE marks (participation is an ordinary
+  category) and homework → marks (`PUT /submissions/{id}/grade` keeps a score and feedback on the
+  submission only; marks that count are entered in the gradebook). `GET /academics/categories-status`
+  (same response) now sums the class subject's assessments' `max_score` per category in the given
+  period (or the periods of the given semester); the semester exam has no category.
 
 RLS: new tables get the `tenant_isolation` policy; composite tenant keys like the baseline.
 
@@ -305,7 +318,7 @@ it to check the card is genuine and unchanged; a forged or edited paper copy won
 - **One verification record per issued report card**: when a report card with published results
   is produced for a student and year, the server stores a snapshot of what it shows (subject
   averages per published column, semester and yearly averages, rank, pass/fail) and a random,
-  unguessable code (128-bit, URL-safe). The same snapshot reuses the same code; if the published
+  unguessable code (12 Crockford base32 characters; see "As built" below). The same snapshot reuses the same code; if the published
   results change (a correction after unpublishing), a new record is made and the old one shows as
   **superseded**.
 - **The QR encodes** `{FRONTEND_URL}/verify/{code}`; the card also prints the code in short form
@@ -328,3 +341,38 @@ it to check the card is genuine and unchanged; a forged or edited paper copy won
   "admission_number"}, "class_name", "year_name", "issued_at", "superseded_at", "subjects":
   [{"name","semester_averages","yearly_average","passed"}], "overall": {...}}`.
 - `verify` is a reserved slug.
+
+### As built (October 2026, migration `c8a4f1e6d2b9`)
+- **Code format (changed from 128-bit):** 12 characters of Crockford base32 (alphabet
+  `0123456789ABCDEFGHJKMNPQRSTVWXYZ`, no I/L/O/U, about 60 bits) from `secrets`, stored uppercase
+  without dashes, unique (and checked by a constraint). Shown as `XXXX-XXXX-XXXX`. Lookups normalise
+  the input: uppercase, dashes and spaces removed, O read as 0, I and L as 1.
+- Table `report_card_verifications (tenant_id, id, code, student_id, academic_year_id, snapshot
+  JSONB, snapshot_hash (sha256 of the canonical JSON), issued_at, superseded_at)`, RLS on, composite
+  tenant keys; one current (not superseded) row per student and year (partial unique index).
+- **When:** every `GET /report-cards/students/{id}` and `/report-cards/classes/{id}` for a class that
+  has at least one publication. The snapshot is always built from the published-only view, whoever
+  is looking, so staff, the student and the parent get the same code. It holds student name and
+  admission number, class name, year name, pass mark, per subject the published period/exam
+  columns, semester averages, yearly average and pass/fail, and the overall semester/yearly
+  averages, rank and class size. If the current record's hash matches, its code is reused;
+  otherwise the current record is marked superseded (`superseded_at` = the new record's
+  `issued_at`) and a new one is created. A record superseded earlier is not revived if the results
+  later return to its values.
+- Card field: `"verification": {"code": "AJ2KN1AQJM5X", "display_code": "AJ2K-N1AQ-JM5X", "url":
+  "{FRONTEND_URL}/verify/AJ2KN1AQJM5X", "qr_svg": "<svg ...>"}`, or `null` when the class has
+  nothing published. (`display_code` is an addition.) The QR encodes `url`.
+- `GET /api/v1/verify/report-cards/{code}` (public) always answers 200 with
+  `{status, school {name, logo}, student {name, admission_number}, class_name, year_name, issued_at,
+  superseded_at, subjects: [{name, semester_averages, yearly_average, passed}], overall
+  {semester_averages, yearly_average, rank, class_size}}`; for unknown or malformed codes (and
+  inactive schools) the same body with `status: "not_found"`, the other fields null and `subjects`
+  empty. School name and logo are read live; everything else comes from the snapshot. The lookup
+  uses a platform session and reads only the matching row and its school.
+- Rate limit: 60 checks per 10 minutes per client address (Redis; an in-process counter when Redis
+  is unavailable); 429 beyond it.
+- **Client address for per-IP limits** (verify, login, forgot-password, reset-password):
+  `src/core/security/client_ip.py` `client_ip(request)` returns the `X-Client-IP` header only when
+  the request also carries `X-Proxy-Secret` equal to the `PROXY_SHARED_SECRET` setting (constant-time
+  compare, setting non-empty); otherwise the connection's address. The Next.js BFF should send both
+  headers.

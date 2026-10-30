@@ -6,7 +6,6 @@ from src.api.v1.endpoints.academics import (
     section_api,
     academic_grade_api,
     academic_year_api,
-    exam,
     enrollment,
     schedule_api,
     timetable_api,
@@ -17,11 +16,9 @@ from src.api.v1.endpoints.academics import (
     promotion as promotion_api,
     remedial as remedial_api,
     assignment,
-    grade as grade_api,
     teacher_assignment,
     semester_api,
     period_api,
-    assessment,
     setup_api,
     year_setup_api,
     class_placement_api,
@@ -39,7 +36,6 @@ router.include_router(subject_api.router, tags=["subjects"])
 router.include_router(section_api.router, tags=["sections"])
 router.include_router(academic_grade_api.router, tags=["academic-grades"])
 router.include_router(academic_year_api.router, tags=["academic-years"])
-router.include_router(exam.router, tags=["exams"])
 router.include_router(enrollment.router, tags=["enrollments"])
 router.include_router(schedule_api.router, tags=["schedules"])
 router.include_router(timetable_api.router, tags=["timetables"])
@@ -53,8 +49,9 @@ router.include_router(class_enrollment.router, tags=["class-enrollments"])  # mo
 router.include_router(promotion_api.router, tags=["promotions"])
 router.include_router(remedial_api.router, tags=["remedial"])
 router.include_router(assignment.router, tags=["assignments"])  # NEW
-# Retired in phase 4: /grades* (old marks table) and /assessments (old assessment CRUD) are
-# replaced by /gradebook (score_entries, published results only for students and parents).
+# Retired in phase 4: /grades* (old marks table), /assessments (old assessment CRUD) and /exams
+# (old exams table) are replaced by /gradebook (score_entries, published results only for
+# students and parents).
 router.include_router(promotion_api.alias_router, tags=["promotions"])  # NEW alias include
 router.include_router(teacher_assignment.router, prefix="/teacher-subject-assignments", tags=["teacher-assignments"])  # NEW
 router.include_router(semester_api.router, tags=["semesters"])
@@ -73,11 +70,9 @@ subject_router = subject_api.router
 section_router = section_api.router
 academic_grade_router = academic_grade_api.router
 academic_year_router = academic_year_api.router
-exam_router = exam.router
 enrollment_router = enrollment.router
 schedule_router = schedule_api.router
 timetable_router = timetable_api.router
 attendance_router = attendance_api.router
-grade_router = grade_api.router
 
 __all__ = ["router"]

@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from src.core.security.auth import is_super_admin
 from src.db.models.academics.academic_year import AcademicYear
-from src.db.models.academics.assessment import ASSESSMENT_KINDS, KIND_TO_LEGACY_TYPE, Assessment
+from src.db.models.academics.assessment import ASSESSMENT_KINDS, Assessment
 from src.db.models.academics.class_model import Class
 from src.db.models.academics.class_subject import ClassSubject
 from src.db.models.academics.enrollment import Enrollment
@@ -31,6 +31,7 @@ from src.db.models.academics.gradebook import SCORE_STATUSES, GradingSettings, R
 from src.db.models.academics.grading_schema import GradingCategory, GradingSchema
 from src.db.models.academics.period import Period
 from src.db.models.academics.semester import Semester
+from src.services.academics import report_card_verification_service as rcv
 from src.services.academics import report_identity_service as ri
 from src.services.academics import results_service as rs
 from src.services.academics.attendance_access import class_sponsor_id
@@ -298,11 +299,7 @@ class GradebookService:
             description=data.get("description"), period_id=data["period_id"], semester_id=data["semester_id"],
             grading_category_id=data["grading_category_id"],
             assessment_date=data.get("assessment_date") or date.today(), due_date=data.get("due_date"),
-            max_score=data["max_score"], created_by=self.user.id,
-            # legacy columns
-            type=KIND_TO_LEGACY_TYPE[data["kind"]], subject_id=cs.subject_id,
-            teacher_id=cs.teacher_id or self.user.id, academic_year_id=cls.academic_year_id,
-            grade_id=cls.grade_id, section_id=cls.section_id, class_id=cls.id, is_published=False,
+            max_score=data["max_score"], created_by=self.user.id, subject_id=cs.subject_id,
         )
         self.db.add(a)
         self.db.flush()
@@ -330,7 +327,6 @@ class GradebookService:
             raise _422("Some scores are above the new max score; change them first")
         for k, v in merged.items():
             setattr(a, k, v)
-        a.type = KIND_TO_LEGACY_TYPE[a.kind]
         self.db.flush()
         counts = self._entered_counts([a.id])
         return self._assessment_out(a, counts.get(a.id, 0))
@@ -630,13 +626,28 @@ class GradebookService:
         return {"school": ri.school_block(self.db, self.tenant_id),
                 "signatures": ri.card_signatures(self.db, self.tenant_id, cls.id)}
 
-    def _card(self, results, enrollment, year, student, identity=None):
+    def _published_view(self, results):
+        """The published-only results behind the verification snapshot (§7), or None when the
+        class has nothing published."""
+        if results.published_only:
+            return results if rcv.has_publications(results) else None
+        if not rcv.has_publications(results):
+            return None
+        return rs.ClassResults(self.db, self.tenant_id, results.cls, published_only=True)
+
+    def _card(self, results, enrollment, year, student, identity=None, published=None):
         from src.db.models.auth.user import User
         sponsor_id = class_sponsor_id(self.db, results.cls)
         sponsor = self.db.query(User).filter(User.id == sponsor_id).first() if sponsor_id else None
         pass_mark = rs.pass_mark_for(self.db, self.tenant_id, year.id, results.cls.grade_id)
         card = rs.report_card(results, enrollment, student=student, year=year, pass_mark=pass_mark, sponsor=sponsor)
         card.update(identity if identity is not None else self._identity(results.cls))
+        # Verification QR (§7): always from published results, whoever is looking
+        card["verification"] = None
+        if published is not None:
+            snapshot = rcv.build_snapshot(published, enrollment, student=student, year=year, pass_mark=pass_mark)
+            record = rcv.issue(self.db, self.tenant_id, student.id, year.id, snapshot)
+            card["verification"] = rcv.verification_block(record)
         return card
 
     def student_report_card(self, student_id, academic_year_id: Optional[UUID]) -> Dict[str, Any]:
@@ -656,7 +667,7 @@ class GradebookService:
         if enrollment is None:
             raise _404("Enrollment for this school year")
         results = rs.ClassResults(self.db, self.tenant_id, cls, published_only=not staff)
-        return self._card(results, enrollment, year, student)
+        return self._card(results, enrollment, year, student, published=self._published_view(results))
 
     def class_report_cards(self, class_id, academic_year_id: Optional[UUID] = None) -> Dict[str, Any]:
         from src.db.models.people.student import Student
@@ -669,7 +680,8 @@ class GradebookService:
         students = {s.id: s for s in self.db.query(Student).filter(
             Student.id.in_([e.student_id for e in results.roster] or [None]))}
         identity = self._identity(cls)
-        cards = [self._card(results, e, year, students[e.student_id], identity)
+        published = self._published_view(results)
+        cards = [self._card(results, e, year, students[e.student_id], identity, published)
                  for e in results.roster if e.student_id in students]
         cards.sort(key=lambda c: (c["student"]["name"] or "").lower())
         return {"items": cards}

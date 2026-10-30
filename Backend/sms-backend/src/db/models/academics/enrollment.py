@@ -62,9 +62,6 @@ class Enrollment(TenantModel):
     # New: Relationship to promotion status
     promotion_status = relationship("PromotionStatus", backref="enrollment", uselist=False)
     
-    # FIXED: Relationship to assessment grades (not grade levels)
-    assessment_grades = relationship("Grade", back_populates="enrollment", foreign_keys="Grade.enrollment_id")
-    
     def can_promote_to_next_semester(self) -> bool:
         """Check if student can be promoted to next semester."""
         if self.semester == 1:

@@ -203,6 +203,7 @@ async def tenant_middleware(request: Request, call_next):
         or path.startswith("/api/tenant/")
         or path.startswith("/api/v1/auth/")
         or path.startswith("/api/v1/super-admin/")
+        or path.startswith("/api/v1/verify/")  # public report card check: no school in the request
         or "/super-admin/" in path
         or "/export" in path
     )

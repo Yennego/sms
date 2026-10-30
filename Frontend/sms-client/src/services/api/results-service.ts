@@ -93,6 +93,18 @@ export interface ReportCardData {
   school?: ReportCardSchool | null;
   /** Signatures fixed at the latest publication; null each when not published yet or none on file. */
   signatures?: ReportCardSignatures | null;
+  /** The card's verification QR (phase4-design.md section 7); only when something is published. */
+  verification?: ReportCardVerification | null;
+}
+
+/** A printed card's QR: anyone can scan it to check the card at /verify/{code}. */
+export interface ReportCardVerification {
+  /** 12 characters, Crockford base32, uppercase (e.g. "7K2M9QXR4T8B"). */
+  code: string;
+  /** {FRONTEND_URL}/verify/{code}, what the QR encodes. */
+  url: string | null;
+  /** The QR as an SVG document from our server; null when missing or not an SVG. */
+  qr_svg: string | null;
 }
 
 /** What the report card shows about the school (from the card, else the tenant context). */
@@ -327,6 +339,21 @@ function normaliseCard(raw: unknown): ReportCardData {
     signatures: isObj(o.signatures)
       ? { sponsor: normaliseSignature(o.signatures.sponsor), principal: normaliseSignature(o.signatures.principal) }
       : null,
+    verification: normaliseVerification(o.verification),
+  };
+}
+
+function normaliseVerification(raw: unknown): ReportCardVerification | null {
+  if (!isObj(raw)) return null;
+  const code = str(raw.code)?.trim();
+  if (!code) return null;
+  // A leading XML declaration is dropped; anything else must start with <svg
+  const svg = str(first(raw, 'qr_svg', 'svg'))?.trim().replace(/^<\?xml[^>]*\?>\s*/, '') ?? null;
+  return {
+    code,
+    url: str(raw.url),
+    // Only an SVG document is accepted (it is shown through a data URL <img>, never as markup)
+    qr_svg: svg && svg.startsWith('<svg') ? svg : null,
   };
 }
 
@@ -445,6 +472,16 @@ export function useResultsService() {
 // ---------------------------------------------------------------------------
 // Display helpers shared by the report card and the results screens
 // ---------------------------------------------------------------------------
+
+/**
+ * The whole verification code for print and typing, in groups of four: "7K2M9QXR4T8B" →
+ * "7K2M-9QXR-4T8B". Codes are Crockford base32 (uppercase); the check accepts any case,
+ * dashes and spaces.
+ */
+export function formatVerificationCode(code: string): string {
+  const plain = code.replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+  return plain.match(/.{1,4}/g)?.join('-') ?? '';
+}
 
 /** Results are shown rounded to whole numbers. */
 export function formatScore(value: number | null | undefined): string {

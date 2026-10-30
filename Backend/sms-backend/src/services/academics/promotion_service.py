@@ -189,7 +189,6 @@ class PromotionService(TenantBaseService):
     
     async def evaluate_eligibility(self, enrollment_id: UUID) -> Dict[str, Any]:
         from src.db.models.academics.enrollment import Enrollment as EnrollmentModel
-        from src.db.models.academics.grade import Grade
         from src.services.academics.promotion_criteria_service import PromotionCriteriaService
         from src.services.academics.promotion_status_service import PromotionStatusService
         from src.services.academics.attendance_service import AttendanceService

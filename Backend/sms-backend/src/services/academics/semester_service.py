@@ -23,15 +23,3 @@ class SemesterService(TenantBaseService[Semester, SemesterCreate, SemesterUpdate
     async def get_by_academic_year(self, academic_year_id: UUID) -> List[Semester]:
         """Get all semesters for an academic year."""
         return semester_crud.get_by_academic_year(self.db, self.tenant_id, academic_year_id)
-    
-    async def toggle_publication(self, semester_id: UUID) -> Semester:
-        """Toggle the global publication flag for a semester."""
-        semester = await self.get(semester_id)
-        if not semester:
-            from src.core.exceptions.business import EntityNotFoundError
-            raise EntityNotFoundError("Semester", semester_id)
-        
-        semester.is_published = not semester.is_published
-        self.db.commit()
-        self.db.refresh(semester)
-        return semester
