@@ -953,32 +953,7 @@ def assign_roles_to_user(
     
     return {"message": "Roles assigned successfully"}
 
-@router.patch("/tenants/{tenant_id}/subscription", response_model=Tenant)
-def update_tenant_subscription(
-    *,
-    db: Session = Depends(get_super_admin_db),
-    _: User = Depends(require_super_admin()),
-    tenant_id: UUID,
-    subscription_in: TenantUpdate
-) -> Any:
-    """Update tenant subscription details (super-admin only)."""
-    tenant = tenant_crud.get(db, id=tenant_id)
-    if not tenant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tenant not found"
-        )
-    
-    update_data = subscription_in.model_dump(exclude_unset=True)
-    
-    # Validate plan type if provided
-    if "plan_type" in update_data and update_data["plan_type"] not in ["flat_rate", "per_user"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid plan type. Must be 'flat_rate' or 'per_user'"
-        )
-
-    return tenant_crud.update(db, db_obj=tenant, obj_in=update_data)
+# Billing and access status: /super-admin/billing (billing.py; phase7-design.md §5)
 
 
 # ─── AI & Predictive Analytics Endpoints ─────────────────────────

@@ -30,6 +30,7 @@ EVENT_LABELS = {
     "results_published": "Results published",
     "payment_received": "Payments received",
     "announcement": "Announcements",
+    "billing_reminder": "Platform billing reminders",
 }
 
 

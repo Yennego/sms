@@ -359,7 +359,6 @@ def test_changed_school_slug_must_be_valid(env):
     assert resp.status_code == 422 and "reserved" in resp.text
     assert client.put(url, json={"domain": "school b2"}, headers=h).status_code == 422
     assert client.put(f"/api/v1/tenants/{ids['tenant_b']}", json={"subdomain": "login"}, headers=h).status_code == 422
-    assert client.patch(f"{url}/subscription", json={"domain": "admin"}, headers=h).status_code == 422
     resp = client.put(url, json={"domain": "School-B2"}, headers=h)
     assert resp.status_code == 200 and resp.json()["domain"] == "school-b2"  # lower-cased
     # Blank means "no domain"

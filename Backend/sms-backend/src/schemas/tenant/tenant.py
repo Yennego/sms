@@ -1,4 +1,3 @@
-from decimal import Decimal
 from typing import Optional, Dict, Any, Union
 from datetime import datetime
 from uuid import UUID
@@ -22,11 +21,6 @@ class TenantBase(BaseModel):
     logo: Optional[str] = None
     primary_color: Optional[str] = None  
     secondary_color: Optional[str] = None  
-    
-    # Subscription & Billing Fields
-    plan_type: str = "flat_rate"
-    plan_amount: Decimal = Decimal("0.0")
-    subscription_status: str = "active"
     
     @field_validator('code')
     def code_to_uppercase(cls, v):
@@ -83,11 +77,6 @@ class TenantUpdate(BaseModel):
     logo: Optional[str] = None
     primary_color: Optional[str] = None  
     secondary_color: Optional[str] = None  
-    
-    # Subscription & Billing Fields
-    plan_type: Optional[str] = None
-    plan_amount: Optional[Decimal] = None
-    subscription_status: Optional[str] = None
     
     @field_validator('code')
     def code_to_uppercase(cls, v):

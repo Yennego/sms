@@ -200,3 +200,57 @@ def test_a_school_cannot_read_or_write_another_schools_notifications(schools, Ap
             c.execute(text("DELETE FROM notifications WHERE user_id = :u"), {"u": user})
             c.execute(text("DELETE FROM users WHERE id = :u"), {"u": user})
         admin.dispose()
+
+
+BILLING_PLATFORM_TABLES = ("platform_prices", "platform_counters", "school_subscriptions", "platform_invoices",
+                           "platform_invoice_lines", "platform_payments", "platform_reminders")
+
+
+def test_billing_tables_activity_months_isolated_platform_tables_not():
+    """user_activity_months is written at sign-in bound to the school: row level security and a composite
+    key to users. The billing tables are the platform's (school endpoints filter by school)."""
+    admin = create_engine(ADMIN_URL)
+    try:
+        with admin.connect() as c:
+            rows = dict(c.execute(text("SELECT relname, relrowsecurity AND relforcerowsecurity FROM pg_class "
+                                       "WHERE relname = ANY(:t)"),
+                                  {"t": ["user_activity_months", *BILLING_PLATFORM_TABLES]}).all())
+            assert rows.pop("user_activity_months") is True
+            assert rows == {t: False for t in BILLING_PLATFORM_TABLES}
+            assert c.execute(text("SELECT count(*) FROM pg_policies WHERE policyname = 'tenant_isolation' "
+                                  "AND tablename = 'user_activity_months'")).scalar() == 1
+            keys = {r[0] for r in c.execute(text("SELECT conname FROM pg_constraint WHERE conname LIKE 'fk_tn_%'"))}
+            assert {"fk_tn_user_activity_months_user_id", "fk_tn_platform_invoices_semester_id"} <= keys
+    finally:
+        admin.dispose()
+
+
+def test_a_school_records_only_its_own_activity_months(schools, AppSession):
+    a, b, _ = schools
+    admin = create_engine(ADMIN_URL)
+    users = {a: uuid.uuid4(), b: uuid.uuid4()}
+    try:
+        with admin.begin() as c:
+            for tenant, user in users.items():
+                c.execute(text("""INSERT INTO users (id, tenant_id, username, password_hash, first_name, last_name,
+                                                     is_active, is_first_login, type)
+                                  VALUES (:id, :t, :u, 'x', 'Iso', 'User', true, false, 'user')"""),
+                          {"id": user, "t": tenant, "u": f"iso-{user.hex[:8]}"})
+        db = AppSession()
+        try:
+            bind_session_to_tenant(db, a)
+            insert = text("INSERT INTO user_activity_months (tenant_id, user_id, month) VALUES (:t, :u, '2026-11-01') "
+                          "ON CONFLICT DO NOTHING")
+            db.execute(insert, {"t": a, "u": users[a]})
+            db.execute(insert, {"t": a, "u": users[a]})  # once per month
+            assert db.execute(text("SELECT count(*) FROM user_activity_months")).scalar() == 1
+            with pytest.raises(DBAPIError, match="row-level security"):
+                db.execute(insert, {"t": b, "u": users[b]})
+        finally:
+            db.rollback()
+            db.close()
+    finally:
+        with admin.begin() as c:
+            c.execute(text("DELETE FROM user_activity_months WHERE user_id = ANY(:u)"), {"u": list(users.values())})
+            c.execute(text("DELETE FROM users WHERE id = ANY(:u)"), {"u": list(users.values())})
+        admin.dispose()

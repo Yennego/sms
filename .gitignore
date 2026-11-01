@@ -87,6 +87,7 @@ error_*.json
 **/scripts/*
 !Backend/sms-backend/scripts/close_attendance_days.py
 !Backend/sms-backend/scripts/send_notifications.py
+!Backend/sms-backend/scripts/run_platform_billing.py
 !Backend/sms-backend/scripts/cleanup_files.py
 !Backend/sms-backend/scripts/create_app_db_role.sql
 !Backend/sms-backend/scripts/reset_super_admin_password.py

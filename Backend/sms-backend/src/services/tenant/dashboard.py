@@ -104,91 +104,42 @@ class DashboardMetricsService:
         }
     
     def get_revenue_metrics(self) -> Dict[str, Any]:
-        """Calculate estimated monthly revenue based on tenant plans, excluding super admins and users with no roles."""
-        # Get all active tenants with their plan details
-        active_tenants = self.db.query(Tenant).filter(Tenant.is_active == True).all()
-        
-        total_revenue = 0.0
-        flat_rate_revenue = 0.0
-        per_user_revenue = 0.0
-        
-        # To calculate per-user revenue, we need billable user counts per tenant
-        # Billable = Active AND (Has at least one role) AND (NOT super-admin)
-        from src.db.models.auth.user_role import UserRole
-        from sqlalchemy import not_
-        
-        user_counts_query = (
-            self.db.query(User.tenant_id, func.count(User.id))
-            .filter(
-                User.is_active == True,
-                User.roles.any(), # MUST have at least one role
-                not_(User.roles.any(UserRole.name.in_(['super-admin', 'superadmin'])))
-            )
-            .group_by(User.tenant_id)
-            .all()
-        )
-        user_counts = {str(tid): count for tid, count in user_counts_query}
-        
-        for tenant in active_tenants:
-            amount = float(tenant.plan_amount or 0.0)
-            t_id_str = str(tenant.id)
-            
-            if tenant.plan_type == "flat_rate":
-                flat_rate_revenue += amount
-                total_revenue += amount
-            elif tenant.plan_type == "per_user":
-                user_count = user_counts.get(t_id_str, 0)
-                tenant_revenue = amount * user_count
-                per_user_revenue += tenant_revenue
-                total_revenue += tenant_revenue
-        
+        """Platform billing totals per currency (phase7-design.md §5 summary): billed, collected and
+        outstanding, plus what was received in the last 30 days. Amounts are strings ("120.00")."""
+        from src.services.billing.platform_billing import BillingService
+        from src.services.finance.ledger import money
+        billing = BillingService(self.db)
+        summary = billing.summary()
+        since = datetime.now(timezone.utc) - timedelta(days=30)
+        recent = billing.collected_usd_since(since)
         return {
-            "total_monthly_revenue": round(total_revenue, 2),
-            "flat_rate_revenue": round(flat_rate_revenue, 2),
-            "per_user_revenue": round(per_user_revenue, 2),
-            "currency": "USD"
+            "billed": summary["billed"],
+            "collected": summary["collected"],
+            "outstanding": summary["outstanding"],
+            "not_yet_paid": summary["not_yet_paid"],
+            "collected_usd_last_30_days": money(sum(recent.values())) if recent else "0.00",
         }
 
     def get_revenue_by_tenant(self) -> List[Dict[str, Any]]:
-        """Get a per-tenant breakdown of revenue, excluding users with no roles."""
-        from src.db.models.auth.user_role import UserRole
-        from sqlalchemy import not_
-        
-        active_tenants = self.db.query(Tenant).filter(Tenant.is_active == True).all()
-        
-        # Billable users: Active, HAS role, and NOT super-admin
-        user_counts_query = (
-            self.db.query(User.tenant_id, func.count(User.id))
-            .filter(
-                User.is_active == True,
-                User.roles.any(), # MUST have at least one role
-                not_(User.roles.any(UserRole.name.in_(['super-admin', 'superadmin'])))
-            )
-            .group_by(User.tenant_id)
-            .all()
-        )
-        user_counts = {str(tid): count for tid, count in user_counts_query}
-        
+        """Per active school: billing status, staff count, amount due and USD received in the last 30 days."""
+        from src.db.models.billing import SchoolSubscription
+        from src.services.billing.platform_billing import BillingService
+        from src.services.finance.ledger import money, money_map
+
+        billing = BillingService(self.db)
+        since = datetime.now(timezone.utc) - timedelta(days=30)
+        recent = billing.collected_usd_since(since)
+        statuses = dict(self.db.query(SchoolSubscription.tenant_id, SchoolSubscription.status).all())
         breakdown = []
-        for tenant in active_tenants:
-            amount = float(tenant.plan_amount or 0.0)
-            user_count = user_counts.get(str(tenant.id), 0)
-            
-            revenue = 0.0
-            if tenant.plan_type == "flat_rate":
-                revenue = amount
-            elif tenant.plan_type == "per_user":
-                revenue = amount * user_count
-                
+        for tenant in self.db.query(Tenant).filter(Tenant.is_active == True).order_by(Tenant.name).all():
             breakdown.append({
                 "tenant_id": str(tenant.id),
                 "tenant_name": tenant.name,
-                "plan_type": tenant.plan_type,
-                "plan_amount": amount,
-                "billable_users": user_count,
-                "monthly_revenue": round(revenue, 2)
+                "billing_status": statuses.get(tenant.id, "trial"),
+                "staff_count": billing.staff_count(tenant.id),
+                "amount_due": money_map(billing.account(tenant.id)["amount_due"]),
+                "collected_usd_last_30_days": money(recent.get(tenant.id, 0)),
             })
-            
         return breakdown
     
     def get_system_overview(self) -> Dict[str, Any]:

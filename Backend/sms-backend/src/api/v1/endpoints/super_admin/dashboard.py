@@ -60,10 +60,11 @@ async def get_system_metrics(db: Session = Depends(get_super_admin_db)):
 @router.get("/recent-tenants")
 async def get_recent_tenants(limit: int = 5, db: Session = Depends(get_super_admin_db)):
     from src.db.models.auth.user import User
+    from src.db.models.billing import SchoolSubscription
     from src.db.models.tenant.tenant import Tenant
     from sqlalchemy import func, desc
     
-    # Join Tenant with User to get user counts
+    # Join Tenant with User to get user counts, and the platform billing status (trial without a row)
     query = (
         db.query(
             Tenant.id,
@@ -72,13 +73,12 @@ async def get_recent_tenants(limit: int = 5, db: Session = Depends(get_super_adm
             Tenant.is_active.label("isActive"),
             Tenant.created_at.label("createdAt"),
             Tenant.updated_at.label("updatedAt"),
-            Tenant.plan_type,
-            Tenant.plan_amount,
-            Tenant.subscription_status,
+            func.coalesce(SchoolSubscription.status, "trial").label("billing_status"),
             func.count(User.id).label("userCount")
         )
         .outerjoin(User, User.tenant_id == Tenant.id)
-        .group_by(Tenant.id)
+        .outerjoin(SchoolSubscription, SchoolSubscription.tenant_id == Tenant.id)
+        .group_by(Tenant.id, SchoolSubscription.status)
         .order_by(desc(Tenant.created_at))
         .limit(limit)
     )

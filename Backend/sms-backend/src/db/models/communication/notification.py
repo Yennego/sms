@@ -13,7 +13,10 @@ from sqlalchemy.orm import relationship
 
 from src.db.models.base import TenantModel
 
-EVENTS = ("attendance_absent", "attendance_late", "results_published", "payment_received", "announcement")
+EVENTS = ("attendance_absent", "attendance_late", "results_published", "payment_received", "announcement",
+          "billing_reminder")
+# Events a user can switch email off for; platform billing reminders to school admins always go
+PREFERENCE_EVENTS = EVENTS[:5]
 CHANNELS = ("email", "sms")
 DELIVERY_STATUSES = ("queued", "sent", "failed", "skipped")
 

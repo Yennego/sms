@@ -28,7 +28,7 @@ from src.db.models.auth.user import User
 from src.db.models.auth.user_role import UserRole, user_role_association
 from src.db.models.communication.announcement import AUDIENCE_ROLES, AUDIENCES, Announcement
 from src.db.models.communication.notification import (
-    CHANNELS, DELIVERY_STATUSES, EVENTS, Notification, NotificationDelivery, NotificationPreference,
+    CHANNELS, DELIVERY_STATUSES, PREFERENCE_EVENTS, Notification, NotificationDelivery, NotificationPreference,
 )
 from src.db.models.people.student import Student
 from src.services.academics import results_service as rs
@@ -156,11 +156,11 @@ class CommunicationService:
             NotificationPreference.tenant_id == self.tenant_id, NotificationPreference.user_id == self.user.id,
             NotificationPreference.channel == "email", NotificationPreference.enabled == False)}  # noqa: E712
         return {"email": self.user.email or None, "email_configured": SmtpEmailSender().configured(),
-                "items": [{"event": e, "label": EVENT_LABELS[e], "email": e not in off} for e in EVENTS]}
+                "items": [{"event": e, "label": EVENT_LABELS[e], "email": e not in off} for e in PREFERENCE_EVENTS]}
 
     def update_preferences(self, items: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         items = list(items)
-        unknown = [i.get("event") for i in items if i.get("event") not in EVENTS]
+        unknown = [i.get("event") for i in items if i.get("event") not in PREFERENCE_EVENTS]
         if unknown:
             raise _422(f"Unknown events: {', '.join(map(str, unknown))}")
         rows = {r.event: r for r in self.db.query(NotificationPreference).filter(

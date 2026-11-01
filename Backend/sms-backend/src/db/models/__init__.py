@@ -12,4 +12,5 @@ from src.db.models.logging.activity_log import ActivityLog
 from src.db.models.logging.super_admin_activity_log import SuperAdminActivityLog
 from src.db.models.academics import *
 from src.db.models.finance import *
+from src.db.models.billing import *
 # Import other models as needed

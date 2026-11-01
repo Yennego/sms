@@ -30,6 +30,7 @@ from src.services.logging import AuditLoggingService
 from src.services.auth.token_blacklist import TokenBlacklistService
 from src.core.redis import cache, REDIS_AVAILABLE
 from src.core.security.client_ip import client_ip
+from src.services.billing import access as billing_access
 
 # Define the oauth2_scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -536,15 +537,18 @@ async def login_for_access_token(
         )
     
     await _clear_login_failures(form_data.username)
+    # A suspended school (platform billing) lets only its admins in
+    billing_access.check_sign_in(db, user)
 
     # Cache super-admin status before commit (which expires the object)
     super_admin = is_super_admin(user)
     user_id = user.id
     user_tenant_id = user.tenant_id
 
-    # Update last login timestamp
+    # Update last login timestamp, and note this month's use (billing; never fails the sign-in)
     user.last_login = datetime.now(timezone.utc)
     db.add(user)
+    billing_access.record_activity(db, user)
     db.commit()
     # Skipping db.refresh(user) as it can cause InvalidRequestError with polymorphic models
     # and we have the necessary data cached.
@@ -612,6 +616,8 @@ async def refresh_access_token(
         # and super-admin status from their current roles
         super_admin = is_super_admin(user)
         final_tenant_id = user.tenant_id
+        billing_access.check_sign_in(db, user)
+        billing_access.record_activity(db, user)
 
         # Rotate: the presented refresh token can't be used again
         await TokenBlacklistService().blacklist_token(refresh_token, token_data.exp)
@@ -631,7 +637,6 @@ async def refresh_access_token(
         # Initialize last activity for the refreshed access token
         issued_payload = await verify_token(new_access_token)
         if issued_payload and issued_payload.jti:
-            from src.services.auth.token_blacklist import TokenBlacklistService
             await TokenBlacklistService().ensure_last_activity(issued_payload.jti, issued_payload.exp)
         return {
             "access_token": new_access_token,
