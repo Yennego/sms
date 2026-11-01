@@ -17,6 +17,7 @@ ScanRejectReason = Literal[
     "inactive_student",    # graduated, withdrawn, transferred
     "not_school_day",
     "scan_closed",         # after scan_closes_at
+    "scan_expired",        # a saved (offline) scan read on an earlier day or over 12 hours ago
     "not_enrolled",        # no active class enrollment today
     "not_your_class",      # sponsor scanning another class's student
     "checkout_disabled",
@@ -24,13 +25,23 @@ ScanRejectReason = Literal[
 ]
 
 
-class ScanRequest(BaseModel):
+class QueuedScanFields(BaseModel):
+    """Sent by the gate scanner, also for scans it queued while offline (phase6-design.md §5).
+    scanned_at: when the card was read (ISO 8601 with offset; no offset means UTC). It decides
+    present/late only if it is today (school time), not in the future and at most 12 hours old;
+    otherwise the server's time is used. client_scan_id: a unique id per scan (e.g. a UUID); the
+    same id sent again returns the first result without counting the scan twice."""
+    scanned_at: Optional[datetime] = None
+    client_scan_id: Optional[str] = Field(None, min_length=1, max_length=64)
+
+
+class ScanRequest(QueuedScanFields):
     token: str = Field(..., min_length=1, max_length=512)
     mode: ScanMode = "check_in"
     device_label: Optional[str] = Field(None, max_length=100)
 
 
-class ManualCheckInRequest(BaseModel):
+class ManualCheckInRequest(QueuedScanFields):
     admission_number: str = Field(..., min_length=1, max_length=50)
     device_label: Optional[str] = Field(None, max_length=100)
 

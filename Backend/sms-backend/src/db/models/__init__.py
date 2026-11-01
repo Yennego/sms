@@ -1,6 +1,7 @@
 # Import all models to ensure they're registered with SQLAlchemy
 from src.db.models.auth.user import User
-from src.db.models.communication.notification import Notification
+from src.db.models.communication import Notification, NotificationDelivery, NotificationPreference, Announcement
+from src.db.models.resources import Resource, StoredFile
 from src.db.models.people.student import Student
 from src.db.models.academics.enrollment import Enrollment
 from src.db.models.tenant.tenant import Tenant

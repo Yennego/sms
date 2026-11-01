@@ -1,6 +1,14 @@
-"""QR ID-card scanning and printing (implementation guide, section 6.4)."""
+"""QR ID-card scanning and printing (implementation guide, section 6.4).
+
+Gate scanners may queue scans while offline and send them later (phase6-design.md §5): the scan
+carries the time the card was read (scanned_at) and an id of its own (client_scan_id). The read
+time judges present/late when it is believable; a scan id seen before returns the first result.
+"""
+from datetime import UTC, datetime, timedelta
 from typing import Any, List, Optional
 from uuid import UUID, uuid4
+
+from sqlalchemy.exc import IntegrityError
 
 from src.core.exceptions.business import (
     BusinessRuleViolationError, EntityNotFoundError, PermissionDeniedError
@@ -8,17 +16,20 @@ from src.core.exceptions.business import (
 from src.db.models.academics.attendance import AttendanceStatus, PRESENT_STATUSES
 from src.db.models.academics.class_model import Class
 from src.db.models.academics.daily_attendance import (
-    AttendanceEventType, AttendanceSource, DailyAttendance
+    AttendanceEvent, AttendanceEventType, AttendanceSource, DailyAttendance
 )
 from src.db.models.people.student import Student
-from src.schemas.academics.attendance_scan import IdCard, ScanResult, ScannedStudent
+from src.schemas.academics.attendance_scan import IdCard, ScanRejectReason, ScanResult, ScannedStudent
 from src.services.academics import qr_card_service
 from src.services.academics.attendance_access import (
     check_class_marking_permission, enrolled_student_ids, is_admin, role_names
 )
 from src.services.academics.daily_attendance_service import DailyAttendanceService
+from src.services.notification import alerts
 
 SCANNER_ROLE = "attendance-scanner"
+MAX_SCAN_AGE = timedelta(hours=12)  # an older queued scan is judged at the server's time
+REJECT_REASONS = set(ScanRejectReason.__args__)
 
 
 class AttendanceScanService(DailyAttendanceService):
@@ -107,6 +118,8 @@ class AttendanceScanService(DailyAttendanceService):
         record.marked_at = now
         self._log(event_type, record=record, old_status=old_status, new_status=new_status.value,
                   actor_id=user.id, reason=reason, device_label=device_label)
+        if new_status == AttendanceStatus.LATE:
+            self._alerts.append(lambda: alerts.attendance_late(self.db, self.tenant_id, student.id, today, local))
         try:
             self._commit()
         except BusinessRuleViolationError:
@@ -155,8 +168,82 @@ class AttendanceScanService(DailyAttendanceService):
             return None, self._reject("not_your_class", user, device_label, student=student, cls=cls, mode=mode)
         return cls, None
 
-    def scan(self, token: str, mode: str, device_label: Optional[str], user: Any) -> ScanResult:
+    # --- Queued (offline) scans --------------------------------------------------------
+
+    def _scan_time(self, scanned_at: Optional[datetime]) -> Optional[datetime]:
+        """The read time, if it is today (school time) and at most 12 hours old; the server's time
+        when there is none or it is in the future (a wrong device clock). None when the read is
+        from an earlier day or older than 12 hours: that scan can't count any more."""
+        server = self.now_utc()
+        if scanned_at is None:
+            return server
+        at = scanned_at if scanned_at.tzinfo is not None else scanned_at.replace(tzinfo=UTC)
+        if at > server:
+            return server
+        zone = self.local_now().tzinfo
+        if server - at > MAX_SCAN_AGE or at.astimezone(zone).date() != server.astimezone(zone).date():
+            return None
+        return at.astimezone(UTC)
+
+    def _seen(self, client_scan_id: Optional[str]) -> Optional[ScanResult]:
+        """The result of a scan already received with this id (nothing is logged again)."""
+        if not client_scan_id:
+            return None
+        event = self.db.query(AttendanceEvent).filter(
+            AttendanceEvent.tenant_id == self.tenant_id, AttendanceEvent.client_scan_id == client_scan_id
+        ).first()
+        if event is None:
+            return None
+        student = self.db.query(Student).filter(
+            Student.id == event.student_id, Student.tenant_id == self.tenant_id
+        ).first() if event.student_id else None
+        record = self._get_record(event.daily_attendance_id) if event.daily_attendance_id else None
+        cls = self.db.query(Class).filter(Class.id == record.class_id).first() if record else None
+        check_out_reasons = ("check_out", "checkout_disabled", "not_checked_in", "Already checked out")
+        mode = "check_out" if event.reason in check_out_reasons else "check_in"
+        summary = self._student_summary(student, cls) if student else None
+        if event.event_type == AttendanceEventType.SCAN_REJECTED.value or record is None:
+            reason = event.reason if event.reason in REJECT_REASONS else None
+            return ScanResult(result="rejected", reason=reason, mode=mode, student=summary)
+        return ScanResult(result="duplicate", mode=mode, student=summary, status=record.status,
+                          check_in_at=record.check_in_at, check_out_at=record.check_out_at)
+
+    def _queued(self, client_scan_id: Optional[str], scanned_at: Optional[datetime], handle, expired) -> ScanResult:
+        """Run one scan at its read time, once per client_scan_id; `expired` rejects a read that
+        is too old to count."""
+        seen = self._seen(client_scan_id)
+        if seen is not None:
+            return seen
+        at = self._scan_time(scanned_at)
+        if at is None:
+            self._client_scan_id = client_scan_id
+            try:
+                return expired()
+            finally:
+                self._client_scan_id = None
+        server_clock = self.now_utc
+        self.now_utc = lambda: at
+        self._client_scan_id = client_scan_id
+        try:
+            return handle()
+        except IntegrityError:
+            # The same scan id arrived twice at once and the other request recorded it first
+            self.db.rollback()
+            seen = self._seen(client_scan_id)
+            if seen is None:
+                raise
+            return seen
+        finally:
+            self.now_utc = server_clock
+            self._client_scan_id = None
+
+    def scan(self, token: str, mode: str, device_label: Optional[str], user: Any, *,
+             scanned_at: Optional[datetime] = None, client_scan_id: Optional[str] = None) -> ScanResult:
         """Scan outcomes are returned (not raised) so the scanner screen can show them."""
+        return self._queued(client_scan_id, scanned_at, lambda: self._scan(token, mode, device_label, user),
+                            lambda: self._reject("scan_expired", user, device_label, mode=mode))
+
+    def _scan(self, token: str, mode: str, device_label: Optional[str], user: Any) -> ScanResult:
         try:
             decoded = qr_card_service.verify_token(token)
         except qr_card_service.InvalidToken:
@@ -179,8 +266,14 @@ class AttendanceScanService(DailyAttendanceService):
         return self._check_in(student, cls, user, device_label,
                               source=AttendanceSource.QR, event_type=AttendanceEventType.SCAN_ACCEPTED)
 
-    def manual_check_in(self, admission_number: str, device_label: Optional[str], user: Any) -> ScanResult:
+    def manual_check_in(self, admission_number: str, device_label: Optional[str], user: Any, *,
+                        scanned_at: Optional[datetime] = None, client_scan_id: Optional[str] = None) -> ScanResult:
         """Fallback at the scanner for a damaged/forgotten card. Recorded as a manual mark."""
+        return self._queued(client_scan_id, scanned_at,
+                            lambda: self._manual_check_in(admission_number, device_label, user),
+                            lambda: self._reject("scan_expired", user, device_label))
+
+    def _manual_check_in(self, admission_number: str, device_label: Optional[str], user: Any) -> ScanResult:
         student = self.db.query(Student).filter(
             Student.tenant_id == self.tenant_id,
             Student.admission_number == admission_number.strip()

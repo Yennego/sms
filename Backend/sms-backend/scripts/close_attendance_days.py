@@ -1,6 +1,7 @@
 """Mark unmarked students absent once each school's auto-absent cut-off has passed.
 
-Run on a schedule (e.g. a Render Cron Job every 30 minutes):
+Run on a schedule every 10 minutes, so parents' absence alerts (written with the absences; emailed
+by scripts/send_notifications.py) arrive within 15 minutes of the cut-off:
 
     python -m scripts.close_attendance_days
 

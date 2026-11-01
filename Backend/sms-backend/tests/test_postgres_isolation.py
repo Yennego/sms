@@ -145,3 +145,58 @@ def test_fee_tables_have_row_level_security_and_composite_keys():
                     "fk_tn_student_fee_accounts_student_id", "fk_tn_parent_student_student_id"} <= keys
     finally:
         admin.dispose()
+
+
+COMMUNICATION_TABLES = ("notifications", "notification_deliveries", "notification_preferences", "announcements",
+                        "files")
+
+
+def test_communication_tables_have_row_level_security_and_composite_keys():
+    admin = create_engine(ADMIN_URL)
+    try:
+        with admin.connect() as c:
+            rows = c.execute(text("""
+                SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = ANY(:t)
+            """), {"t": list(COMMUNICATION_TABLES)}).all()
+            assert {r[0] for r in rows} == set(COMMUNICATION_TABLES)
+            assert all(r[1] and r[2] for r in rows)
+            policies = c.execute(text("SELECT count(*) FROM pg_policies WHERE policyname = 'tenant_isolation' "
+                                      "AND tablename = ANY(:t)"), {"t": list(COMMUNICATION_TABLES)}).scalar()
+            assert policies == len(COMMUNICATION_TABLES)
+            keys = {r[0] for r in c.execute(text("SELECT conname FROM pg_constraint WHERE conname LIKE 'fk_tn_%'"))}
+            assert {"fk_tn_notifications_user_id", "fk_tn_notification_deliveries_notification_id",
+                    "fk_tn_notification_preferences_user_id", "fk_tn_announcements_class_id",
+                    "fk_tn_announcements_student_id", "fk_tn_attendance_documents_file_id"} <= keys
+    finally:
+        admin.dispose()
+
+
+def test_a_school_cannot_read_or_write_another_schools_notifications(schools, AppSession):
+    a, b, _ = schools
+    admin = create_engine(ADMIN_URL)
+    user = uuid.uuid4()
+    try:
+        with admin.begin() as c:
+            c.execute(text("""INSERT INTO users (id, tenant_id, username, password_hash, first_name, last_name, is_active,
+                                                 is_first_login, type)
+                              VALUES (:id, :t, :u, 'x', 'Iso', 'User', true, false, 'user')"""),
+                      {"id": user, "t": b, "u": f"iso-{user.hex[:8]}"})
+            c.execute(text("""INSERT INTO notifications (id, tenant_id, user_id, event, title, body, source_key)
+                              VALUES (gen_random_uuid(), :t, :u, 'announcement', 'Hello', 'Body', 'iso')"""),
+                      {"t": b, "u": user})
+        db = AppSession()
+        try:
+            bind_session_to_tenant(db, a)
+            assert db.execute(text("SELECT count(*) FROM notifications WHERE user_id = :u"), {"u": user}).scalar() == 0
+            with pytest.raises(DBAPIError, match="row-level security"):
+                db.execute(text("""INSERT INTO notifications (id, tenant_id, user_id, event, title, body, source_key)
+                                   VALUES (gen_random_uuid(), :t, :u, 'announcement', 'X', 'X', 'iso2')"""),
+                           {"t": b, "u": user})
+        finally:
+            db.rollback()
+            db.close()
+    finally:
+        with admin.begin() as c:
+            c.execute(text("DELETE FROM notifications WHERE user_id = :u"), {"u": user})
+            c.execute(text("DELETE FROM users WHERE id = :u"), {"u": user})
+        admin.dispose()

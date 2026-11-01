@@ -1,64 +1,37 @@
-from sqlalchemy import Column, String, ForeignKey, Text, Boolean, DateTime, Enum
-from sqlalchemy.orm import relationship
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.sql import func
-import enum
 
 from src.db.models.base import TenantModel
 
-
-class AnnouncementTargetType(enum.Enum):
-    """Enum for announcement target types."""
-    ALL = "all"  # All users
-    STUDENTS = "students"  # All students
-    TEACHERS = "teachers"  # All teachers
-    PARENTS = "parents"  # All parents
-    GRADE = "grade"  # Specific grade
-    SECTION = "section"  # Specific section
-    CUSTOM = "custom"  # Custom list of users
+AUDIENCES = ("all", "role", "class", "family")
+AUDIENCE_ROLES = ("parents", "students", "teachers", "staff")
 
 
 class Announcement(TenantModel):
-    """Model representing an announcement in the system.
-    
-    This model tracks announcements made to users, including details about the announcement,
-    its status, target audience, and the user who created it.
-    
-    Attributes:
-        title (String): Title of the announcement
-        content (Text): Content of the announcement
-        author_id (UUID): Foreign key to the user who created the announcement
-        target_type (Enum): Type of target audience (all, students, teachers, etc.)
-        target_id (UUID): ID of the specific target (e.g., grade ID if target_type is GRADE)
-        is_active (Boolean): Whether the announcement is active
-        is_pinned (Boolean): Whether the announcement is pinned
-        publish_date (DateTime): Date when the announcement was published
-        expiry_date (DateTime): Date when the announcement expires
-    """
-    
-    __tablename__ = "announcements"
-    
-    # Announcement details
-    title = Column(String(255), nullable=False)
-    content = Column(Text, nullable=False)
-    
-    # Author relationship
-    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    author = relationship("User")
-    
-    # Target audience
-    target_type = Column(Enum(AnnouncementTargetType), nullable=False)
-    target_id = Column(UUID(as_uuid=True), nullable=True)  # Nullable for ALL, STUDENTS, TEACHERS, PARENTS
-    
-    # Status
-    is_active = Column(Boolean, nullable=False, default=True)
-    is_pinned = Column(Boolean, nullable=False, default=False)
-    
-    # Dates
-    publish_date = Column(DateTime(timezone=True), nullable=False, default=func.now())
-    expiry_date = Column(DateTime(timezone=True), nullable=True)
-    
-    def __repr__(self):
-        return f"<Announcement {self.id} - {self.title}>"
+    """A one-way message, sent once to an audience (phase6-design.md §1): everyone, a role, a
+    class (its students and their parents) or one family (a student and their parents). Each
+    recipient gets an inbox notification; withdrawing removes those notifications."""
 
-        
+    __tablename__ = "announcements"
+
+    title = Column(String(200), nullable=False)
+    body = Column(Text, nullable=False)
+    audience = Column(String(10), nullable=False)
+    audience_role = Column(String(20), nullable=True)
+    class_id = Column(UUID(as_uuid=True), ForeignKey("classes.id"), nullable=True)
+    student_id = Column(UUID(as_uuid=True), ForeignKey("students.id"), nullable=True)
+    author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    sent_at = Column(DateTime(timezone=True), nullable=False)
+    withdrawn_at = Column(DateTime(timezone=True), nullable=True)
+    withdrawn_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    recipient_count = Column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        CheckConstraint("audience IN ('all', 'role', 'class', 'family')", name="ck_announcements_audience"),
+        CheckConstraint("(audience = 'role') = (audience_role IS NOT NULL)", name="ck_announcements_role"),
+        CheckConstraint("(audience = 'class') = (class_id IS NOT NULL)", name="ck_announcements_class"),
+        CheckConstraint("(audience = 'family') = (student_id IS NOT NULL)", name="ck_announcements_family"),
+        CheckConstraint("audience_role IS NULL OR audience_role IN ('parents', 'students', 'teachers', 'staff')",
+                        name="ck_announcements_audience_role"),
+        Index("ix_announcements_sent_at", "tenant_id", "sent_at"),
+    )

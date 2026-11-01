@@ -1,56 +1,30 @@
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from src.core.config import settings
-import ssl
 import html
+import logging
+
+from src.services.notification.senders import OutgoingMessage, SmtpEmailSender
+
+logger = logging.getLogger(__name__)
+
 
 class EmailService:
+    """Account emails (welcome, generated password, password reset), sent straight away over the
+    same SMTP sender as the alert worker (senders.SmtpEmailSender)."""
+
     def __init__(self):
-        # For development, you can use your own email or a local SMTP server
-        self.smtp_server = settings.SMTP_SERVER
-        self.smtp_port = settings.SMTP_PORT
-        self.sender_email = settings.SENDER_EMAIL
-        self.sender_password = settings.SENDER_PASSWORD
-    
+        self.sender = SmtpEmailSender()
+
     def send_email(self, recipient_email, subject, message_html):
-        """Send an email to a recipient"""
-        try:
-            # Create message container
-            msg = MIMEMultipart('alternative')
-            msg['Subject'] = subject
-            msg['From'] = self.sender_email
-            msg['To'] = recipient_email
-            
-            # Create HTML message
-            html_part = MIMEText(message_html, 'html')
-            msg.attach(html_part)
-            
-            # Create SSL context for better security
-            context = ssl.create_default_context()
-            
-            # Connect to server and send
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls(context=context)  # Secure the connection with SSL context
-                server.login(self.sender_email, self.sender_password)
-                server.send_message(msg)
-                
-            print(f"Email sent successfully to {recipient_email}")
-            return True
-        except smtplib.SMTPAuthenticationError as e:
-            print(f"SMTP Authentication failed: {str(e)}")
-            print("Please check your email credentials or enable 2FA and use App Password")
-            return False
-        except smtplib.SMTPException as e:
-            print(f"SMTP error occurred: {str(e)}")
-            return False
-        except Exception as e:
-            print(f"Failed to send email: {str(e)}")
-            return False
-    
+        """Send an email to a recipient. Returns True when the server accepted it."""
+        result = self.sender.send(OutgoingMessage(to=recipient_email, subject=subject,
+                                                  text="Please open this email in an HTML-capable mail app.",
+                                                  html=message_html))
+        if result.status != "sent":
+            logger.warning("Email not sent (%s): %s", result.status, result.error)
+        return result.status == "sent"
+
     def is_configured(self) -> bool:
         """True when an SMTP server and sender account are set."""
-        return bool(self.smtp_server and self.sender_email and self.sender_password)
+        return self.sender.configured()
 
     def send_password_reset_link(self, user_email, reset_link, school_name, expires_minutes):
         """Email a single-use password reset link."""

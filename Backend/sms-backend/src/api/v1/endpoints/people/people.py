@@ -5,8 +5,6 @@ from datetime import date  # Add this import
 from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks, Body
 from sqlalchemy.orm import Session
 
-# WhatsApp service
-# REMOVED: from src.services.notification.whatsapp_service import MultiTenantWhatsAppService
 from src.core.security.password import generate_default_password
 
 # Replace CRUD imports with service imports
@@ -711,10 +709,6 @@ async def create_parent(*,
     
     return new_parent
 
-def send_parent_whatsapp_notification(tenant_id: str, phone_number: str, parent_data: dict):
-    # No-op: WhatsApp notifications removed
-    return None
-
 @router.get("/parents", response_model=List[Parent])
 async def get_parents(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), skip: int = 0, limit: int = 100,
     current_user: User = Depends(has_permission("view_students"))
@@ -796,19 +790,6 @@ async def remove_student_from_parent(*, db: Session = Depends(get_db), tenant_id
             detail="Parent not found"
         )
     return parent.remove_student(db, tenant_id=tenant_id, parent_id=parent_id, student_id=student_id)
-
-# Add this helper function
-def send_teacher_whatsapp_notification(db_session: Session, tenant_id: str, phone_number: str, teacher_data: dict):
-    """Background task to send WhatsApp notification"""
-    try:
-        whatsapp_service = MultiTenantWhatsAppService(db=db_session, tenant_id=tenant_id)
-        whatsapp_service.send_teacher_credentials(
-            phone_number=phone_number,
-            teacher_data=teacher_data
-        )
-    except Exception as e:
-        print(f"Failed to send WhatsApp notification: {str(e)}")
-        # Log the error but don't fail the background task
 
 @router.get("/students/{student_id}/enrollments", response_model=List[EnrollmentSchema])
 async def get_student_enrollments(

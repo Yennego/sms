@@ -32,6 +32,7 @@ from src.services.academics.attendance_access import (
     academic_year_for, check_class_marking_permission, check_enrollment, enrolled_student_ids,
     is_admin, resolve_viewable_student_id
 )
+from src.services.notification import alerts
 
 CONCURRENT_CHANGE = "Attendance was changed by someone else while saving. Reload and try again."
 
@@ -49,6 +50,8 @@ class DailyAttendanceService:
         self.db = db
         self.now_utc: Callable[[], datetime] = lambda: datetime.now(UTC)  # overridable in tests
         self._settings: Optional[AttendanceSettings] = None
+        self._alerts: List[Callable[[], Any]] = []  # parents' alerts, written by the next _commit
+        self._client_scan_id: Optional[str] = None  # the gate scanner's id for the scan being handled
 
     # --- Settings & time -------------------------------------------------------------
 
@@ -205,6 +208,8 @@ class DailyAttendanceService:
         new_status: Optional[str] = None, actor_id: Optional[UUID] = None,
         reason: Optional[str] = None, device_label: Optional[str] = None
     ) -> None:
+        # A scan logs one event; it carries the scanner's id for the scan, if any
+        client_scan_id, self._client_scan_id = self._client_scan_id, None
         self.db.add(AttendanceEvent(
             tenant_id=self.tenant_id,
             daily_attendance=record,
@@ -215,7 +220,8 @@ class DailyAttendanceService:
             actor_id=actor_id,
             reason=reason,
             device_label=device_label,
-            occurred_at=self.now_utc()
+            occurred_at=self.now_utc(),
+            client_scan_id=client_scan_id
         ))
 
     # --- Manual marking (precedence: a manual mark always wins) ----------------------
@@ -257,10 +263,17 @@ class DailyAttendanceService:
 
         self._log(event, record=record, old_status=old_status,
                   new_status=data.status.value, actor_id=actor_id, reason=reason)
+        if data.status == AttendanceStatus.ABSENT:
+            self._alerts.append(lambda: alerts.attendance_absent(self.db, self.tenant_id, [(student_id, on_date)]))
         return record
 
     def _commit(self) -> None:
+        pending, self._alerts = self._alerts, []
         try:
+            self.db.flush()
+            # Parents' alerts go in the same transaction as the marks (one per student, day and kind)
+            for write_alert in pending:
+                write_alert()
             self.db.commit()
         except IntegrityError as exc:
             self.db.rollback()
@@ -381,6 +394,7 @@ class DailyAttendanceService:
                 event_type=AttendanceEventType.AUTO_ABSENT.value, new_status=AttendanceStatus.ABSENT.value,
                 reason="Not marked by the auto-absent cut-off", occurred_at=now
             ))
+        alerts.attendance_absent(self.db, self.tenant_id, [(student_id, on_date) for _, student_id in inserted])
         self.db.commit()
         return len(inserted)
 

@@ -39,6 +39,7 @@ from src.db.models.finance.fees import (
 from src.db.models.people.student import Student
 from src.services.finance import ledger as L
 from src.services.finance.ledger import CURRENCIES, ZERO, money, money_map, q
+from src.services.notification import alerts
 
 DEFAULT_TIMEZONE = "Africa/Monrovia"
 MAX_PAGE_SIZE = 100
@@ -1025,6 +1026,8 @@ class FeeService:
             account.currency = currency
             account.currency_locked_at = now
         self.db.flush()
+        alerts.payment_received(self.db, self.tenant_id, student.id, payment_id=payment.id, amount=money(amount),
+                                currency=currency, receipt_number=number)
         return self.receipt(payment.id)
 
     def _payment_row(self, p: Payment, people=None, allocations: bool = False, sems=None) -> Dict[str, Any]:

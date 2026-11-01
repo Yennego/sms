@@ -35,6 +35,7 @@ from src.services.academics import report_card_verification_service as rcv
 from src.services.academics import report_identity_service as ri
 from src.services.academics import results_service as rs
 from src.services.academics.attendance_access import class_sponsor_id
+from src.services.notification import alerts
 
 PUBLISHED_MESSAGE = "Results for this period are published. Ask the principal to unpublish them first."
 STAFF_READ = ("view_academic_data", "manage_academic_data", "publish_results")
@@ -561,6 +562,11 @@ class GradebookService:
                               published_at=datetime.now(UTC), **signers)
         self.db.add(p)
         self.db.flush()
+        # Alerts: each student in the class and their parents (phase6-design.md §1)
+        scope = self._get(Period, period_id, "Period") if period_id else self._get(Semester, semester_id, "Semester")
+        alerts.results_published(
+            self.db, self.tenant_id, [e.student_id for e in rs.class_roster(self.db, self.tenant_id, cls.id, active_only=True)],
+            class_name=cls.name, scope_name=scope.name, scope_id=scope.id)
         return self._publication_out(p)
 
     def unpublish(self, class_id, period_id=None, semester_id=None) -> Dict[str, Any]:

@@ -16,6 +16,7 @@ from src.db.models.academics.daily_attendance import (
     ExcuseStatus
 )
 from src.db.models.people.student import Student
+from src.db.models.resources.file import StoredFile
 from src.schemas.academics.daily_attendance import (
     MAX_EXCUSE_DOCUMENT_BYTES, ChildSummary, ExcuseDocumentIn, ExcuseDocumentOut, ExcuseListItem,
     ExcuseWithDocument, ParentExcuseCreate
@@ -24,6 +25,7 @@ from src.services.academics.attendance_access import (
     check_class_marking_permission, is_admin, resolve_viewable_student_id, role_names
 )
 from src.services.academics.daily_attendance_service import DailyAttendanceService
+from src.services import files
 
 PARENT_DAYS_BACK = 14     # parents can excuse absences up to two weeks old
 PARENT_DAYS_AHEAD = 30    # ...and report planned absences up to a month ahead
@@ -69,6 +71,9 @@ class AttendanceExcuseService(DailyAttendanceService):
 
     def _store_document(self, record: DailyAttendance, doc: ExcuseDocumentIn, user_id: UUID) -> None:
         filename, content_type, data = _prepare_document(doc)
+        # The bytes go to file storage; a replaced document's old file is kept, unreferenced
+        stored = files.store_file(self.db, self.tenant_id, data, filename=filename, content_type=content_type,
+                                  uploaded_by=user_id)
         row = self.db.query(AttendanceDocument).filter(
             AttendanceDocument.tenant_id == self.tenant_id,
             AttendanceDocument.daily_attendance_id == record.id
@@ -76,7 +81,7 @@ class AttendanceExcuseService(DailyAttendanceService):
         if row is None:
             row = AttendanceDocument(tenant_id=self.tenant_id, daily_attendance_id=record.id)
             self.db.add(row)
-        row.filename, row.content_type, row.size_bytes, row.data = filename, content_type, len(data), data
+        row.filename, row.content_type, row.size_bytes, row.file_id = filename, content_type, len(data), stored.id
         row.uploaded_by = user_id
         record.excuse_document_url = self._document_path(record)
 
@@ -96,9 +101,12 @@ class AttendanceExcuseService(DailyAttendanceService):
         ).first()
         if row is None:
             raise EntityNotFoundError("AttendanceDocument", daily_id)
+        stored = self.db.query(StoredFile).filter(
+            StoredFile.tenant_id == self.tenant_id, StoredFile.id == row.file_id
+        ).one()
         return ExcuseDocumentOut(
             filename=row.filename, content_type=row.content_type, size_bytes=row.size_bytes,
-            data_base64=base64.b64encode(row.data).decode()
+            data_base64=base64.b64encode(files.read_file(stored)).decode()
         )
 
     def set_excuse_with_document(self, daily_id: UUID, data: ExcuseWithDocument, user: Any) -> DailyAttendance:

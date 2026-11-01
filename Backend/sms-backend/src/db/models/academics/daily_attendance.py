@@ -2,7 +2,7 @@ from datetime import time
 import enum
 
 from sqlalchemy import (
-    Column, String, ForeignKey, Date, DateTime, Text, Enum, Boolean, Time, JSON, Integer, LargeBinary,
+    Column, String, ForeignKey, Date, DateTime, Text, Enum, Boolean, Time, JSON, Integer,
     UniqueConstraint, Index, func
 )
 from sqlalchemy.orm import relationship
@@ -90,12 +90,16 @@ class AttendanceEvent(TenantModel):
     device_label = Column(String(100), nullable=True)  # e.g. "Main gate tablet"
     reason = Column(Text, nullable=True)               # rejection reason / manual note
     occurred_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    # Set by the gate scanner on each scan (also when it was queued offline): a scan sent twice
+    # is recognised and not counted again
+    client_scan_id = Column(String(64), nullable=True)
 
     # Lets the unit of work insert the attendance row before its events
     daily_attendance = relationship("DailyAttendance", foreign_keys=[daily_attendance_id])
 
     __table_args__ = (
         Index("idx_att_events_tenant_daily", "tenant_id", "daily_attendance_id"),
+        UniqueConstraint("tenant_id", "client_scan_id", name="uq_attendance_events_client_scan_id"),
     )
 
 
@@ -134,8 +138,8 @@ class SchoolCalendarDay(TenantModel):
 class AttendanceDocument(TenantModel):
     """Supporting document for an excuse (doctor's note, parent letter).
 
-    Stored in the database: the app has no persistent file storage (Render's disk is
-    wiped on deploy). One document per daily record; uploading again replaces it.
+    The bytes are a stored file (`files`, services/files). One document per daily record;
+    uploading again points it at the new file.
     """
 
     __tablename__ = "attendance_documents"
@@ -144,7 +148,7 @@ class AttendanceDocument(TenantModel):
     filename = Column(String(255), nullable=False)
     content_type = Column(String(100), nullable=False)
     size_bytes = Column(Integer, nullable=False)
-    data = Column(LargeBinary, nullable=False)
+    file_id = Column(UUID(as_uuid=True), ForeignKey("files.id"), nullable=False)
     uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
     __table_args__ = (

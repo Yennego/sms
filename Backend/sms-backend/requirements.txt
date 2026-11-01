@@ -23,6 +23,7 @@ reportlab==4.2.0
 numpy==1.26.4
 email-validator==2.1.1
 cryptography==42.0.5
+boto3==1.34.162  # S3-compatible file storage (FILE_STORAGE=s3)
 
 # Dev dependencies
 pytest==8.0.0

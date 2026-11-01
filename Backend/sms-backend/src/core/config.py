@@ -68,13 +68,29 @@ class Settings(BaseSettings):
     REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
     REDIS_PASSWORD: Optional[str] = os.getenv("REDIS_PASSWORD", None)
     
-    # Email settings
-    SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp-mail.outlook.com")
+    # Email settings (plain SMTP, any provider). Email is off while SMTP_SERVER, SENDER_EMAIL or
+    # SENDER_PASSWORD is empty: alert emails are logged as skipped. Port 465 uses SSL; otherwise
+    # SMTP_USE_TLS upgrades the connection with STARTTLS.
+    SMTP_SERVER: str = os.getenv("SMTP_SERVER", "")
     SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
-    SENDER_EMAIL: str = os.getenv("SENDER_EMAIL", "topfoundation@outlook.com")
+    SENDER_EMAIL: str = os.getenv("SENDER_EMAIL", "")
     SENDER_PASSWORD: str = os.getenv("SENDER_PASSWORD", "")
     SMTP_USE_TLS: bool = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
-    
+    EMAIL_FROM_NAME: str = os.getenv("EMAIL_FROM_NAME", "")
+    # Public address of the app for links in alert emails; defaults to FRONTEND_URL
+    APP_BASE_URL: str = (os.getenv("APP_BASE_URL") or os.getenv("FRONTEND_URL")
+                         or os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")[0]).strip().rstrip("/")
+
+    # Uploaded files (services/files): "local" disk (development) or "s3" (any S3-compatible
+    # bucket). FILE_STORAGE_DIR is the local folder (relative paths are under the backend folder).
+    FILE_STORAGE: str = os.getenv("FILE_STORAGE", "local").strip().lower()
+    FILE_STORAGE_DIR: str = os.getenv("FILE_STORAGE_DIR", "storage")
+    S3_ENDPOINT_URL: str = os.getenv("S3_ENDPOINT_URL", "")
+    S3_BUCKET: str = os.getenv("S3_BUCKET", "")
+    S3_ACCESS_KEY_ID: str = os.getenv("S3_ACCESS_KEY_ID", "")
+    S3_SECRET_ACCESS_KEY: str = os.getenv("S3_SECRET_ACCESS_KEY", "")
+    S3_REGION: str = os.getenv("S3_REGION", "")
+
     # Logfire settings
     LOGFIRE_TOKEN: Optional[str] = os.getenv("LOGFIRE_TOKEN")
     LOGFIRE_PROJECT_NAME: str = os.getenv("LOGFIRE_PROJECT_NAME", "smsproject")

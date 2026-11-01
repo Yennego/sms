@@ -31,8 +31,10 @@ def scan_card(
     current_user: User = Depends(has_any_role(SCAN_ROLES))
 ) -> Any:
     """Check a student in (or out) by ID card. Always 200: `result` is accepted,
-    duplicate or rejected (with `reason`), so the scanner screen can show it."""
-    return service.scan(scan_in.token, scan_in.mode, scan_in.device_label, current_user)
+    duplicate or rejected (with `reason`), so the scanner screen can show it.
+    Optional scanned_at / client_scan_id: for scans queued while offline (see ScanRequest)."""
+    return service.scan(scan_in.token, scan_in.mode, scan_in.device_label, current_user,
+                        scanned_at=scan_in.scanned_at, client_scan_id=scan_in.client_scan_id)
 
 
 @router.post(
@@ -47,7 +49,8 @@ def manual_check_in(
     current_user: User = Depends(has_any_role(SCAN_ROLES))
 ) -> Any:
     """Check a student in by admission number when their card can't be read (logged as manual)."""
-    return service.manual_check_in(check_in.admission_number, check_in.device_label, current_user)
+    return service.manual_check_in(check_in.admission_number, check_in.device_label, current_user,
+                                   scanned_at=check_in.scanned_at, client_scan_id=check_in.client_scan_id)
 
 
 @router.get("/attendance/id-cards", response_model=List[IdCard])
