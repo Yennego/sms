@@ -10,6 +10,7 @@ import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react';
 import {
   Bell, ChevronDown, KeyRound, LogOut, MoreHorizontal, PenLine, School, Settings, ShieldCheck, UserCog, type LucideIcon,
 } from 'lucide-react';
+import { BillingBanner } from '@/components/billing/billing-banner';
 import { InboxBell } from '@/components/communication/inbox-bell';
 import { Sheet } from '@/components/ui/sheet';
 import { useAuth } from '@/hooks/use-auth';
@@ -41,6 +42,8 @@ interface ShellFrameProps {
   userMenu: MenuLink[];
   /** Controls in the top bar before the user menu (the school's inbox bell) */
   headerActions?: ReactNode;
+  /** A line under the top bar (the school's billing status) */
+  banner?: ReactNode;
   children: ReactNode;
 }
 
@@ -55,7 +58,7 @@ function Mark({ logo, className }: { logo?: string | null; className?: string })
   );
 }
 
-function ShellFrame({ title, logo, brand, areas, currentPath, linkFor, userMenu, headerActions, children }: ShellFrameProps) {
+function ShellFrame({ title, logo, brand, areas, currentPath, linkFor, userMenu, headerActions, banner, children }: ShellFrameProps) {
   const { user, logout } = useAuth();
   const [moreOpen, setMoreOpen] = useState(false);
   const current = locate(areas, currentPath);
@@ -154,6 +157,8 @@ function ShellFrame({ title, logo, brand, areas, currentPath, linkFor, userMenu,
             </Menu>
           </div>
         </header>
+
+        {banner}
 
         {/* The current area's pages */}
         {current && current.area.tabs.length > 1 && (
@@ -303,6 +308,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
       linkFor={linkFor}
       userMenu={userMenu}
       headerActions={<InboxBell href={linkFor('/inbox')} active={schoolRelativePath(pathname) === '/inbox'} />}
+      banner={
+        <BillingBanner
+          billingHref={linkFor('/settings/billing')}
+          onBillingPage={schoolRelativePath(pathname).startsWith('/settings/billing')}
+        />
+      }
     >
       {children}
     </ShellFrame>

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { errorMessage } from '@/components/students/format';
+import { billingBlock } from '@/lib/billing-block';
 import type { AccountState, Currency, PerCurrency } from '@/services/api/fees-service';
 import { anyPositive, errorStatus, formatMoney, shownCurrencies } from './money';
 
@@ -131,6 +132,16 @@ export function SegmentTabs<T extends string>({
 
 /** A failed load: plain words, the server's reason when it gave one, and "Try again". */
 export function LoadError({ error, what, onRetry }: { error: unknown; what: string; onRetry?: () => void }) {
+  // Refused by the school's billing status, not by the role: the server's line says why
+  if (errorStatus(error) === 403 && billingBlock(error)) {
+    return (
+      <EmptyState
+        icon={ShieldAlert}
+        title={`Can't open ${what} now`}
+        description={errorMessage(error, "Your school's account is restricted. Ask the school office.")}
+      />
+    );
+  }
   if (errorStatus(error) === 403) {
     return (
       <EmptyState

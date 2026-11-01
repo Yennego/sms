@@ -5,6 +5,7 @@ import { isValidUUID, getTenantUUIDByDomain } from '@/lib/cookies';
 import { decodeJwtPayload, setSessionFromTokens } from '@/app/api/_lib/auth-cookies';
 import { rejectCrossSite } from '@/app/api/_lib/csrf';
 import { trustedClientHeaders } from '@/app/api/_lib/client-ip';
+import { BILLING_STATUS_HEADER } from '@/lib/billing-block';
 
 export async function POST(request: NextRequest) {
   const blocked = rejectCrossSite(request);
@@ -100,6 +101,14 @@ export async function POST(request: NextRequest) {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status || 500;
       const message = error.response?.data?.detail || error.response?.data?.message || error.message;
+      // A suspended school lets only its admins sign in: keep the status and the reason for the login page
+      const billingStatus = error.response?.headers?.[BILLING_STATUS_HEADER];
+      if (status === 403 && typeof billingStatus === 'string' && billingStatus) {
+        return NextResponse.json(
+          { message, detail: message },
+          { status, headers: { [BILLING_STATUS_HEADER]: billingStatus } }
+        );
+      }
       return NextResponse.json({ message }, { status });
     }
     return NextResponse.json({ message: 'Internal server error' }, { status: 500 });

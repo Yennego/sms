@@ -8,9 +8,12 @@ import { contextualCookies, getCurrentContext } from '@/utils/cookie-manager';
 import { currentSchoolSlug } from '@/utils/tenant-utils';
 import { isPlatformPath } from '@/config/reserved-slugs';
 import axios from 'axios';
+import { BILLING_STATUS_HEADER, billingDetail, signOutForBilling } from '@/lib/billing-block';
 
 // The session lives in httpOnly cookies set by the /api/auth routes. This context never sees a
 // token: it asks /api/auth/me who is signed in, and /api/auth/refresh to extend the session.
+// At a suspended school both refuse non-admins (X-School-Billing-Status): the user is signed out
+// and the login page says why.
 
 type AuthContextType = {
   user: User | null;
@@ -40,6 +43,14 @@ function contextHeaders(): Record<string, string> {
     'X-Auth-Context': context,
     ...(tenantId && { 'X-Tenant-ID': tenantId }),
   };
+}
+
+/** A fetch answer saying the school's billing keeps this user out: sign out with the reason. */
+async function endIfBillingRefused(res: Response): Promise<boolean> {
+  if (res.status !== 403 || !res.headers.get(BILLING_STATUS_HEADER)) return false;
+  const data = await res.clone().json().catch(() => null);
+  await signOutForBilling(billingDetail(data));
+  return true;
 }
 
 /** The script-readable "signed in" marker set next to the httpOnly cookies (it holds no secret). */
@@ -109,6 +120,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Only a definite "no" from the server ends the session; network trouble doesn't
         if (axios.isAxiosError(error) && error.response?.status === 401) {
           clearAuthState();
+        } else if (axios.isAxiosError(error) && error.response?.status === 403
+          && error.response.headers?.[BILLING_STATUS_HEADER]) {
+          // A full page load to the login page follows, which forgets the user in this tab
+          await signOutForBilling(billingDetail(error.response.data));
         }
         return false;
       } finally {
@@ -140,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (res.status === 401 && hasSessionMarker() && (await refreshAccessToken())) {
       res = await get();
     }
+    if (await endIfBillingRefused(res)) return null;
     if (!res.ok) return null;
     return (await res.json()) as User;
   }, [refreshAccessToken]);
@@ -181,6 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           headers: contextHeaders(),
           signal: AbortSignal.timeout(5000),
         });
+        if (await endIfBillingRefused(response)) return;
         if (response.status === 401 && !(await refreshAccessToken())) {
           clearAuthState();
         }

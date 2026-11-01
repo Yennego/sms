@@ -52,6 +52,11 @@ export default function SettingsPage() {
       title: 'Delivery log',
       description: 'Alert emails sent, waiting and failed',
       href: '/settings/deliveries'
+    },
+    {
+      title: 'Billing',
+      description: 'Amount due, invoices, receipts and the data export',
+      href: '/settings/billing'
     }
   ];
 

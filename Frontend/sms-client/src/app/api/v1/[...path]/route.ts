@@ -4,12 +4,17 @@
 // Bearer header. When the access token has expired it refreshes once with the httpOnly refresh
 // cookie, retries, and sets the rotated cookies on the response. Only known backend areas are
 // forwarded, and cross-site writes are refused.
+//
+// A school's billing status passes through: a blocked request keeps its 403 and the
+// X-School-Billing-Status header; a refresh refused for billing (suspended school, non-admin) ends
+// the session with a 401 that carries the header and the reason (lib/billing-block.ts).
 import { NextRequest, NextResponse } from 'next/server';
 import { normalizeBaseUrl } from '@/app/api/_lib/http';
 import { clearSessionCookies, readRefreshToken, setSessionFromTokens } from '@/app/api/_lib/auth-cookies';
-import { refreshTokens, type TokenPair } from '@/app/api/_lib/backend-session';
+import { isBillingRefusal, refreshTokens, type BillingRefusal, type TokenPair } from '@/app/api/_lib/backend-session';
 import { rejectCrossSite } from '@/app/api/_lib/csrf';
 import { trustedClientHeaders } from '@/app/api/_lib/client-ip';
+import { BILLING_STATUS_HEADER } from '@/lib/billing-block';
 import { cookieName, getSession, preferredNamespace } from '@/lib/session';
 
 export const runtime = 'nodejs';
@@ -18,7 +23,7 @@ export const dynamic = 'force-dynamic';
 // Top-level routers in Backend/sms-backend/src/api/v1/api.py
 const BACKEND_AREAS = new Set([
   'tenants', 'auth', 'people', 'academics', 'communication', 'logging',
-  'resources', 'super-admin', 'finance', 'verify',
+  'resources', 'super-admin', 'finance', 'verify', 'billing',
 ]);
 
 // Public areas outside any school (report card verification): sent without the session or a
@@ -33,7 +38,7 @@ const PATH_REWRITES: [string, string][] = [
 const REQUEST_HEADERS = ['accept', 'accept-language', 'content-type', 'x-tenant-id'];
 const RESPONSE_HEADERS = [
   'content-type', 'content-disposition', 'cache-control', 'retry-after',
-  'x-password-change-required', 'x-total-count',
+  'x-password-change-required', 'x-total-count', BILLING_STATUS_HEADER,
 ];
 
 type Params = { params: Promise<{ path: string[] }> };
@@ -47,6 +52,16 @@ function backendPath(segments: string[]): string {
     }
   }
   return path;
+}
+
+/** The school's billing keeps this user out: end the session and say why. */
+function billingSignOut(refusal: BillingRefusal) {
+  const res = NextResponse.json({ detail: refusal.detail }, {
+    status: 401,
+    headers: { [BILLING_STATUS_HEADER]: refusal.billingStatus },
+  });
+  clearSessionCookies(res);
+  return res;
 }
 
 async function proxy(request: NextRequest, { params }: Params) {
@@ -93,13 +108,17 @@ async function proxy(request: NextRequest, { params }: Params) {
   try {
     // Expired already: refresh first instead of spending a round trip on a certain 401
     if (session?.expired && refreshToken) {
-      rotated = await refreshTokens(refreshToken, clientHeaders);
+      const result = await refreshTokens(refreshToken, clientHeaders);
+      if (isBillingRefusal(result)) return billingSignOut(result);
+      rotated = result;
       refreshFailed = !rotated;
     }
 
     let upstream = await send(rotated?.access_token ?? session?.token);
     if (upstream.status === 401 && !rotated && !refreshFailed && refreshToken) {
-      rotated = await refreshTokens(refreshToken, clientHeaders);
+      const result = await refreshTokens(refreshToken, clientHeaders);
+      if (isBillingRefusal(result)) return billingSignOut(result);
+      rotated = result;
       refreshFailed = !rotated;
       if (rotated) upstream = await send(rotated.access_token);
     }

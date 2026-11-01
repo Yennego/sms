@@ -7,7 +7,7 @@
 import type { ComponentType } from 'react';
 import {
   BookOpen, CalendarDays, ClipboardCheck, GraduationCap, Home, Receipt, ScanLine, School,
-  Settings, Users, Award, UserCog, History, ShieldCheck, Megaphone,
+  Settings, Users, Award, UserCog, History, ShieldCheck, Megaphone, Wallet,
 } from 'lucide-react';
 
 export type Icon = ComponentType<{ className?: string }>;
@@ -148,6 +148,8 @@ const SCHOOL_SETTINGS: NavTab[] = [
   tab('Attendance rules', '/settings/attendance'),
   tab('Delivery log', '/settings/deliveries'),
   tab('Audit log', '/admin/activity-logs'),
+  // The school's platform account (phase7-design.md section 6); billing reminders link here
+  tab('Billing', '/settings/billing'),
 ];
 
 // --- Roles ------------------------------------------------------------------------------------
@@ -245,6 +247,15 @@ export const PLATFORM_NAVIGATION: RoleNavigation = {
       tabs: [tab('Overview', SUPER_ADMIN_HOME), tab('Analytics', '/platform/analytics')],
     },
     { key: 'schools', label: 'Schools', icon: School, tabs: [tab('Schools', '/platform/tenants')] },
+    // Platform billing (phase7-design.md section 6): a school's page and receipts sit under Overview
+    {
+      key: 'billing', label: 'Billing', icon: Wallet,
+      tabs: [
+        tab('Overview', '/platform/billing', undefined, ['/platform/billing/schools', '/platform/billing/receipts']),
+        tab('Invoices', '/platform/billing/invoices'),
+        tab('Price list', '/platform/billing/prices'),
+      ],
+    },
     {
       key: 'users', label: 'Users', icon: Users,
       tabs: [tab('Users', '/platform/users'), tab('Roles and permissions', '/platform/roles-permissions')],

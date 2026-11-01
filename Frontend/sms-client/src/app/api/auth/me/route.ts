@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import '@/app/api/_lib/undici';
 import { normalizeBaseUrl, createTimeoutSignal } from '@/app/api/_lib/http';
 import { trustedClientHeaders } from '@/app/api/_lib/client-ip';
+import { BILLING_STATUS_HEADER } from '@/lib/billing-block';
 import { getSession, preferredNamespace } from '@/lib/session';
 
 type MeRole = { name?: string; permissions?: (string | { name?: string })[]; [key: string]: unknown };
@@ -39,7 +40,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ message: 'Invalid response from backend' }, { status: 502 });
     }
     if (!response.ok) {
-      return NextResponse.json({ message: data.detail || 'Failed to fetch user data' }, { status: response.status });
+      // A suspended school refuses its non-admins: pass the status on so the app signs out with the reason
+      const billingStatus = response.headers.get(BILLING_STATUS_HEADER);
+      return NextResponse.json(
+        { message: data.detail || 'Failed to fetch user data', ...(billingStatus && { detail: data.detail }) },
+        { status: response.status, ...(billingStatus && { headers: { [BILLING_STATUS_HEADER]: billingStatus } }) }
+      );
     }
 
     // snake_case → camelCase for the frontend

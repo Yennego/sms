@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
@@ -13,6 +13,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useTenant } from "@/hooks/use-tenant";
 import { PasswordInput } from '@/components/auth/password-input';
 import { homePath } from '@/config/navigation';
+import { BILLING_STATUS_HEADER, takeBillingSignOut } from '@/lib/billing-block';
 
 export default function TenantLoginPage() {
   const router = useRouter();
@@ -25,7 +26,18 @@ export default function TenantLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // A school's billing refused the sign-in (suspended: admins only); its reason replaces "Login failed"
+  const [billingBlocked, setBillingBlocked] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Signed out because the school is suspended: say why
+  useEffect(() => {
+    const message = takeBillingSignOut();
+    if (message) {
+      setError(message);
+      setBillingBlocked(true);
+    }
+  }, []);
 
   // Derive branding info
   const branding = useMemo(() => {
@@ -41,6 +53,7 @@ export default function TenantLoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setBillingBlocked(false);
     setIsLoading(true);
 
     try {
@@ -57,7 +70,9 @@ export default function TenantLoginPage() {
       }
     } catch (err: unknown) {
       console.error("Login error:", err);
-      const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+      const response = (err as { response?: { data?: { detail?: unknown }; headers?: Record<string, unknown> } })?.response;
+      const detail = response?.data?.detail;
+      setBillingBlocked(Boolean(response?.headers?.[BILLING_STATUS_HEADER]));
       setError(typeof detail === "string" && detail ? detail : "Invalid email or password");
     } finally {
       setIsLoading(false);
@@ -108,7 +123,7 @@ export default function TenantLoginPage() {
                 <Alert variant="destructive" className="bg-red-50 border-red-100 text-red-800">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    <span className="font-semibold block mb-1">Login Failed</span>
+                    <span className="font-semibold block mb-1">{billingBlocked ? "Can't sign in" : "Login Failed"}</span>
                     {error}
                   </AlertDescription>
                 </Alert>

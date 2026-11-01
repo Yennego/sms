@@ -3,6 +3,8 @@ import { getCurrentContext } from '@/utils/cookie-manager';
 import { isReservedSlug } from '@/config/reserved-slugs';
 import { currentSchoolSlug } from '@/utils/tenant-utils';
 import { handleError, createError, ErrorType, AppError } from '@/utils/error-utils';
+import { BILLING_STATUS_HEADER, billingDetail, signOutForBilling } from '@/lib/billing-block';
+import { notify } from '@/components/ui/toaster';
 import { useMemo, useEffect } from 'react';
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from 'axios';
 
@@ -135,6 +137,13 @@ export class ApiClient {
             return Promise.reject(error);
           }
 
+          // The school's billing ended the session (the proxy's refresh was refused): sign out with the reason
+          const billingStatus = error.response.headers?.[BILLING_STATUS_HEADER];
+          if (status === 401 && billingStatus && typeof window !== 'undefined') {
+            await signOutForBilling(billingDetail(data));
+            return Promise.reject(error);
+          }
+
           // 401: the catch-all proxy refreshes by itself, but the few custom routes don't, so try
           // the refresh route once and retry; if that fails too the session is over
           // (login/refresh/me handle their own 401s)
@@ -148,7 +157,13 @@ export class ApiClient {
                 try {
                   await axios.post('/api/auth/refresh', null, { headers: { 'X-Auth-Context': getCurrentContext() } });
                   return this.axiosInstance(originalRequest);
-                } catch {
+                } catch (refreshError) {
+                  // A suspended school refuses non-admins: sign out with the reason instead
+                  if (axios.isAxiosError(refreshError) && refreshError.response?.status === 403
+                    && refreshError.response.headers?.[BILLING_STATUS_HEADER]) {
+                    await signOutForBilling(billingDetail(refreshError.response.data));
+                    return Promise.reject(error);
+                  }
                   // fall through to the redirect
                 }
               }
@@ -237,6 +252,13 @@ export class ApiClient {
               errorType = ErrorType.VALIDATION;
               errorMessage = 'Email already exists.';
             }
+          }
+
+          // Refused by the school's billing status (read-only, suspended, dormant): `detail` is the
+          // banner's line, shown as it is (one toast however many requests were refused)
+          if (status === 403 && billingStatus && typeof window !== 'undefined') {
+            errorMessage = billingDetail(data, errorMessage);
+            notify.error(errorMessage, { id: 'school-billing-blocked' });
           }
 
           throw new AppError(errorMessage, errorType, status, error);

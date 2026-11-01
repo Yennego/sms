@@ -40,6 +40,10 @@ import {
 } from '@tanstack/react-table';
 import { useQueryState, parseAsString, parseAsInteger } from 'nuqs';
 import { UserWithRoles } from '@/services/api/super-admin-service';
+import Link from 'next/link';
+import { anyPositive, formatMoney, formatPair } from '@/components/fees/money';
+import { Amounts } from '@/components/fees/shared';
+import { BillingStatusBadge } from '@/components/billing/shared';
 
 // Dynamic role type - no longer static
 type UserRole = string;
@@ -301,25 +305,30 @@ export default function SuperAdminDashboard() {
           </CardContent>
         </Card>
 
-        {/* New Revenue Card */}
+        {/* Platform billing (phase7-design.md §8): money per currency, never added together */}
         <Card className="hover:shadow-md transition-shadow border-green-100 bg-green-50/30">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Est. Monthly Revenue</CardTitle>
+            <CardTitle className="text-sm font-medium">Collected in the last 30 days</CardTitle>
             <DollarSign className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-700">
-              ${systemMetrics?.revenue_metrics?.total_monthly_revenue?.toLocaleString() || '0.00'}
+              {formatMoney(systemMetrics?.revenue_metrics?.collected_usd_last_30_days ?? '0', 'USD')}
             </div>
             <div className="flex flex-col gap-1 mt-1">
-              <p className="text-[10px] text-muted-foreground flex justify-between">
-                <span>Flat Rate:</span>
-                <span className="font-semibold">${systemMetrics?.revenue_metrics?.flat_rate_revenue?.toLocaleString() || '0.00'}</span>
+              <p className="text-xs text-muted-foreground flex justify-between gap-2">
+                <span>Outstanding:</span>
+                <span className="font-semibold text-right">
+                  {anyPositive(systemMetrics?.revenue_metrics?.outstanding) ? formatPair(systemMetrics?.revenue_metrics?.outstanding) : 'Nothing'}
+                </span>
               </p>
-              <p className="text-[10px] text-muted-foreground flex justify-between">
-                <span>Per User:</span>
-                <span className="font-semibold">${systemMetrics?.revenue_metrics?.per_user_revenue?.toLocaleString() || '0.00'}</span>
+              <p className="text-xs text-muted-foreground flex justify-between gap-2">
+                <span>Not paid yet:</span>
+                <span className="font-semibold">{systemMetrics?.revenue_metrics?.not_yet_paid?.invoices ?? 0} invoices</span>
               </p>
+              <Link href="/platform/billing" className="text-xs font-medium text-primary underline-offset-4 hover:underline">
+                Open billing
+              </Link>
             </div>
           </CardContent>
         </Card>
@@ -373,35 +382,43 @@ export default function SuperAdminDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle>Revenue by Tenant</CardTitle>
-            <CardDescription>Monthly revenue breakdown per tenant (excludes admins/no-role)</CardDescription>
+            <CardTitle>Billing by school</CardTitle>
+            <CardDescription>Status, staff, amount due and USD received in the last 30 days</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="max-h-96 overflow-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Tenant</TableHead>
-                    <TableHead>Plan</TableHead>
-                    <TableHead className="text-right">Billable Users</TableHead>
-                    <TableHead className="text-right">Monthly Revenue</TableHead>
+                    <TableHead>School</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Staff</TableHead>
+                    <TableHead className="text-right">Amount due</TableHead>
+                    <TableHead className="text-right">USD, 30 days</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {revenueByTenant?.map((tenant) => (
                     <TableRow key={tenant.tenant_id}>
-                      <TableCell className="font-medium">{tenant.tenant_name}</TableCell>
-                      <TableCell className="capitalize">{tenant.plan_type.replace('_', ' ')} (${tenant.plan_amount})</TableCell>
-                      <TableCell className="text-right">{tenant.billable_users}</TableCell>
-                      <TableCell className="text-right font-bold text-green-600">
-                        ${tenant.monthly_revenue.toLocaleString()}
+                      <TableCell className="font-medium">
+                        <Link href={`/platform/billing/schools/${tenant.tenant_id}`} className="underline-offset-4 hover:underline">
+                          {tenant.tenant_name}
+                        </Link>
+                      </TableCell>
+                      <TableCell><BillingStatusBadge status={tenant.billing_status} /></TableCell>
+                      <TableCell className="text-right">{tenant.staff_count}</TableCell>
+                      <TableCell className="text-right">
+                        {anyPositive(tenant.amount_due) ? <Amounts value={tenant.amount_due} /> : '—'}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-green-600 whitespace-nowrap">
+                        {formatMoney(tenant.collected_usd_last_30_days, 'USD')}
                       </TableCell>
                     </TableRow>
                   ))}
                   {(!revenueByTenant || revenueByTenant.length === 0) && (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center py-4 text-muted-foreground">
-                        No revenue data available
+                      <TableCell colSpan={5} className="text-center py-4 text-muted-foreground">
+                        No schools yet
                       </TableCell>
                     </TableRow>
                   )}
@@ -553,9 +570,12 @@ export default function SuperAdminDashboard() {
                     <div className="font-medium">{tenant.name}</div>
                     <div className="text-sm text-muted-foreground">{tenant.domain}</div>
                   </div>
-                  <Badge variant={tenant.isActive ? 'default' : 'secondary'}>
-                    {tenant.isActive ? 'Active' : 'Inactive'}
-                  </Badge>
+                  <div className="flex flex-col items-end gap-1">
+                    <Badge variant={tenant.isActive ? 'default' : 'secondary'}>
+                      {tenant.isActive ? 'Active' : 'Inactive'}
+                    </Badge>
+                    {tenant.billing_status ? <BillingStatusBadge status={tenant.billing_status} /> : null}
+                  </div>
                 </div>
               ))}
             </div>

@@ -14,8 +14,6 @@ import {
     AuditLog,
     UserCreateCrossTenant,
     UserUpdate,
-    RevenueStats,
-    TenantSubscriptionUpdate,
     TenantSettings,
     TenantSettingsUpdate
 } from '@/services/api/super-admin-service';
@@ -223,19 +221,6 @@ export function useSuperAdminDeactivateTenant() {
             return service.deactivateTenant ? service.deactivateTenant(tenantId) : Promise.resolve();
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['super-admin'] });
-        },
-    });
-}
-
-export function useSuperAdminUpdateSubscription() {
-    const service = useSuperAdminService();
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: ({ tenantId, subscriptionData }: { tenantId: string; subscriptionData: TenantSubscriptionUpdate }) =>
-            service.updateTenantSubscription(tenantId, subscriptionData),
-        onSuccess: (_data, variables) => {
             queryClient.invalidateQueries({ queryKey: ['super-admin'] });
         },
     });

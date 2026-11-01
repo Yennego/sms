@@ -108,6 +108,21 @@ Exit: absence alerts in parents' in-app inbox (and email where set) within 15 mi
 
 ## Phase 7: Platform billing (2 weeks)
 
+**Status (Nov 2026): built, not yet tried with a pilot school.** Design and decisions are in `phase7-design.md`, and the migration is `c9e4a7b2f5d1`.
+- **Pricing:** one price list for every school (staff per month, family per month, term minimum, in USD and LRD, with an effective date). Features stay as per-school switches.
+- **Term invoice:** at each semester's start, covering staff for the coming term, plus parents and students for the months they signed in last term (`user_activity_months`), plus a top-up to the minimum. A new school's first term is free. Months between semesters aren't billed.
+- **Payments:** the operator records them with receipts. Online payment has an interface and a webhook, but no provider yet.
+- **Non-payment:** reminders on the due date and 7 and 14 days after; read-only at 30 days overdue and suspended at 60. The operator can set a grace date or mark a school dormant, and paying restores access. A school admin can export the school's data at any time.
+- **Screens:** the platform Billing area (overview, schools, invoices, price list, printable invoices and receipts); the school's Settings → Billing page; a banner in the app shell; and clear messages when a request or sign-in is refused for billing.
+- **Replaced:** the old `tenants.plan_type`/`plan_amount`/`subscription_status` columns.
+- **Fix:** session refresh had always failed (a shadowed import in `/auth/refresh`).
+
+Still open:
+- Enter a price list. Nothing is invoiced without one; all zeros works for the pilot.
+- Store the platform's bank and mobile money details for the "How to pay" panel.
+- Online payment provider.
+- Small API gaps listed in `phase7-design.md` §8 (school name on a platform invoice, payments on the school invoice list).
+
 - Schema plan step 10: plans priced per user, monthly usage counts, subscriptions, invoices, features.
 - Operator screens for plans and billing; feature switches drive navigation.
 
@@ -122,7 +137,7 @@ Exit: a school can be put on a plan, invoiced and suspended for non-payment from
 ## Deployment (Railway)
 
 - Database: after the first `alembic upgrade head` (owner login), run `scripts/create_app_db_role.sql` once and give the API the `sms_app` login.
-- Services: backend (`alembic upgrade head` on release, then uvicorn), frontend (Next.js), Postgres, Redis, cron jobs (`python -m scripts.close_attendance_days` every 10 minutes; `python -m scripts.send_notifications` every 2 minutes; `python -m scripts.cleanup_files` daily, which removes stored files nothing refers to once they are a day old), object storage bucket.
+- Services: backend (`alembic upgrade head` on release, then uvicorn), frontend (Next.js), Postgres, Redis, cron jobs (`python -m scripts.close_attendance_days` every 10 minutes; `python -m scripts.send_notifications` every 2 minutes; `python -m scripts.cleanup_files` daily, which removes stored files nothing refers to once they are a day old; `python -m scripts.run_platform_billing` daily, early morning, which issues term invoices, moves billing statuses and writes the reminders; no new environment variables), object storage bucket.
 - Email: `SMTP_SERVER`, `SMTP_PORT`, `SENDER_EMAIL`, `SENDER_PASSWORD`, `SMTP_USE_TLS`, `EMAIL_FROM_NAME` (e.g. a Brevo SMTP key); `APP_BASE_URL` set to the frontend URL. Without the SMTP values alerts stay in-app and their emails are logged as skipped.
 - Files: `FILE_STORAGE=s3` with `S3_BUCKET`, `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION` from the bucket, and `boto3` installed (`poetry add boto3`). Set these before running the Phase 6 migration on a database that has excuse documents: it copies their bytes into the configured storage (on `local` they would land on the release container's disk and be lost).
 - New secrets generated for Railway (`SECRET_KEY`, `ATTENDANCE_QR_SECRET`, database and storage credentials); none of the values from the old `.env` files.

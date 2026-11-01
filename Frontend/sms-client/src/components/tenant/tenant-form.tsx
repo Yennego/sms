@@ -4,6 +4,10 @@ import { useState, useEffect } from 'react';
 import { Tenant, TenantCreate, TenantUpdate } from '@/types/tenant';
 import { useTenantService } from '@/services/api/tenant-service';
 import { AppError } from '@/utils/error-utils';
+import Link from 'next/link';
+import { useBillingSchool } from '@/components/billing/queries';
+import { BillingStatusBadge } from '@/components/billing/shared';
+import { anyPositive, formatPair } from '@/components/fees/money';
 
 interface TenantFormProps {
   tenant: Tenant | null;
@@ -22,14 +26,12 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
     primaryColor: '#3B82F6',
     secondaryColor: '#1E40AF',
     isActive: true,
-    plan_type: 'flat_rate',
-    plan_amount: 0,
-    subscription_status: 'active',
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const tenantService = useTenantService();
+  const billing = useBillingSchool(tenant?.id);
 
   useEffect(() => {
     if (tenant) {
@@ -42,9 +44,6 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
         primaryColor: tenant.primaryColor || '#3B82F6',
         secondaryColor: tenant.secondaryColor || '#1E40AF',
         isActive: tenant.isActive,
-        plan_type: tenant.plan_type || 'flat_rate',
-        plan_amount: tenant.plan_amount || 0,
-        subscription_status: tenant.subscription_status || 'active',
       });
     }
   }, [tenant]);
@@ -342,48 +341,26 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
               </div>
             </div>
 
-            {/* Subscription Section */}
+            {/* Billing: one platform price list for every school (phase7-design.md §1), so nothing to set here */}
             <div className="mb-8">
               <h3 className="text-lg font-medium text-gray-900 mb-4 pb-2 border-b border-gray-200">
-                Subscription & Billing
+                Billing
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Plan Type
-                  </label>
-                  <select
-                    name="plan_type"
-                    value={formData.plan_type || 'flat_rate'}
-                    onChange={(e: any) => setFormData({ ...formData, plan_type: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors duration-200"
-                  >
-                    <option value="flat_rate">Flat Rate (Monthly)</option>
-                    <option value="per_user">Pay Per User (Monthly)</option>
-                  </select>
+              {tenant ? (
+                <div className="flex flex-wrap items-center gap-3 text-sm text-gray-700">
+                  {billing.data ? <BillingStatusBadge status={billing.data.subscription.status} /> : null}
+                  {billing.data && anyPositive(billing.data.amount_due) ? (
+                    <span>Amount due: {formatPair(billing.data.amount_due)}</span>
+                  ) : null}
+                  <Link href={`/platform/billing/schools/${tenant.id}`} className="font-medium text-indigo-600 hover:text-indigo-900">
+                    Open billing
+                  </Link>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {formData.plan_type === 'per_user' ? 'Amount Per User ($)' : 'Fixed Monthly Amount ($)'}
-                  </label>
-                  <input
-                    type="number"
-                    name="plan_amount"
-                    value={formData.plan_amount || 0}
-                    onChange={(e) => setFormData({ ...formData, plan_amount: parseFloat(e.target.value) })}
-                    step="0.01"
-                    min="0"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors duration-200"
-                    placeholder="0.00"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    {formData.plan_type === 'per_user'
-                      ? 'Total will be calculated as (Active Users × Amount)'
-                      : 'Total billed as a flat recurring monthly fee'}
-                  </p>
-                </div>
-              </div>
+              ) : (
+                <p className="text-sm text-gray-600">
+                  Every school uses the platform price list. A new school&apos;s first term is free.
+                </p>
+              )}
             </div>
 
             {/* Branding Section */}
