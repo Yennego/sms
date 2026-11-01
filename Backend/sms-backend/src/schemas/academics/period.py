@@ -9,7 +9,6 @@ class PeriodBase(BaseModel):
     period_number: int = Field(..., description="Period number (1 to 6)")
     start_date: date = Field(..., description="Period start date")
     end_date: date = Field(..., description="Period end date")
-    is_published: bool = Field(default=False, description="Global publication flag")
     is_active: bool = Field(default=True, description="Whether this period is active")
 
 class PeriodCreate(PeriodBase):
@@ -20,7 +19,6 @@ class PeriodUpdate(BaseModel):
     period_number: Optional[int] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    is_published: Optional[bool] = None
     is_active: Optional[bool] = None
 
 class PeriodInDB(PeriodBase, TenantSchema):

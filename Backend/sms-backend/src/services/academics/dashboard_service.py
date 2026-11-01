@@ -2,7 +2,7 @@ from typing import Any, Dict
 import uuid
 from uuid import UUID
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, case
+from sqlalchemy import func, or_
 from datetime import date
 
 from src.db.models.academics.academic_year import AcademicYear
@@ -11,14 +11,9 @@ from src.db.models.academics.section import Section
 from src.db.models.academics.subject import Subject
 from src.db.models.academics.class_model import Class
 from src.db.models.academics.enrollment import Enrollment
-from src.db.models.academics.exam import Exam
-from src.db.models.academics.class_enrollment import ClassEnrollment
 from src.db.models.academics.class_subject import ClassSubject
 from src.db.models.academics.assignment import Assignment
 from src.db.models.academics.submission import Submission
-from src.db.models.academics.assessment import Assessment
-from src.db.models.academics.attendance import Attendance
-from src.db.models.academics.grade import Grade
 from src.db.models.people.student import Student
 from src.db.models.people.teacher import Teacher
 from src.schemas.academics.dashboard import AcademicDashboardStats
@@ -131,14 +126,12 @@ class AcademicDashboardService:
             print(f"DEBUG: Found active enrollment: {active_enrollment.id}, Status: {active_enrollment.status}, Grade ID: {active_enrollment.grade_id}")
 
         # 1. GPA Calculation
-        # Use Grade model (src.db.models.academics.grade)
-        assessment_grades = self.db.query(Grade).filter(
-            Grade.student_id == student_id,
-            Grade.tenant_id == self.tenant_id
-        ).all()
-        
-        valid_grades = [g for g in assessment_grades if g.percentage is not None]
-        gpa_raw = sum(g.percentage for g in valid_grades) / len(valid_grades) if valid_grades else 0.0
+        # Published results only (phase 4): the overall yearly average on a 4.0 scale
+        gpa_raw = 0.0
+        if active_enrollment is not None:
+            from src.services.academics.results_service import subject_outcomes
+            _, _, overall = subject_outcomes(self.db, self.tenant_id, active_enrollment)
+            gpa_raw = overall or 0.0
         gpa = round((gpa_raw / 100) * 4.0, 1) # Simple 4.0 scale
 
         # 2. Active Courses
@@ -187,60 +180,23 @@ class AcademicDashboardService:
             ).all()
             submitted_ids = {s[0] for s in submitted_ids}
             
-            p_assignments = len([a for a in all_assignments if a.id not in submitted_ids])
-            pending_tasks += p_assignments
+            # Gradebook assessments (tests, quizzes, the semester exam) are columns teachers fill
+            # in, not tasks the student hands in, so only unsubmitted homework counts.
+            pending_tasks += len([a for a in all_assignments if a.id not in submitted_ids])
 
-            # B. Assessments (Quizzes, Tests, Projects, etc.)
-            # Non-assignment assessments that are published and not yet graded for this student
-            all_assessments = self.db.query(Assessment).filter(
-                Assessment.grade_id == active_enrollment.grade_id,
-                Assessment.is_published == True,
-                Assessment.tenant_id == self.tenant_id
-            ).all()
+        # 4. Attendance Rate: school-day records this academic year, same formula as everywhere else
+        from src.db.models.academics.attendance import calculate_attendance_rate
+        from src.db.models.academics.daily_attendance import DailyAttendance
+        from src.services.academics.attendance_access import academic_year_for
 
-            # Get assessment_ids that already have grades for this student
-            from src.db.models.academics.grade import GradeType
-            assessment_ids_with_grades = self.db.query(Grade.assessment_id).filter(
-                Grade.student_id == student_id,
-                Grade.assessment_type.in_([
-                    GradeType.QUIZ, GradeType.TEST, GradeType.PROJECT, 
-                    GradeType.PARTICIPATION, GradeType.OTHER
-                ]),
-                Grade.tenant_id == self.tenant_id
-            ).all()
-            assessment_ids_with_grades = {g[0] for g in assessment_ids_with_grades}
-            
-            pending_tasks += len([a for a in all_assessments if a.id not in assessment_ids_with_grades])
-
-            # C. Exams
-            all_exams = self.db.query(Exam).filter(
-                Exam.grade_id == active_enrollment.grade_id,
-                Exam.is_published == True,
-                Exam.tenant_id == self.tenant_id
-            ).all()
-
-            exam_ids_with_grades = self.db.query(Grade.assessment_id).filter(
-                Grade.student_id == student_id,
-                Grade.assessment_type == GradeType.EXAM,
-                Grade.tenant_id == self.tenant_id
-            ).all()
-            exam_ids_with_grades = {g[0] for g in exam_ids_with_grades}
-
-            pending_tasks += len([e for e in all_exams if e.id not in exam_ids_with_grades])
-
-        # 4. Attendance Rate
-        from src.db.models.academics.attendance import AttendanceStatus
-        attendance_stats = self.db.query(
-            func.count(Attendance.id),
-            func.sum(case((Attendance.status == AttendanceStatus.PRESENT, 1), else_=0))
-        ).filter(
-            Attendance.student_id == student_id,
-            Attendance.tenant_id == self.tenant_id
-        ).first()
-        
-        att_total = attendance_stats[0] or 0
-        att_present = attendance_stats[1] or 0
-        att_rate = (att_present / att_total * 100) if att_total > 0 else 0.0
+        ay = academic_year_for(self.db, self.tenant_id, date.today())
+        status_query = self.db.query(DailyAttendance.status, func.count(DailyAttendance.id)).filter(
+            DailyAttendance.student_id == student_id,
+            DailyAttendance.tenant_id == self.tenant_id
+        )
+        if ay:
+            status_query = status_query.filter(DailyAttendance.academic_year_id == ay.id)
+        att_rate = calculate_attendance_rate(dict(status_query.group_by(DailyAttendance.status).all()))
 
         return {
             "gpa": gpa,
@@ -255,7 +211,6 @@ class AcademicDashboardService:
         from src.db.models.academics.class_subject import ClassSubject
         from src.db.models.academics.submission import Submission, SubmissionStatus
         from src.db.models.academics.assignment import Assignment
-        from src.db.models.academics.class_enrollment import ClassEnrollment
 
         # 1. Assigned Classes (Teacher can be a Subject Teacher OR a Class Sponsor)
         # Get IDs of classes where teacher is assigned via ClassSubject
@@ -278,22 +233,11 @@ class AcademicDashboardService:
         assigned_classes_count = len(all_class_ids)
 
         # 2. Total Students (Unique across all assigned classes)
-        # We query the Enrollment table based on Grade, Section, and Year that match the assigned classes.
-        # This is because students are enrolled in Grades/Sections, and Classes represent those units.
-        from src.db.models.academics.enrollment import Enrollment
-        from sqlalchemy import and_
-
+        # Each enrollment names its class (enrollments.class_id).
         total_students = 0
         if all_class_ids:
-            total_students = self.db.query(func.count(func.distinct(Enrollment.student_id))).join(
-                Class, and_(
-                    Class.grade_id == Enrollment.grade_id,
-                    Class.section_id == Enrollment.section_id,
-                    Class.academic_year_id == Enrollment.academic_year_id,
-                    Class.tenant_id == Enrollment.tenant_id
-                )
-            ).filter(
-                Class.id.in_(all_class_ids),
+            total_students = self.db.query(func.count(func.distinct(Enrollment.student_id))).filter(
+                Enrollment.class_id.in_(all_class_ids),
                 Enrollment.status == "active",
                 Enrollment.tenant_id == self.tenant_id
             ).scalar() or 0

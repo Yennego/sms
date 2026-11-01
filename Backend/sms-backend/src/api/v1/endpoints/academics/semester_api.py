@@ -55,11 +55,4 @@ async def delete_semester(
     await semester_service.delete(id=semester_id)
     return {"message": "Semester deleted successfully"}
 
-@router.post("/semesters/{semester_id}/toggle-published", response_model=Semester)
-async def toggle_semester_published(
-    semester_id: UUID,
-    semester_service: SemesterService = Depends(),
-    current_user = Depends(has_permission("manage_academic_year"))
-) -> Any:
-    """Toggle the global publication status for a semester."""
-    return await semester_service.toggle_publication(semester_id)
+# Publishing is per class: /gradebook/publications (phase4-design.md §4).

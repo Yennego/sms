@@ -1,7 +1,15 @@
-import { redirect } from 'next/navigation';
+'use client';
 
-export default async function FinanceRootPage({ params }: { params: Promise<{ tenantDomain: string }> }) {
-    const { tenantDomain } = await params;
-    // Redirect base /finance to the revenue dashboard
-    redirect(`/${tenantDomain}/finance/revenue`);
+import { Suspense } from 'react';
+import { useParams } from 'next/navigation';
+
+import { OverviewScreen } from '@/components/fees/overview-screen';
+
+export default function FeesOverviewPage() {
+  const params = useParams<{ tenantDomain: string }>();
+  return (
+    <Suspense fallback={null}>
+      <OverviewScreen school={params.tenantDomain} />
+    </Suspense>
+  );
 }

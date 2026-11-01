@@ -8,6 +8,7 @@ from sqlalchemy import desc
 from src.db.models.logging.super_admin_activity_log import SuperAdminActivityLog
 from src.db.models.auth.user import User
 from src.schemas.logging.super_admin_activity_log import SuperAdminActivityLogCreate, SuperAdminActivityLogUpdate
+from src.services.logging.activity_log_service import is_key_event
 
 
 class SuperAdminActivityLogService:
@@ -56,43 +57,7 @@ class SuperAdminActivityLogService:
         
         return activity_log
     
-    def get_all_logs(
-        self, 
-        skip: int = 0, 
-        limit: int = 100,
-        user_id: Optional[UUID] = None,
-        action: Optional[str] = None,
-        entity_type: Optional[str] = None,
-        target_tenant_id: Optional[UUID] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
-    ) -> List[SuperAdminActivityLog]:
-        """Get super-admin activity logs with filtering."""
-        query = self.db.query(SuperAdminActivityLog)
-        
-        # Apply filters
-        if user_id:
-            query = query.filter(SuperAdminActivityLog.user_id == user_id)
-        if action:
-            query = query.filter(SuperAdminActivityLog.action == action)
-        if entity_type:
-            query = query.filter(SuperAdminActivityLog.entity_type == entity_type)
-        if target_tenant_id:
-            query = query.filter(SuperAdminActivityLog.target_tenant_id == target_tenant_id)
-        if start_date and end_date:
-            query = query.filter(SuperAdminActivityLog.created_at.between(start_date, end_date))
-        elif start_date:
-            query = query.filter(SuperAdminActivityLog.created_at >= start_date)
-        elif end_date:
-            query = query.filter(SuperAdminActivityLog.created_at <= end_date)
-        
-        # Order by most recent first
-        query = query.order_by(desc(SuperAdminActivityLog.created_at))
-        
-        # Apply pagination
-        return query.offset(skip).limit(limit).all()
-    
-    def get_count(
+    def _filtered(
         self,
         user_id: Optional[UUID] = None,
         action: Optional[str] = None,
@@ -100,11 +65,9 @@ class SuperAdminActivityLogService:
         target_tenant_id: Optional[UUID] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None
-    ) -> int:
-        """Get count of super-admin activity logs with filtering."""
-        query = self.db.query(SuperAdminActivityLog)
-        
-        # Apply same filters as get_all_logs
+    ):
+        """Key actions (create/update/delete) matching the given filters."""
+        query = self.db.query(SuperAdminActivityLog).filter(is_key_event(SuperAdminActivityLog))
         if user_id:
             query = query.filter(SuperAdminActivityLog.user_id == user_id)
         if action:
@@ -119,5 +82,16 @@ class SuperAdminActivityLogService:
             query = query.filter(SuperAdminActivityLog.created_at >= start_date)
         elif end_date:
             query = query.filter(SuperAdminActivityLog.created_at <= end_date)
-        
-        return query.count()
+        return query
+
+    def get_all_logs(self, skip: int = 0, limit: int = 100, **filters) -> List[SuperAdminActivityLog]:
+        """Get super-admin activity logs with filtering, most recent first."""
+        return (
+            self._filtered(**filters)
+            .order_by(desc(SuperAdminActivityLog.created_at))
+            .offset(skip).limit(limit).all()
+        )
+
+    def get_count(self, **filters) -> int:
+        """Get count of super-admin activity logs with filtering."""
+        return self._filtered(**filters).count()

@@ -3,6 +3,11 @@ from typing import Optional, List
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
+# A "class enrollment" is now a view of the student's one enrollment for the year
+# (enrollments table): id is the enrollment id, status uses the enrollment vocabulary
+# (active, withdrawn, completed, ...; "dropped" is accepted as input for withdrawn), and
+# drop_date / completion_date are the enrollment's withdrawal_date.
+
 
 class ClassEnrollmentBase(BaseModel):
     student_id: UUID
@@ -20,6 +25,8 @@ class ClassEnrollmentCreate(ClassEnrollmentBase):
 
 
 class ClassEnrollmentUpdate(BaseModel):
+    # Move the student to another class of the same school year (grade/section follow the class)
+    class_id: Optional[UUID] = None
     enrollment_date: Optional[date] = None
     status: Optional[str] = None
     is_active: Optional[bool] = None

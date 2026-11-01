@@ -39,6 +39,8 @@ cleanup*.py
 patch_*.py
 raw_*.py
 test_*.py
+# ...but the real test suite is kept
+!Backend/sms-backend/tests/test_*.py
 migrate_*.py
 compare_*.py
 compact_*.py
@@ -81,8 +83,14 @@ Frontend/sms-client.zip
 alembic_output*.txt
 response.json
 error_*.json
-scripts/
-docs/
+# One-off scripts stay local; operational ones (cron, database setup, recovery) are kept
+**/scripts/*
+!Backend/sms-backend/scripts/close_attendance_days.py
+!Backend/sms-backend/scripts/send_notifications.py
+!Backend/sms-backend/scripts/run_platform_billing.py
+!Backend/sms-backend/scripts/cleanup_files.py
+!Backend/sms-backend/scripts/create_app_db_role.sql
+!Backend/sms-backend/scripts/reset_super_admin_password.py
 
 # agent
 .agents/
@@ -90,3 +98,8 @@ docs/
 .cursor/
 .gemini/
 antigravity/
+# Env backups/variants hold secrets too (keep only the example)
+.env.*
+!.env.example
+# Uploaded files on local disk (FILE_STORAGE=local)
+Backend/sms-backend/storage/

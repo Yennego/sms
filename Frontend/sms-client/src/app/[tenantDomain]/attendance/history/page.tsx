@@ -2,71 +2,17 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
 import { useTenant } from '@/hooks/use-tenant';
-import { useAuth } from '@/hooks/use-auth';
-import { Button } from '@/components/ui/button';
-import { ArrowLeft } from 'lucide-react';
-import { StudentAttendanceHistory } from '@/components/attendance/StudentAttendanceHistory';
 
-export default function AttendanceHistoryPage() {
+// Replaced by role-specific pages; /attendance sends each role to its own attendance view.
+export default function RedirectPage() {
   const router = useRouter();
-  const { tenant, isLoading: tenantLoading } = useTenant();
-  const { user, isLoading: authLoading } = useAuth();
+  const { tenant } = useTenant();
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      if (tenant?.domain) {
-        router.push(`/${tenant.domain}/login`);
-      } else {
-        router.push('/login');
-      }
-    }
-  }, [user, authLoading, router, tenant]);
+    if (tenant?.domain) router.replace(`/${tenant.domain}/attendance`);
+  }, [tenant?.domain, router]);
 
-  if (tenantLoading || authLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold mb-2">Loading...</h2>
-          <p className="text-gray-500">Please wait...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold mb-2">Redirecting...</h2>
-          <p className="text-gray-500">Please wait...</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="container mx-auto p-6">
-      {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
-        <Button 
-          variant="outline" 
-          size="sm"
-          onClick={() => router.push(`/${tenant?.domain}/attendance`)}
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back
-        </Button>
-        <div>
-          <h1 className="text-3xl font-bold">My Attendance History</h1>
-          <p className="text-gray-600 mt-1">
-            View your attendance record and performance
-          </p>
-        </div>
-      </div>
-
-      {/* Student Attendance History */}
-      <StudentAttendanceHistory studentId={user.id} />
-    </div>
-  );
+  return <div className="flex justify-center py-24"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>;
 }

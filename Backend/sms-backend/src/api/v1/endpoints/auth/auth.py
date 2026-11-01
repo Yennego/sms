@@ -2,7 +2,8 @@ from typing import Any, List, Optional
 from uuid import UUID
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Body
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request, Body, File, UploadFile
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from pydantic import BaseModel
@@ -17,17 +18,19 @@ from src.schemas.auth import UserRole, UserRoleCreate, UserRoleUpdate
 from src.schemas.auth.token import Token
 from src.core.config import settings
 from src.core.security.jwt import create_access_token, create_refresh_token, verify_token
-from src.core.security.permissions import has_role, has_any_role, has_permission, admin_with_tenant_check
+from src.core.security.permissions import has_role, has_any_role, has_permission, require_super_admin
 from src.core.middleware.tenant import get_tenant_id_from_request, get_optional_tenant_id_from_request
-from src.core.security.auth import get_current_active_user, get_current_user
+from src.core.security.auth import get_current_active_user, get_current_user, is_super_admin
 from src.core.security.password import verify_password, get_password_hash
 from src.services.notification.email_service import EmailService
-from src.services.auth.password_policy import PasswordPolicy
+from src.core.security.password_policy import PasswordPolicy
 from src.services.auth.password_strength import calculate_password_strength
-from src.services.auth.password import generate_default_password
+from src.core.security.password import generate_default_password
 from src.services.logging import AuditLoggingService
 from src.services.auth.token_blacklist import TokenBlacklistService
 from src.core.redis import cache, REDIS_AVAILABLE
+from src.core.security.client_ip import client_ip
+from src.services.billing import access as billing_access
 
 # Define the oauth2_scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -56,8 +59,8 @@ def create_user(
         )
     new_user = user_crud.create(db, tenant_id=tenant_id, obj_in=user_in)
     
-    # Send email notification if a password was generated
-    if hasattr(new_user, 'generated_password'):
+    # Send email notification if a password was generated (accounts may have no email)
+    if hasattr(new_user, 'generated_password') and new_user.email:
         email_service = EmailService()
         email_service.send_password_notification(
             new_user.email, 
@@ -85,11 +88,9 @@ def get_users(
     role_id: Optional[UUID] = None,
     sort_by: Optional[str] = "created_at",
     sort_order: str = "asc",
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(has_permission("view_users")),
 ) -> Any:
     """Get all users for a tenant with optional server-side filters."""
-    is_super_admin = any(role.name == "super-admin" for role in current_user.roles)
-    
     return user_crud.list_with_filters(
         db,
         tenant_id=tenant_id,
@@ -100,50 +101,134 @@ def get_users(
         sort_order=sort_order,
         skip=skip,
         limit=limit,
-        exclude_super_admin=not is_super_admin
+        exclude_super_admin=not is_super_admin(current_user)
     )
 
 @router.get("/users/active", response_model=List[User])
-def get_active_users(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), skip: int = 0, limit: int = 100) -> Any:
-    """Get all active users for a tenant."""
-    return user_crud.get_active_users(db, tenant_id=tenant_id, skip=skip, limit=limit)
+def get_active_users(
+    *, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request),
+    skip: int = 0, limit: int = 100,
+    current_user: User = Depends(has_permission("view_users"))
+) -> Any:
+    """Get all active users for a tenant (super-admins are never listed to schools)."""
+    users = user_crud.get_active_users(db, tenant_id=tenant_id, skip=skip, limit=limit)
+    if is_super_admin(current_user):
+        return users
+    return [u for u in users if not is_super_admin(u)]
+
+@router.get("/users/directory")
+def user_directory(
+    *, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request),
+    q: Optional[str] = None, role: Optional[str] = None, status_filter: str = Query("all", alias="status"),
+    page: int = 1, page_size: int = 25,
+    current_user: User = Depends(has_permission("view_users"))
+) -> Any:
+    """Everyone in your school, paged, for the Users page: search by name, username, email or
+    phone; filter by role name and active/inactive. Platform accounts are never listed."""
+    from sqlalchemy import func, or_
+    from src.db.models.auth import User as UserModel
+    from src.db.models.auth.user_role import UserRole as RoleModel
+
+    if status_filter not in ("all", "active", "inactive"):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="status must be all, active or inactive")
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 100)
+    query = db.query(UserModel).filter(
+        UserModel.tenant_id == tenant_id,
+        ~UserModel.roles.any(RoleModel.name.in_(["super-admin", "superadmin"])),
+    )
+    if q and q.strip():
+        term = f"%{q.strip().lower()}%"
+        query = query.filter(or_(
+            func.lower(func.concat(UserModel.first_name, " ", UserModel.last_name)).like(term),
+            func.lower(UserModel.username).like(term),
+            func.lower(func.coalesce(UserModel.email, "")).like(term),
+            func.coalesce(UserModel.phone_number, "").like(term),
+        ))
+    if role:
+        query = query.filter(UserModel.roles.any(RoleModel.name == role))
+    if status_filter != "all":
+        query = query.filter(UserModel.is_active == (status_filter == "active"))
+    total = query.with_entities(func.count(UserModel.id)).scalar() or 0
+    rows = (query.order_by(func.lower(UserModel.first_name), func.lower(UserModel.last_name), UserModel.id)
+            .offset((page - 1) * page_size).limit(page_size).all())
+    items = [{
+        "id": u.id, "name": f"{u.first_name or ''} {u.last_name or ''}".strip(), "username": u.username,
+        "email": u.email, "phone_number": u.phone_number, "roles": sorted(r.name for r in u.roles),
+        "is_active": u.is_active, "must_change_password": bool(u.is_first_login), "last_login": u.last_login,
+    } for u in rows]
+    return {"items": items, "total": total, "page": page, "page_size": page_size,
+            "pages": (total + page_size - 1) // page_size}
+
 
 @router.get("/users/{user_id}", response_model=User)
-def get_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), user_id: UUID) -> Any:
-    """Get a specific user by ID."""
+def get_user(
+    *, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), user_id: UUID,
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    """Get a specific user by ID (yourself, or anyone in your school with view_users)."""
+    if current_user.id != user_id:
+        _require_permission(current_user, "view_users")
     user = user_crud.get_by_id(db, tenant_id=tenant_id, id=user_id)
-    if not user:
+    if not user or (is_super_admin(user) and not is_super_admin(current_user)):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
     return user
 
-# Add this import at the top
-from src.services.logging import AuditLoggingService
+# Fields a user may change on their own account; everything else is admin-managed
+SELF_EDITABLE_FIELDS = {"first_name", "last_name", "phone_number", "profile_picture", "preferences", "address"}
 
-# Update the update_user function
+
+def _has_perm(user: User, permission: str) -> bool:
+    return is_super_admin(user) or any(
+        p.name == permission for role in user.roles for p in role.permissions
+    )
+
+
+def _require_permission(user: User, permission: str) -> None:
+    if not _has_perm(user, permission):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"User does not have permission: {permission}")
+
+
 @router.put("/users/{user_id}", response_model=User)
-def update_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), user_id: UUID, user_in: UserUpdate, current_user: User = Depends(get_current_user)) -> Any:
-    """Update a user."""
-    
-    # Check if current user is super admin updating their own profile
-    is_super_admin = any(role.name == "super-admin" for role in current_user.roles)
+def update_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), user_id: UUID, user_in: UserUpdate, current_user: User = Depends(get_current_active_user)) -> Any:
+    """Update a user.
+
+    - Your own account: profile fields only (name, phone, picture, preferences, address).
+    - Someone else: needs manage_users, same school, and never a super-admin unless you are one.
+    - Passwords never change here: use /change-password or /admin/reset-password.
+    """
+    changes = user_in.model_dump(exclude_unset=True)
+    if "password" in changes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Passwords can't be changed here. Use change password or an admin password reset."
+        )
+
     is_self_update = current_user.id == user_id
-    
-    if is_super_admin and is_self_update:
-        # For super admin self-updates, use global lookup to bypass tenant restrictions
-        user = user_crud.get_by_id_global(db, id=user_id)
+    actor_is_super_admin = is_super_admin(current_user)
+    if is_self_update:
+        forbidden = set(changes) - SELF_EDITABLE_FIELDS
+        if forbidden and not actor_is_super_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"You can't change these fields on your own account: {', '.join(sorted(forbidden))}"
+            )
+        user = current_user
     else:
-        # Regular tenant-scoped lookup for all other cases
+        _require_permission(current_user, "manage_users")
         user = user_crud.get_by_id(db, tenant_id=tenant_id, id=user_id)
-    
+        if user and is_super_admin(user) and not actor_is_super_admin:
+            user = None  # super-admin accounts are invisible to schools
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    
+
     # Store old values for audit
     old_values = {
         "email": user.email,
@@ -152,10 +237,8 @@ def update_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_
         "is_active": user.is_active
     }
     
-    # For super admin self-updates, use the user's actual tenant_id for the update
-    update_tenant_id = user.tenant_id if (is_super_admin and is_self_update) else tenant_id
-    
-    updated_user = user_crud.update(db, tenant_id=update_tenant_id, db_obj=user, obj_in=user_in)
+    update_tenant_id = user.tenant_id
+    updated_user = user_crud.update(db, tenant_id=update_tenant_id, db_obj=user, obj_in=changes)
     
     # Log the activity
     try:
@@ -166,7 +249,7 @@ def update_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_
             entity_type="user",
             entity_id=user_id,
             old_values=old_values,
-            new_values=user_in.model_dump(exclude_unset=True)
+            new_values=changes
         )
     except Exception as e:
         print(f"Error logging user update activity: {e}")
@@ -175,9 +258,13 @@ def update_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_
 
 # Update the delete_user function
 @router.delete("/users/{user_id}", response_model=User)
-def delete_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), user_id: UUID, current_user: User = Depends(get_current_user)) -> Any:
-    """Delete a user."""
+def delete_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), user_id: UUID, current_user: User = Depends(has_permission("delete_users"))) -> Any:
+    """Delete a user in your school (never yourself, never a super-admin unless you are one)."""
+    if current_user.id == user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You can't delete your own account")
     user = user_crud.get_by_id(db, tenant_id=tenant_id, id=user_id)
+    if user and is_super_admin(user) and not is_super_admin(current_user):
+        user = None
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -216,9 +303,9 @@ def create_permission(
     *,
     db: Session = Depends(get_db),
     permission_in: PermissionCreate,
-    current_user: User = Depends(has_permission("manage_permissions"))
+    current_user: User = Depends(require_super_admin())
 ) -> Any:
-    """Create a new permission."""
+    """Create a new permission (super-admin: the catalogue is shared by every school)."""
     permission = permission_crud.get_by_name(db, name=permission_in.name)
     if permission:
         raise HTTPException(
@@ -233,65 +320,186 @@ def get_permissions(*, db: Session = Depends(get_db), skip: int = 0, limit: int 
     return permission_crud.get_multi(db, skip=skip, limit=limit)
 
 # UserRole endpoints
+# --- Roles: system roles (shared, platform-managed) and per-school custom roles -------------
+
+# Permissions that act across schools: never granted by a school's custom role
+PLATFORM_PERMISSIONS = {
+    "manage_tenants", "manage_permissions", "view_all_audit_logs", "view_all_users", "view_system_reports",
+}
+# Names the code checks by role name (has_any_role, attendance access, ...): custom roles can't use them
+RESERVED_ROLE_NAMES = {"super-admin", "superadmin", "admin", "principal", "dean"}
+
+
+def _normalize_role_name(name: str) -> str:
+    return "-".join(name.split()).lower().replace("_", "-")
+
+
+def _role_tenant(request: Request) -> Optional[UUID]:
+    """The school roles are managed for: the caller's school (a super-admin's chosen one, or None)."""
+    return getattr(request.state, "tenant_id", None)
+
+
+def _visible_role(db: Session, request: Request, role_id: UUID, current_user: User):
+    role = user_role_crud.get_visible(db, role_id=role_id, tenant_id=_role_tenant(request))
+    if role is None and is_super_admin(current_user):
+        role = user_role_crud.get(db, id=role_id)
+    if role is None or (role.name in ("super-admin", "superadmin") and not is_super_admin(current_user)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
+    return role
+
+
+def _editable_role(db: Session, request: Request, role_id: UUID, current_user: User):
+    """System roles change only on the platform; a school edits its own custom roles."""
+    role = _visible_role(db, request, role_id, current_user)
+    if role.tenant_id is None and not is_super_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Built-in roles are shared by every school and can't be changed. Create a custom role instead.",
+        )
+    return role
+
+
+def _school_user_for_roles(db: Session, tenant_id: UUID, user_id: UUID, current_user: User):
+    user = user_crud.get_by_id(db, tenant_id=tenant_id, id=user_id)
+    if not user or (is_super_admin(user) and not is_super_admin(current_user)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return user
+
+
 @router.post("/roles", response_model=UserRole, status_code=status.HTTP_201_CREATED)
-def create_role(*, db: Session = Depends(get_db), role_in: UserRoleCreate) -> Any:
-    """Create a new user role."""
-    role = user_role_crud.get_by_name(db, name=role_in.name)
-    if role:
+def create_role(
+    *, request: Request, db: Session = Depends(get_db), role_in: UserRoleCreate,
+    current_user: User = Depends(has_permission("manage_roles"))
+) -> Any:
+    """Create a role.
+
+    A school admin creates a custom role for their own school; a super-admin with no school
+    chosen creates a system role shared by every school.
+    """
+    tenant_id = _role_tenant(request)
+    name = " ".join(role_in.name.split())
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Role name is required")
+    normalized = _normalize_role_name(name)
+    system_names = {_normalize_role_name(r.name) for r in user_role_crud.list_visible(db, tenant_id=None) if r.tenant_id is None}
+    if tenant_id is not None and (normalized in system_names or normalized in RESERVED_ROLE_NAMES):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Role with this name already exists"
+            detail=f"'{name}' is a built-in role name. Choose another name.",
         )
-    return user_role_crud.create(db, obj_in=role_in)
+    taken = any(
+        r.tenant_id == tenant_id and _normalize_role_name(r.name) == normalized
+        for r in user_role_crud.list_visible(db, tenant_id=tenant_id)
+    )
+    if taken:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Role with this name already exists")
+    role = user_role_crud.model(
+        name=name, description=role_in.description,
+        tenant_id=tenant_id, is_system=tenant_id is None,
+    )
+    db.add(role)
+    db.commit()
+    db.refresh(role)
+    return role
+
 
 @router.get("/roles", response_model=List[UserRole])
 def get_roles(
     *,
+    request: Request,
     db: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 100,
     current_user: User = Depends(get_current_user)
 ) -> Any:
-    """Get all user roles."""
-    roles = user_role_crud.get_multi(db, skip=skip, limit=limit)
-    is_super_admin = any(role.name == "super-admin" for role in current_user.roles)
-    if not is_super_admin:
+    """Built-in roles plus the caller's school's custom roles."""
+    roles = user_role_crud.list_visible(db, tenant_id=_role_tenant(request))
+    if not is_super_admin(current_user):
         roles = [r for r in roles if r.name not in ("super-admin", "superadmin")]
-    return roles
+    return roles[skip:skip + limit]
 
 
-# Redis-based rate limiter
-async def rate_limit_login(request: Request):
+@router.delete("/roles/{role_id}", response_model=UserRole)
+def delete_role(
+    *, request: Request, db: Session = Depends(get_db), role_id: UUID,
+    current_user: User = Depends(has_permission("manage_roles"))
+) -> Any:
+    """Delete a role nobody holds (a school deletes its custom roles; built-in: super-admin only)."""
+    role = _editable_role(db, request, role_id, current_user)
+    if role.users:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Remove this role from its users before deleting it.",
+        )
+    role.permissions = []
+    db.delete(role)
+    db.commit()
+    return role
+
+
+# Redis-based login throttling (15-minute windows):
+# - per IP: at most LOGIN_ATTEMPTS_PER_IP attempts (a whole school may share one IP);
+# - per account: locked after LOGIN_FAILURES_PER_ACCOUNT failed passwords.
+LOGIN_WINDOW_SECONDS = 900
+LOGIN_ATTEMPTS_PER_IP = 30
+LOGIN_FAILURES_PER_ACCOUNT = 5
+TOO_MANY_ATTEMPTS = HTTPException(
+    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+    detail="Too many login attempts. Please wait 15 minutes and try again."
+)
+
+
+async def _login_cache():
     if not REDIS_AVAILABLE:
-        return
-
-    # Ensure connection
+        return None
     if not cache.client:
         await cache.connect()
-    
-    if not cache.client:
-        return
+    return cache.client
 
-    ip = request.client.host
-    key = f"login_attempts:{ip}"
-    
-    # Increment count
+
+def _account_key(username: str) -> str:
+    return f"login_failures:{(username or '').strip().lower()}"
+
+
+async def rate_limit_login(request: Request):
+    client = await _login_cache()
+    if not client:
+        return
+    form = await request.form()
+    ip_key = f"login_attempts:{client_ip(request)}"
     try:
-        # Use a pipeline to ensure atomic operations
-        async with cache.client.pipeline() as pipe:
-            await pipe.incr(key)
-            await pipe.expire(key, 900) # 15 minutes window
-            result = await pipe.execute()
-            count = result[0]
-            
-        if count > 5:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many login attempts. Please try again later."
-            )
+        async with client.pipeline() as pipe:
+            await pipe.incr(ip_key)
+            await pipe.expire(ip_key, LOGIN_WINDOW_SECONDS)
+            await pipe.get(_account_key(form.get("username", "")))
+            ip_count, _, account_failures = await pipe.execute()
     except Exception as e:
-        # Fail open if Redis errors, but log it
+        print(f"Rate limiting error: {e}")  # Redis trouble must not block every login
+        return
+    if ip_count > LOGIN_ATTEMPTS_PER_IP or int(account_failures or 0) >= LOGIN_FAILURES_PER_ACCOUNT:
+        raise TOO_MANY_ATTEMPTS
+
+
+async def _record_login_failure(username: str) -> None:
+    client = await _login_cache()
+    if not client:
+        return
+    try:
+        async with client.pipeline() as pipe:
+            await pipe.incr(_account_key(username))
+            await pipe.expire(_account_key(username), LOGIN_WINDOW_SECONDS)
+            await pipe.execute()
+    except Exception as e:
         print(f"Rate limiting error: {e}")
+
+
+async def _clear_login_failures(username: str) -> None:
+    client = await _login_cache()
+    if client:
+        try:
+            await client.delete(_account_key(username))
+        except Exception as e:
+            print(f"Rate limiting error: {e}")
 
 
 @router.post("/login", response_model=Token, dependencies=[Depends(rate_limit_login)])
@@ -306,6 +514,7 @@ async def login_for_access_token(
     if tenant_id is None or str(tenant_id).lower() in ['none', 'null', 'undefined']:
         user = user_crud.authenticate_global(db, email=form_data.username, password=form_data.password)
         if not user:
+            await _record_login_failure(form_data.username)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
@@ -315,6 +524,7 @@ async def login_for_access_token(
     else:
         user = user_crud.authenticate(db, tenant_id=tenant_id, email=form_data.username, password=form_data.password)
         if not user:
+            await _record_login_failure(form_data.username)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
@@ -326,30 +536,36 @@ async def login_for_access_token(
             detail="Inactive user"
         )
     
-    # Cache super-admin status before commit (which expires the object)
-    is_super_admin = getattr(user, "is_super_admin", False)
-    user_id = user.id
+    await _clear_login_failures(form_data.username)
+    # A suspended school (platform billing) lets only its admins in
+    billing_access.check_sign_in(db, user)
 
-    # Update last login timestamp
+    # Cache super-admin status before commit (which expires the object)
+    super_admin = is_super_admin(user)
+    user_id = user.id
+    user_tenant_id = user.tenant_id
+
+    # Update last login timestamp, and note this month's use (billing; never fails the sign-in)
     user.last_login = datetime.now(timezone.utc)
     db.add(user)
+    billing_access.record_activity(db, user)
     db.commit()
     # Skipping db.refresh(user) as it can cause InvalidRequestError with polymorphic models
     # and we have the necessary data cached.
 
-    final_tenant_id = tenant_id if tenant_id is not None else user.tenant_id
+    # Tokens always carry the user's own school (a super-admin picks a school per request)
+    final_tenant_id = user_tenant_id
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         subject=user_id,
         tenant_id=final_tenant_id,
-        is_super_admin=is_super_admin,
+        is_super_admin=super_admin,
         expires_delta=access_token_expires
     )
-    # Fix the create_refresh_token call around line 291
     refresh_token = create_refresh_token(
         subject=str(user_id),
         tenant_id=str(final_tenant_id),
-        is_super_admin=is_super_admin
+        is_super_admin=super_admin
     )
     # Initialize last activity for the new access token
     issued_payload = await verify_token(access_token)
@@ -381,46 +597,46 @@ async def refresh_access_token(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Refresh token required in body or Authorization header"
             )
-        # Verify refresh token
-        token_data = await verify_token(refresh_token)
+        # Only a refresh token can refresh (an access token, or a revoked one, can't)
+        token_data = await verify_token(refresh_token, expected_type="refresh")
         if not token_data:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid refresh token"
             )
-        
-        # Get user
+
         user = user_crud.get_by_id_global(db, id=UUID(token_data.sub))
         if not user or not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User not found or inactive"
             )
-        
-        # CRITICAL FIX: Handle tenant_id properly from token
-        token_tenant_id = token_data.tenant_id
-        if token_tenant_id is None or str(token_tenant_id).lower() in ['none', 'null', 'undefined']:
-            # Use the user's actual tenant_id from database
-            final_tenant_id = user.tenant_id
-        else:
-            final_tenant_id = token_tenant_id
-        
-        # Create new tokens with proper tenant_id
+
+        # Identity comes from the database, not the old token: the user's own school,
+        # and super-admin status from their current roles
+        super_admin = is_super_admin(user)
+        final_tenant_id = user.tenant_id
+        billing_access.check_sign_in(db, user)
+        billing_access.record_activity(db, user)
+
+        # Rotate: the presented refresh token can't be used again
+        await TokenBlacklistService().blacklist_token(refresh_token, token_data.exp)
+
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         new_access_token = create_access_token(
             subject=str(user.id),
             tenant_id=str(final_tenant_id),
+            is_super_admin=super_admin,
             expires_delta=access_token_expires
         )
         new_refresh_token = create_refresh_token(
             subject=str(user.id),
             tenant_id=str(final_tenant_id),
-            is_super_admin=getattr(user, "is_super_admin", False)
+            is_super_admin=super_admin
         )
         # Initialize last activity for the refreshed access token
         issued_payload = await verify_token(new_access_token)
         if issued_payload and issued_payload.jti:
-            from src.services.auth.token_blacklist import TokenBlacklistService
             await TokenBlacklistService().ensure_last_activity(issued_payload.jti, issued_payload.exp)
         return {
             "access_token": new_access_token,
@@ -428,7 +644,9 @@ async def refresh_access_token(
             "token_type": "bearer",
         }
         
-    except Exception as e:
+    except HTTPException:
+        raise
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token"
@@ -450,6 +668,36 @@ async def read_users_me(current_user: User = Depends(get_current_active_user)):
     # No hardcoding needed - it's already in current_user.tenant_id
     
     return user_dict
+
+def _signatures(db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request),
+                current_user: User = Depends(get_current_active_user)):
+    from src.services.academics.report_identity_service import SignatureService
+    return SignatureService(db, tenant_id, current_user)
+
+
+@router.get("/me/signature")
+def get_my_signature(service=Depends(_signatures)) -> Any:
+    """The signed-in staff member's current signature (phase4-design.md §6)."""
+    return service.get()
+
+
+@router.put("/me/signature")
+async def put_my_signature(file: UploadFile = File(...), service=Depends(_signatures)) -> Any:
+    """Upload (or draw) the signed-in staff member's own signature; PNG or JPEG, at most 1 MB."""
+    from src.services.academics.report_identity_service import image_error
+    from src.utils.report_images import ImageRejected, read_upload
+    try:
+        raw = await read_upload(file)
+    except ImageRejected as err:
+        raise image_error(err)
+    return await run_in_threadpool(service.set, raw)
+
+
+@router.delete("/me/signature")
+def delete_my_signature(service=Depends(_signatures)) -> Any:
+    """Stop using the current signature; cards already published keep showing it."""
+    return service.clear()
+
 
 @router.get("/admin-dashboard")
 async def admin_dashboard(current_user: User = Depends(has_any_role(["admin", "super-admin"]))):
@@ -502,60 +750,83 @@ def change_password(
     }
 
 
-class AdminPasswordReset(BaseModel):
-    user_id: UUID
+# Accounts with one of these roles can only be reset by someone who has one too
+SCHOOL_ADMIN_ROLE_NAMES = ("admin", "tenant-admin")
+
+
+def _is_school_admin(user: User) -> bool:
+    return any(role.name in SCHOOL_ADMIN_ROLE_NAMES for role in user.roles)
+
 
 @router.post("/admin/reset-password/{user_id}")
-def admin_reset_password(
+async def admin_reset_password(
     user_id: UUID,
     db: Session = Depends(get_db),
     tenant_id: UUID = Depends(get_tenant_id_from_request),
-    current_user: User = Depends(admin_with_tenant_check())
+    current_user: User = Depends(has_permission("manage_users"))
 ) -> Any:
-    """Reset a user's password (admin only)"""
+    """Reset the password of anyone in your own school (student, parent, teacher, staff).
+
+    The new password is returned once so the admin can hand it over in person (many families
+    have no email); it is never emailed. The user must choose their own at next sign-in
+    (is_first_login), every session they had ends, and any sign-in lockout is lifted.
+    Another school's account, or a platform account, is 404. A school admin's account can only
+    be reset by a school admin.
+    """
+    if current_user.id == user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Use change password for your own account")
     user = user_crud.get_by_id(db, tenant_id=tenant_id, id=user_id)
+    if user and is_super_admin(user) and not is_super_admin(current_user):
+        user = None
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-    
-    # Generate new password
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if _is_school_admin(user) and not (_is_school_admin(current_user) or is_super_admin(current_user)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Only a school admin can reset an admin's password")
+
     new_password = generate_default_password()
-    
-    # Update user
     user.password_hash = get_password_hash(new_password)
     user.is_first_login = True
-    
     db.add(user)
-    db.commit()
-    
-    # Send email notification
-    email_service = EmailService()
-    email_service.send_password_notification(user.email, new_password)
-    
-    return {"message": "Password reset successful", "generated_password": new_password}
+    db.flush()
+
+    await TokenBlacklistService().revoke_user_sessions(user.id)
+    for name in {user.email, getattr(user, "username", None)} - {None, ""}:
+        await _clear_login_failures(name)
+
+    return {
+        "message": "Password reset successful",
+        "generated_password": new_password,
+        "username": getattr(user, "username", None),
+        "email": user.email,
+    }
+
 
 @router.put("/roles/{role_id}/permissions", response_model=UserRole)
 def set_role_permissions(
     *,
+    request: Request,
     db: Session = Depends(get_db),
     role_id: UUID,
     permission_names: List[str] = Body(..., description="List of permission names to set for the role"),
     current_user: User = Depends(has_permission("manage_roles"))
 ) -> Any:
-    """Add permissions to a role."""
-    # Check if role exists
-    role = user_role_crud.get(db, id=role_id)
-    if not role:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Role not found"
-        )
-    
-    # Get permissions by names
-    permissions = permission_crud.get_multi_by_names(db, names=permission_names)
-    if len(permissions) != len(permission_names):
+    """Replace a role's permissions.
+
+    Schools edit their own custom roles, without platform permissions; built-in roles apply
+    in every school, so only a super-admin changes them.
+    """
+    role = _editable_role(db, request, role_id, current_user)
+    names = sorted(set(permission_names))
+    if role.tenant_id is not None:
+        platform = sorted(set(names) & PLATFORM_PERMISSIONS)
+        if platform:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"These permissions are platform-only: {', '.join(platform)}",
+            )
+    permissions = permission_crud.get_multi_by_names(db, names=names)
+    if len(permissions) != len(names):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="One or more permissions not found")
 
     # Replace the role's permissions with the provided set
@@ -564,42 +835,18 @@ def set_role_permissions(
     db.commit()
     db.refresh(role)
     return role
-    permission_ids = [perm.id for perm in permissions]
-    
-    # Check if all requested permissions exist
-    if len(permission_ids) != len(permission_names):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="One or more permissions not found"
-        )
-    
-    # Add permissions to role
-    return user_role_crud.add_permissions_to_role(db, role_id=role_id, permission_ids=permission_ids)
 
 
 @router.get("/roles/{role_id}/permissions", response_model=List[Permission])
 def get_role_permissions(
     *,
+    request: Request,
     db: Session = Depends(get_db),
     role_id: UUID,
     current_user: User = Depends(has_permission("manage_roles"))
 ) -> Any:
     """Get permissions assigned to a role."""
-    # Check if role exists
-    role = user_role_crud.get(db, id=role_id)
-    if not role:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Role not found"
-        )
-    
-    # Return the permissions associated with the role
-    return role.permissions
-
-
-@router.get("/test-endpoint")
-def test_endpoint():
-    return {"message": "Auth router is working"}
+    return _visible_role(db, request, role_id, current_user).permissions
 
 
 # Add these endpoints to your existing auth.py
@@ -613,37 +860,25 @@ def get_user_roles(
     current_user: User = Depends(has_permission("view_users"))
 ) -> Any:
     """Get roles assigned to a user (tenant-scoped)."""
-    user = user_crud.get_by_id(db, tenant_id=tenant_id, id=user_id)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-    return user.roles
+    return _school_user_for_roles(db, tenant_id, user_id, current_user).roles
 
-# In auth.py — keep a single set of these endpoints
 
 @router.post("/users/{user_id}/roles")
 def assign_roles_to_user(
+    request: Request,
     user_id: UUID,
     role_ids: List[UUID] = Body(..., description="List of role IDs to assign"),
     db: Session = Depends(get_db),
     tenant_id: UUID = Depends(get_tenant_id_from_request),
     current_user: User = Depends(has_permission("manage_users"))
 ):
-    """Assign multiple roles to a user."""
-    user = user_crud.get_by_id(db, tenant_id=tenant_id, id=user_id)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-    roles = db.query(user_role_crud.model).filter(user_role_crud.model.id.in_(role_ids)).all()
+    """Assign built-in roles or this school's custom roles to a user of this school."""
+    user = _school_user_for_roles(db, tenant_id, user_id, current_user)
+    roles = [_visible_role(db, request, role_id, current_user) for role_id in set(role_ids)]
     if not roles:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid roles provided")
-
-    # Block super-admin assignment by non–super-admin actors
-    is_super_admin_actor = any(role.name == "super-admin" for role in current_user.roles)
-    if not is_super_admin_actor and any(role.name in ("super-admin", "superadmin") for role in roles):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot assign super-admin role")
+    if any(role.tenant_id not in (None, user.tenant_id) for role in roles):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A custom role belongs to another school")
 
     for role in roles:
         if role not in user.roles:
@@ -654,8 +889,10 @@ def assign_roles_to_user(
     db.refresh(user)
     return user
 
+
 @router.delete("/users/{user_id}/roles/{role_id}", operation_id="remove_role_from_user")
 def remove_role_from_user(
+    request: Request,
     user_id: UUID,
     role_id: UUID,
     db: Session = Depends(get_db),
@@ -663,13 +900,8 @@ def remove_role_from_user(
     current_user: User = Depends(has_permission("manage_users"))
 ):
     """Remove a role from a user."""
-    user = user_crud.get_by_id(db, tenant_id=tenant_id, id=user_id)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-    role = user_role_crud.get(db, role_id)
-    if not role:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
+    user = _school_user_for_roles(db, tenant_id, user_id, current_user)
+    role = _visible_role(db, request, role_id, current_user)
 
     if role in user.roles:
         user.roles.remove(role)
@@ -679,39 +911,49 @@ def remove_role_from_user(
     db.refresh(user)
     return user
 
+
 @router.get("/roles/{role_id}/users", response_model=List[User], operation_id="get_users_with_role")
 def get_users_with_role(
+    request: Request,
     role_id: UUID,
     db: Session = Depends(get_db),
     tenant_id: UUID = Depends(get_tenant_id_from_request),
     current_user: User = Depends(has_permission("view_users"))
 ):
-    """Get all users with a specific role (tenant-scoped)."""
+    """Get this school's users with a specific role."""
+    _visible_role(db, request, role_id, current_user)
     return user_crud.list_with_filters(
         db,
         tenant_id=tenant_id,
         role_id=role_id,
         skip=0,
-        limit=100
+        limit=100,
+        exclude_super_admin=not is_super_admin(current_user)
     )
+
 
 @router.post("/logout", operation_id="logout")
 async def logout(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
+    request: Request,
+    refresh_token: Optional[str] = Body(None, embed=True),
 ) -> Any:
-    """Logout the current user by blacklisting their token."""
-    try:
-        token_data = await verify_token(token)
-        if token_data and hasattr(token_data, 'exp'):
-            blacklist_service = TokenBlacklistService()
-            await blacklist_service.blacklist_token(token, token_data.exp)
-            return {"message": "Successfully logged out", "status": "success"}
-        else:
-            return {"message": "Successfully logged out", "status": "success"}
-    except Exception as e:
-        print(f"Logout warning: {e}")
-        return {"message": "Successfully logged out", "status": "success"}
+    """Log out: revoke the access token (Authorization header) and the refresh token (body).
+
+    Public route so an expired access token can still revoke its refresh token.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    access_token = auth_header[7:] if auth_header.startswith("Bearer ") else None
+    blacklist_service = TokenBlacklistService()
+    for token, token_type in ((access_token, "access"), (refresh_token, "refresh")):
+        if not token:
+            continue
+        try:
+            token_data = await verify_token(token, expected_type=token_type)
+            if token_data:
+                await blacklist_service.blacklist_token(token, token_data.exp)
+        except Exception as e:
+            print(f"Logout warning: {e}")
+    return {"message": "Successfully logged out", "status": "success"}
 
 @router.put("/permissions/{permission_id}", response_model=Permission)
 def update_permission(
@@ -719,9 +961,9 @@ def update_permission(
     db: Session = Depends(get_db),
     permission_id: UUID,
     permission_in: PermissionUpdate,
-    current_user: User = Depends(has_permission("manage_permissions"))
+    current_user: User = Depends(require_super_admin())
 ) -> Any:
-    """Update a permission (requires manage_permissions)."""
+    """Update a permission (super-admin)."""
     permission = permission_crud.get(db, id=permission_id)
     if not permission:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Permission not found")
@@ -732,9 +974,9 @@ def delete_permission(
     *,
     db: Session = Depends(get_db),
     permission_id: UUID,
-    current_user: User = Depends(has_permission("manage_permissions"))
+    current_user: User = Depends(require_super_admin())
 ) -> Any:
-    """Delete a permission (requires manage_permissions)."""
+    """Delete a permission (super-admin)."""
     permission = permission_crud.get(db, id=permission_id)
     if not permission:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Permission not found")

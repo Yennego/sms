@@ -1,14 +1,13 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-# Endpoint imports (core service endpoint etc)
-# from src.api.v1.endpoints import auth
-# from src.api.v1.endpoints.tenant import router as tenant_router
-from src.api.v1.endpoints import tenant, auth, people, super_admin, academics, communication, logging, resources, finance
-from src.api.v1.endpoints.specialized import financial_academic
+from src.api.v1.endpoints import tenant, auth, people, super_admin, academics, communication, logging, resources, finance, verify, billing
+from src.core.security.auth import authenticate_request
+from src.services.billing.access import enforce_school_billing
 
-# Update the router includes
-api_router = APIRouter()
-
+# Authenticated by default: every route requires a valid session and is bound to the
+# user's own school, except the explicit PUBLIC_ROUTES allow-list in core/security/auth.py.
+# Then the school's platform billing status applies (read-only, suspended: services/billing/access.py).
+api_router = APIRouter(dependencies=[Depends(authenticate_request), Depends(enforce_school_billing)])
 
 
 # Include routers for each module
@@ -20,5 +19,6 @@ api_router.include_router(communication.router, prefix="/communication", tags=["
 api_router.include_router(logging.router, prefix="/logging", tags=["logging"])
 api_router.include_router(resources.router, prefix="/resources", tags=["resources"])
 api_router.include_router(super_admin.router, prefix="/super-admin", tags=["super-admin"])
-api_router.include_router(financial_academic.router, prefix="/specialized", tags=["specialized"])
 api_router.include_router(finance.router, prefix="/finance", tags=["finance"])
+api_router.include_router(billing.router, prefix="/billing", tags=["billing"])
+api_router.include_router(verify.router, prefix="/verify", tags=["verify"])  # public (PUBLIC_ROUTES)

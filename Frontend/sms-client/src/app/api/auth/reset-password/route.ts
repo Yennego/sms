@@ -1,41 +1,24 @@
+// Public: sets a new password with the single-use token from the emailed link. The token only
+// works on its own school, which comes from the page URL (sent as X-Tenant-ID).
 import { NextRequest, NextResponse } from 'next/server';
+import { rejectCrossSite } from '@/app/api/_lib/csrf';
+import { forwardPublicAuthPost, readJson, schoolHeader } from '@/app/api/_lib/public-auth';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { token, password } = body;
-    
-    if (!token) {
-      return NextResponse.json(
-        { message: 'Reset token is required' },
-        { status: 400 }
-      );
-    }
-    
-    // Call backend API
-    const response = await fetch(`${process.env.BACKEND_API_URL}/auth/reset-password`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ token, password }),
-    });
-    
-    const data = await response.json();
-    
-    if (!response.ok) {
-      return NextResponse.json(
-        { message: data.detail || 'Password reset failed' },
-        { status: response.status }
-      );
-    }
-    
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error('Password reset error:', error);
-    return NextResponse.json(
-      { message: 'Internal server error' },
-      { status: 500 }
-    );
+  const blocked = rejectCrossSite(request);
+  if (blocked) return blocked;
+
+  const tenant = schoolHeader(request);
+  if (!tenant) {
+    return NextResponse.json({ detail: "Open the reset link from your email again." }, { status: 400 });
   }
+  const body = await readJson(request);
+  const token = typeof body?.token === 'string' ? body.token : '';
+  const newPassword = typeof body?.new_password === 'string' ? body.new_password : '';
+  if (!token || !newPassword) {
+    return NextResponse.json({ detail: 'The reset link and a new password are required.' }, { status: 400 });
+  }
+  return forwardPublicAuthPost('auth/reset-password', { token, new_password: newPassword }, tenant, request);
 }

@@ -33,7 +33,7 @@ class CRUDGradingSchema(TenantCRUDBase[GradingSchema, GradingSchemaCreate, Gradi
             )
             db.add(category)
         
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(db_obj)
         return db_obj
     
@@ -63,7 +63,7 @@ class CRUDGradingSchema(TenantCRUDBase[GradingSchema, GradingSchemaCreate, Gradi
                 )
                 db.add(category)
         
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(db_obj)
         return db_obj
 

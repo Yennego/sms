@@ -12,13 +12,16 @@ from src.services.academics.promotion_service import PromotionService
 from src.services.academics.promotion_status_service import PromotionStatusService
 from src.db.session import get_db
 from sqlalchemy.orm import Session
-from src.core.auth.dependencies import has_any_role
+from src.core.auth.dependencies import has_any_role, has_any_permission
+
+# Reading promotion rules and decisions is staff-only
+CAN_READ = [Depends(has_any_permission(["promote_students", "view_academic_data", "manage_academic_data"]))]
 from src.schemas.auth import User
 
 # Top-level router setup
 router = APIRouter(prefix="/promotions", tags=["promotions"])
 
-@router.get("/criteria", response_model=List[PromotionCriteria])
+@router.get("/criteria", response_model=List[PromotionCriteria], dependencies=CAN_READ)
 async def list_criteria(
     academic_year_id: Optional[UUID] = Query(None),
     grade_id: Optional[UUID] = Query(None),
@@ -98,7 +101,7 @@ async def evaluate(
         results.append(PromotionEvaluationResult(**res))
     return results
 
-@router.get("/status/{enrollment_id}")
+@router.get("/status/{enrollment_id}", dependencies=CAN_READ)
 async def get_status(
     enrollment_id: UUID,
     service: PromotionStatusService = Depends()
@@ -106,7 +109,7 @@ async def get_status(
     existing = await service.get_by_enrollment(enrollment_id)
     return existing or None
 
-@router.get("/status")
+@router.get("/status", dependencies=CAN_READ)
 async def get_status_by_student_year(
     student_id: UUID = Query(...),
     academic_year_id: UUID = Query(...),

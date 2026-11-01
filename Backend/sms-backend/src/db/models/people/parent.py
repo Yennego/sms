@@ -5,12 +5,25 @@ from src.db.models.auth.user import User
 from src.db.models.base import Base
 from datetime import date
 
-# Association table for many-to-many relationship between parents and students
+def _student_tenant(context):
+    """parent_student.tenant_id is the student's school (filled in for links made through
+    Parent.students, which only know the two ids)."""
+    from sqlalchemy import select
+    student_id = context.get_current_parameters()["student_id"]
+    users = Base.metadata.tables["users"]
+    return context.connection.execute(select(users.c.tenant_id).where(users.c.id == student_id)).scalar()
+
+
+# Association table for many-to-many relationship between parents and students.
+# tenant_id (the student's school): PostgreSQL keeps both ends in that school with the composite
+# keys fk_tn_parent_student_student_id / fk_tn_parent_student_parent_id.
 parent_student = Table(
     'parent_student',
     Base.metadata,
     Column('parent_id', UUID(as_uuid=True), ForeignKey('parents.id'), primary_key=True),
-    Column('student_id', UUID(as_uuid=True), ForeignKey('students.id'), primary_key=True)
+    Column('student_id', UUID(as_uuid=True), ForeignKey('students.id'), primary_key=True),
+    Column('tenant_id', UUID(as_uuid=True), ForeignKey('tenants.id', ondelete='RESTRICT'), nullable=False,
+           default=_student_tenant, index=True),
 )
 
 class Parent(User):
@@ -72,9 +85,9 @@ class Parent(User):
         self.deactivated_date = date_left
         self.deactivation_reason = reason
 
-    def is_active(self) -> bool:
-        return self.status == "active"
-    
+    # No is_active() here: it would hide the users.is_active column (sign-in checks it), so a
+    # deactivated parent could still sign in. A parent's link status is `status`.
+
     # Relationships
     # students = relationship("Student", secondary=parent_student, backref="parents")
     

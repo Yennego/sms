@@ -8,7 +8,6 @@ export interface Period {
     period_number: number;
     start_date: string;
     end_date: string;
-    is_published: boolean;
     is_active: boolean;
 }
 
@@ -22,17 +21,12 @@ export function usePeriodService() {
         return Array.isArray(resp) ? resp : [];
     }, [waitForApiClientReady]);
 
-    const togglePublication = useCallback(async (periodId: string): Promise<Period> => {
-        const client = await waitForApiClientReady();
-        return client.post<Period>(`/academics/periods/${periodId}/toggle-published`, {});
-    }, [waitForApiClientReady]);
-
     const updatePeriod = useCallback(async (periodId: string, payload: Partial<Period>): Promise<Period> => {
         const client = await waitForApiClientReady();
         return client.put<Period>(`/academics/periods/${periodId}`, payload);
     }, [waitForApiClientReady]);
 
-    const createPeriod = useCallback(async (payload: Omit<Period, 'id' | 'is_published' | 'is_active'>): Promise<Period> => {
+    const createPeriod = useCallback(async (payload: Omit<Period, 'id' | 'is_active'>): Promise<Period> => {
         const client = await waitForApiClientReady();
         return client.post<Period>(`/academics/periods`, payload);
     }, [waitForApiClientReady]);
@@ -44,11 +38,10 @@ export function usePeriodService() {
 
     const service = useMemo(() => ({
         getPeriods,
-        togglePublication,
         updatePeriod,
         createPeriod,
         removePeriod
-    }), [getPeriods, togglePublication, updatePeriod, createPeriod, removePeriod]);
+    }), [getPeriods, updatePeriod, createPeriod, removePeriod]);
 
     return service;
 }

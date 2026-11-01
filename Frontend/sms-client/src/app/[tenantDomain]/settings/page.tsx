@@ -1,8 +1,12 @@
 'use client';
 
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 
 export default function SettingsPage() {
+  // Inside the school's address (/{school}/settings/...), not the bare /settings/...
+  const params = useParams();
+  const school = params?.tenantDomain as string;
   const settingsCategories = [
     {
       title: 'System Settings',
@@ -35,14 +39,24 @@ export default function SettingsPage() {
       href: '/settings/timetable'
     },
     {
-      title: 'Communication Settings',
-      description: 'Configure messaging and notification settings',
-      href: '/settings/communication'
+      title: 'Attendance Settings',
+      description: 'School days, late and cut-off times, holidays',
+      href: '/settings/attendance'
     },
     {
-      title: 'WhatsApp Settings',
-      description: 'Configure WhatsApp notifications and templates',
-      href: '/settings/whatsapp'
+      title: 'Notification settings',
+      description: 'Which alerts you also get by email',
+      href: '/settings/notifications'
+    },
+    {
+      title: 'Delivery log',
+      description: 'Alert emails sent, waiting and failed',
+      href: '/settings/deliveries'
+    },
+    {
+      title: 'Billing',
+      description: 'Amount due, invoices, receipts and the data export',
+      href: '/settings/billing'
     }
   ];
 
@@ -52,7 +66,7 @@ export default function SettingsPage() {
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {settingsCategories.map((category) => (
-          <Link key={category.href} href={category.href}>
+          <Link key={category.href} href={`/${school}${category.href}`}>
             <div className="bg-white shadow-md rounded-lg p-6 hover:shadow-lg transition-shadow cursor-pointer h-full">
               <h2 className="text-xl font-semibold mb-2">{category.title}</h2>
               <p className="text-gray-600">{category.description}</p>

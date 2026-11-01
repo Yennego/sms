@@ -58,7 +58,7 @@ class CRUDMessage(TenantCRUDBase[Message, MessageCreate, MessageUpdate]):
             ).values(is_read=True, read_at=datetime.now())
         )
         
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         return result.rowcount > 0
 
 

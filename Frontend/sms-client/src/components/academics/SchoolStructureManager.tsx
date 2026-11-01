@@ -3,17 +3,12 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
+import Link from 'next/link';
 import {
-    Calendar,
     ChevronRight,
     ChevronDown,
-    Globe,
-    Lock,
-    Eye,
     Clock,
     Save,
     Trash2,
@@ -37,12 +32,10 @@ import {
     useCreateSemester,
     useUpdateSemester,
     useDeleteSemester,
-    useToggleSemesterPublication,
     usePeriods,
     useCreatePeriod,
     useUpdatePeriod,
-    useDeletePeriod,
-    useTogglePeriodPublication
+    useDeletePeriod
 } from '@/hooks/queries/semesters-periods';
 import { useAcademicYearsList } from '@/hooks/queries/academic-years';
 import { Semester } from '@/services/api/semester-service';
@@ -54,9 +47,23 @@ interface SemesterItemProps {
     onToggle: () => void;
     onEdit: (sem: Semester) => void;
     onDelete: (id: string) => void;
-    onTogglePublication: (id: string) => void;
     onAddPeriod: (semId: string) => void;
     onEditPeriod: (semId: string, period: Period) => void;
+    /** Link to Grades → Review and publish (results are published per class there). */
+    publishHref: string;
+}
+
+/** Results aren't published per period or semester any more: they are published per class. */
+function PublishNote({ href }: { href: string }) {
+    return (
+        <p className="text-sm text-muted-foreground">
+            Results are published per class in{' '}
+            <Link href={href} className="font-medium text-teal-700 underline underline-offset-2 hover:text-teal-800">
+                Grades → Review and publish
+            </Link>
+            .
+        </p>
+    );
 }
 
 function SemesterItem({
@@ -65,30 +72,20 @@ function SemesterItem({
     onToggle,
     onEdit,
     onDelete,
-    onTogglePublication,
     onAddPeriod,
-    onEditPeriod
+    onEditPeriod,
+    publishHref
 }: SemesterItemProps) {
     const { data: periods = [], isLoading: periodsLoading } = usePeriods(semester.id);
     const deletePeriodMutation = useDeletePeriod(semester.id);
-    const togglePeriodMutation = useTogglePeriodPublication(semester.id);
 
     const handleDeletePeriod = async (id: string) => {
         if (!confirm('Are you sure you want to delete this period?')) return;
         try {
             await deletePeriodMutation.mutateAsync(id);
             toast.success('Period deleted');
-        } catch (error) {
+        } catch {
             toast.error('Failed to delete period');
-        }
-    };
-
-    const handleTogglePeriodPublication = async (id: string) => {
-        try {
-            await togglePeriodMutation.mutateAsync(id);
-            toast.success('Period publication status updated');
-        } catch (error) {
-            toast.error('Failed to update period status');
         }
     };
 
@@ -108,10 +105,6 @@ function SemesterItem({
                         <div>
                             <CardTitle className="text-lg flex items-center gap-2">
                                 {semester.name}
-                                {semester.is_published ?
-                                    <Badge className="bg-green-500/10 text-green-500 border-green-500/20">Published</Badge> :
-                                    <Badge variant="outline" className="text-muted-foreground">Draft</Badge>
-                                }
                             </CardTitle>
                             <CardDescription className="flex items-center gap-2">
                                 <Clock className="h-3 w-3" />
@@ -120,14 +113,7 @@ function SemesterItem({
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium text-muted-foreground">Global Publication</span>
-                            <Switch
-                                checked={semester.is_published}
-                                onCheckedChange={() => onTogglePublication(semester.id)}
-                            />
-                        </div>
-                        <div className="flex items-center gap-1 ml-2 border-l pl-4">
+                        <div className="flex items-center gap-1">
                             <Button variant="ghost" size="sm" onClick={() => onEdit(semester)}>
                                 <Save className="h-4 w-4" />
                             </Button>
@@ -139,7 +125,8 @@ function SemesterItem({
                 </div>
             </CardHeader>
             {expanded && (
-                <CardContent className="pt-6">
+                <CardContent className="pt-6 space-y-4">
+                    <PublishNote href={publishHref} />
                     {periodsLoading ? (
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             {[1, 2, 3].map(i => <Skeleton key={i} className="h-32 w-full" />)}
@@ -159,11 +146,7 @@ function SemesterItem({
                                             </p>
                                         </div>
                                         <div className="flex flex-col items-end gap-2">
-                                            {period.is_published ?
-                                                <Badge className="bg-teal-500 text-white border-none text-[10px] h-5 px-1.5">LIVE</Badge> :
-                                                <Badge variant="secondary" className="text-[10px] h-5 px-1.5 uppercase">Hidden</Badge>
-                                            }
-                                            <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => onEditPeriod(semester.id, period)}>
                                                     <Save className="h-3 w-3" />
                                                 </Button>
@@ -178,21 +161,6 @@ function SemesterItem({
                                                 </Button>
                                             </div>
                                         </div>
-                                    </div>
-
-                                    <div className="flex items-center justify-between mt-6 pt-3 border-t border-teal-100/10">
-                                        <div className="flex items-center gap-2">
-                                            {period.is_published ? <Eye className="h-4 w-4 text-teal-500" /> : <Lock className="h-4 w-4 text-muted-foreground" />}
-                                            <span className="text-[11px] font-medium uppercase tracking-wider">
-                                                {period.is_published ? 'Public' : 'Private'}
-                                            </span>
-                                        </div>
-                                        <Switch
-                                            disabled={togglePeriodMutation.isPending}
-                                            checked={period.is_published}
-                                            onCheckedChange={() => handleTogglePeriodPublication(period.id)}
-                                            className="scale-75"
-                                        />
                                     </div>
                                 </div>
                             ))}
@@ -219,7 +187,7 @@ export function SchoolStructureManager() {
     // Sync selectedYearId with current academic year
     useEffect(() => {
         if (academicYears.length > 0 && !selectedYearId) {
-            const currentYear = academicYears.find((y: any) => y.is_current) || academicYears[0];
+            const currentYear = academicYears.find((y) => y.is_current) || academicYears[0];
             setSelectedYearId(currentYear.id);
         }
     }, [academicYears, selectedYearId]);
@@ -230,7 +198,7 @@ export function SchoolStructureManager() {
     const createSemesterMutation = useCreateSemester();
     const updateSemesterMutation = useUpdateSemester();
     const deleteSemesterMutation = useDeleteSemester(selectedYearId || '');
-    const toggleSemesterMutation = useToggleSemesterPublication();
+    const publishHref = `/${tenantDomain}/academics/grades/publish`;
 
     const createPeriodMutation = useCreatePeriod();
     const updatePeriodMutation = useUpdatePeriod();
@@ -249,15 +217,6 @@ export function SchoolStructureManager() {
             ...prev,
             [semId]: !prev[semId]
         }));
-    };
-
-    const handleToggleSemesterPublication = async (semId: string) => {
-        try {
-            await toggleSemesterMutation.mutateAsync(semId);
-            toast.success('Semester publication status updated');
-        } catch (error) {
-            toast.error('Failed to update semester status');
-        }
     };
 
     const handleSaveSemester = async () => {
@@ -281,7 +240,7 @@ export function SchoolStructureManager() {
                 toast.success('Semester created successfully');
             }
             setIsSemesterDialogOpen(false);
-        } catch (error) {
+        } catch {
             toast.error('Failed to save semester');
         }
     };
@@ -291,7 +250,7 @@ export function SchoolStructureManager() {
         try {
             await deleteSemesterMutation.mutateAsync(id);
             toast.success('Semester deleted');
-        } catch (error) {
+        } catch {
             toast.error('Failed to delete semester');
         }
     };
@@ -317,7 +276,7 @@ export function SchoolStructureManager() {
                 toast.success('Period created successfully');
             }
             setIsPeriodDialogOpen(false);
-        } catch (error) {
+        } catch {
             toast.error('Failed to save period');
         }
     };
@@ -336,7 +295,8 @@ export function SchoolStructureManager() {
             <div className="flex items-center justify-between">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight">School Structure</h2>
-                    <p className="text-muted-foreground">Manage academic structures and release all student marks globally.</p>
+                    <p className="text-muted-foreground">Manage the semesters and periods of each school year.</p>
+                    <PublishNote href={publishHref} />
                 </div>
                 <div className="flex gap-2">
                     <Button onClick={() => {
@@ -373,7 +333,7 @@ export function SchoolStructureManager() {
                                 setIsSemesterDialogOpen(true);
                             }}
                             onDelete={handleDeleteSemester}
-                            onTogglePublication={handleToggleSemesterPublication}
+                            publishHref={publishHref}
                             onAddPeriod={(semId) => {
                                 setTargetSemesterId(semId);
                                 setEditingPeriod({ name: '', start_date: '', end_date: '' });

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useAcademicGradeService, AcademicGrade } from '@/services/api/academic-grade-service';
+import { useAcademicGradeService } from '@/services/api/academic-grade-service';
+import type { AcademicGrade } from '@/types/academic-grade';
 
 export const useAcademicGrades = () => {
   const [grades, setGrades] = useState<AcademicGrade[]>([]);

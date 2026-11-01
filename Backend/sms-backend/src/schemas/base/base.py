@@ -32,6 +32,8 @@ class PaginatedResponse(BaseModel, Generic[T]):
     limit: int
     has_next: bool
     has_prev: bool
+    # Optional totals across all pages (e.g. {"active": 30, "inactive": 3}) for list headers
+    counts: Optional[Dict[str, int]] = None
     
     class Config:
         from_attributes = True

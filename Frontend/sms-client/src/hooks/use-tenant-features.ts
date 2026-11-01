@@ -11,7 +11,7 @@ export function useTenantFeatures() {
     const { tenantId } = useTenant();
     const tenantService = useTenantService();
 
-    const { data: settings } = useQuery({
+    const { data: settings, isLoading } = useQuery({
         queryKey: ['tenant-settings', tenantId],
         queryFn: () => tenantService.getSettings(tenantId!),
         enabled: !!tenantId,
@@ -26,5 +26,7 @@ export function useTenantFeatures() {
             return features[featureKey] === true;
         },
         features,
+        /** True until the school's settings have loaded (or failed to). */
+        isLoading: Boolean(tenantId) && isLoading,
     };
 }

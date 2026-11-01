@@ -5,7 +5,6 @@ from sqlalchemy.dialects.postgresql import UUID
 from datetime import date
 
 from src.db.models.base import TenantModel
-from src.db.models.academics.class_enrollment import ClassEnrollment
 
 
 class Class(TenantModel):
@@ -53,7 +52,8 @@ class Class(TenantModel):
     subjects = relationship("ClassSubject", back_populates="class_obj", lazy="selectin", cascade="all, delete-orphan")
     
     # Student management
-    student_enrollments = relationship("ClassEnrollment", back_populates="class_obj", lazy="dynamic")
+    # Every enrollment names its class; year/grade/section are copied from it (see enrollment.py)
+    enrollments = relationship("Enrollment", back_populates="class_obj", lazy="dynamic")
     attendances = relationship("Attendance", back_populates="class_obj")
     
     # Deprecated academic_year string removed

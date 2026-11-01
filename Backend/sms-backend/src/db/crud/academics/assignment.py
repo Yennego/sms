@@ -105,7 +105,7 @@ class CRUDAssignment(TenantCRUDBase[Assignment, AssignmentCreate, AssignmentUpda
             
         assignment.is_published = is_published
         db.add(assignment)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(assignment)
         return assignment
 
@@ -124,12 +124,12 @@ class CRUDAssignment(TenantCRUDBase[Assignment, AssignmentCreate, AssignmentUpda
         for field, value in filters.items():
             if field == "period_id" and value:
                 from src.db.models.academics.period import Period
-                period = db.query(Period).filter(Period.id == value).first()
+                period = db.query(Period).filter(Period.id == value, Period.tenant_id == tenant_id).first()
                 if period:
                     query = query.filter(Assignment.due_date >= period.start_date, Assignment.due_date <= period.end_date)
             elif field == "semester_id" and value:
                 from src.db.models.academics.semester import Semester
-                semester = db.query(Semester).filter(Semester.id == value).first()
+                semester = db.query(Semester).filter(Semester.id == value, Semester.tenant_id == tenant_id).first()
                 if semester:
                     query = query.filter(Assignment.due_date >= semester.start_date, Assignment.due_date <= semester.end_date)
             elif hasattr(Assignment, field) and value is not None:

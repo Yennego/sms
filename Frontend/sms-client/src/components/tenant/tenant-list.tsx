@@ -5,6 +5,11 @@ import { Tenant } from '@/types/tenant';
 import { useTenantService } from '@/services/api/tenant-service';
 import Image from 'next/image';
 import ConfirmationModal from '@/components/common/ConfirmationModal';
+import Link from 'next/link';
+import { useBillingSchools } from '@/components/billing/queries';
+import { BillingStatusBadge } from '@/components/billing/shared';
+import { anyPositive } from '@/components/fees/money';
+import { Amounts } from '@/components/fees/shared';
 
 interface TenantListProps {
   tenants: Tenant[];
@@ -31,6 +36,10 @@ export default function TenantList({
   console.log("received Tenants:", tenants);
 
   const tenantService = useTenantService();
+
+  // Each school's platform billing status and amount due (phase7-design.md §6), by school id
+  const billingPage = useBillingSchools({ page: 1, pageSize: 100 }).data;
+  const billing = new Map((billingPage?.items ?? []).map(b => [b.tenant_id, b]));
 
   // Modal state helpers
   const isModalOpen = modalAction !== null && selectedTenantId !== null;
@@ -209,10 +218,10 @@ export default function TenantList({
               Status
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Plan
+              Billing
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Amount
+              Amount due
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               Created At
@@ -260,12 +269,13 @@ export default function TenantList({
                     {(tenant.isActive ?? (tenant as any).is_active) ? 'Active' : 'Inactive'}
                   </span>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">
-                  {tenant.plan_type?.replace('_', ' ') || 'Flat Rate'}
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  <Link href={`/platform/billing/schools/${tenant.id}`} className="inline-flex" title="Open billing">
+                    {billing.get(tenant.id) ? <BillingStatusBadge status={billing.get(tenant.id)!.status} /> : 'Open'}
+                  </Link>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-medium">
-                  ${tenant.plan_amount?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
-                  {tenant.plan_type === 'per_user' && <span className="text-[10px] text-gray-400 ml-1">/user</span>}
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                  {anyPositive(billing.get(tenant.id)?.amount_due) ? <Amounts value={billing.get(tenant.id)?.amount_due} /> : '—'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {(() => {

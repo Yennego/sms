@@ -4,6 +4,7 @@ import { ReactNode, useEffect } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
 import { useTenantNavigation } from '@/hooks/use-tenant';
+import { isPlatformPath } from '@/config/reserved-slugs';
 
 interface PermissionGuardProps {
   children: ReactNode;
@@ -27,8 +28,8 @@ export default function PermissionGuard({
     if (!user) {
       // Determine correct login path based on current context
       const currentPath = window.location.pathname;
-      if (currentPath.startsWith('/super-admin')) {
-        router.push('/super-admin/login');
+      if (isPlatformPath(currentPath)) {
+        router.push('/platform/login');
       } else {
         // Use the tenant navigation hook for consistent routing
         router.push(createTenantPath('/login'));

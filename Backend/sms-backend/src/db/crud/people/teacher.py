@@ -5,15 +5,8 @@ from sqlalchemy import func, or_
 from src.db.crud.base import TenantCRUDBase
 from src.db.models.people import Teacher
 from src.schemas.people.teacher import TeacherCreate, TeacherUpdate
-from src.core.security.password import get_password_hash
-import secrets
-import string
+from src.core.security.password import get_password_hash, generate_default_password
 
-# Add this function to generate random passwords
-def generate_default_password(length=12):
-    """Generate a secure random password."""
-    alphabet = string.ascii_letters + string.digits + string.punctuation
-    return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 class CRUDTeacher(TenantCRUDBase[Teacher, TeacherCreate, TeacherUpdate]):
     """CRUD operations for Teacher model."""

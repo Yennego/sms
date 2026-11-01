@@ -1,4 +1,5 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     useSuperAdminService,
     TenantStats,
@@ -9,11 +10,10 @@ import {
     Role,
     RoleStats,
     PaginatedResponse,
+    UserListParams,
     AuditLog,
     UserCreateCrossTenant,
     UserUpdate,
-    RevenueStats,
-    TenantSubscriptionUpdate,
     TenantSettings,
     TenantSettingsUpdate
 } from '@/services/api/super-admin-service';
@@ -83,21 +83,35 @@ export function useSuperAdminTenants(params?: { skip?: number; limit?: number })
     });
 }
 
-export function useSuperAdminUserList(params?: {
-    skip?: number;
-    limit?: number;
-    email?: string;
-    is_active?: boolean;
-    tenant_id?: string;
-    sort_by?: string;
-    sort_order?: 'asc' | 'desc';
-}) {
+/**
+ * One page of the platform user list. The server pages, searches and sorts; the previous page
+ * stays on screen while the next loads, and the following page is fetched ahead so "Next" is
+ * instant.
+ */
+export function useSuperAdminUserList(params: UserListParams) {
     const service = useSuperAdminService();
     const { tenantKey } = useTenant();
-    return useQuery({
+    const queryClient = useQueryClient();
+    const query = useQuery({
         queryKey: superAdminKeys.users(tenantKey, params),
         queryFn: () => service.getUserList(params),
+        placeholderData: keepPreviousData,
+        staleTime: 30 * 1000,
     });
+
+    const hasNext = query.data?.has_next;
+    useEffect(() => {
+        if (!hasNext) return;
+        const next = { ...params, skip: (params.skip ?? 0) + (params.limit ?? 25) };
+        queryClient.prefetchQuery({
+            queryKey: superAdminKeys.users(tenantKey, next),
+            queryFn: () => service.getUserList(next),
+            staleTime: 30 * 1000,
+        });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- params is compared by value through the key
+    }, [hasNext, JSON.stringify(params), tenantKey]);
+
+    return query;
 }
 
 export function useSuperAdminRoles() {
@@ -207,19 +221,6 @@ export function useSuperAdminDeactivateTenant() {
             return service.deactivateTenant ? service.deactivateTenant(tenantId) : Promise.resolve();
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['super-admin'] });
-        },
-    });
-}
-
-export function useSuperAdminUpdateSubscription() {
-    const service = useSuperAdminService();
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: ({ tenantId, subscriptionData }: { tenantId: string; subscriptionData: TenantSubscriptionUpdate }) =>
-            service.updateTenantSubscription(tenantId, subscriptionData),
-        onSuccess: (_data, variables) => {
             queryClient.invalidateQueries({ queryKey: ['super-admin'] });
         },
     });

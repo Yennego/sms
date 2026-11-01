@@ -118,7 +118,14 @@ class ClassService(TenantBaseService[Class, ClassCreate, ClassUpdate]):
         class_obj = await self.get(id=id)
         if not class_obj:
             return None
-        
+
+        # Enrollments name their class (ON DELETE RESTRICT in the database)
+        from src.db.models.academics.enrollment import Enrollment
+        if self.db.query(Enrollment.id).filter(
+            Enrollment.tenant_id == self.tenant_id, Enrollment.class_id == id
+        ).first():
+            raise BusinessRuleViolationError("This class has enrolled students; move or remove them first")
+
         # Delete all schedules associated with this class to avoid foreign key constraint violations
         # Since Schedule.class_id has nullable=False, we must delete the schedules first
         delete_stmt = delete(Schedule).where(

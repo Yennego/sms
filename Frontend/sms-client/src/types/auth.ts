@@ -1,6 +1,8 @@
 export interface User {
   id: string;
+  /** Empty for accounts without an email (they sign in with their username) */
   email: string;
+  username?: string;
   firstName: string;
   lastName: string;
   first_name?: string;

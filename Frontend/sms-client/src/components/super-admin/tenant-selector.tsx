@@ -10,7 +10,7 @@ export function TenantSelector() {
   
   useEffect(() => {
     // Fetch available tenants for super-admin
-    fetch('/api/super-admin/tenants')
+    fetch('/api/v1/super-admin/tenants', { headers: { 'X-Auth-Context': 'SUPER_ADMIN' } })
       .then(res => res.json())
       .then((data: Tenant[]) => setTenants(data))
       .catch(error => {

@@ -55,11 +55,4 @@ async def delete_period(
     await period_service.delete(id=period_id)
     return {"message": "Period deleted successfully"}
 
-@router.post("/periods/{period_id}/toggle-published", response_model=Period)
-async def toggle_period_published(
-    period_id: UUID,
-    period_service: PeriodService = Depends(),
-    current_user = Depends(has_permission("manage_academic_year"))
-) -> Any:
-    """Toggle the global publication status for a period."""
-    return await period_service.toggle_publication(period_id)
+# Publishing is per class: /gradebook/publications (phase4-design.md §4).

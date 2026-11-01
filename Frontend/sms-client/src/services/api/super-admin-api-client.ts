@@ -1,17 +1,15 @@
-import { useAuth } from '@/hooks/use-auth';
 import { useMemo } from 'react';
 import { handleError, createError, ErrorType, AppError } from '@/utils/error-utils';
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from 'axios';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
+// Same-origin proxy: it attaches the httpOnly session cookie; this client never sees a token
+const API_BASE_URL = '/api/v1';
 
 export class SuperAdminApiClient {
   private axiosInstance: AxiosInstance;
-  private accessToken: string | null;
   private tenantId: string | null;
 
-  constructor(baseUrl = API_BASE_URL, accessToken: string | null = null, tenantId: string | null = null) {
-    this.accessToken = accessToken;
+  constructor(baseUrl = API_BASE_URL, tenantId: string | null = null) {
     this.tenantId = tenantId;
 
     // Create axios instance with base configuration
@@ -26,9 +24,7 @@ export class SuperAdminApiClient {
     // Request interceptor for auth and tenant
     this.axiosInstance.interceptors.request.use(
       (config) => {
-        if (this.accessToken) {
-          config.headers.Authorization = `Bearer ${this.accessToken}`;
-        }
+        config.headers['X-Auth-Context'] = 'SUPER_ADMIN';
         if (this.tenantId) {
           config.headers['X-Tenant-ID'] = this.tenantId;
         }
@@ -44,6 +40,16 @@ export class SuperAdminApiClient {
         // Don't throw errors for aborted requests
         if (error.code === 'ERR_CANCELED' || error.message === 'canceled') {
           return Promise.reject(error);
+        }
+
+        if (error.response && typeof window !== 'undefined') {
+          // The proxy already tried a token refresh, so a 401 means the session is over
+          if (error.response.status === 401) {
+            window.location.href = '/platform/login';
+          } else if (error.response.status === 403 && error.response.headers?.['x-password-change-required'] === '1'
+            && window.location.pathname !== '/change-password') {
+            window.location.href = '/change-password';
+          }
         }
 
         if (error.response) {
@@ -171,36 +177,13 @@ export class SuperAdminApiClient {
     return this.request<T>(endpoint, { ...config, method: 'DELETE' });
   }
 
-  // Method to update access token
-  updateAccessToken(token: string | null) {
-    this.accessToken = token;
-  }
-
   // Method to update tenant ID
   updateTenantId(tenantId: string | null) {
     this.tenantId = tenantId;
   }
 }
 
-// Hook to use the Super Admin API client with current auth context - MEMOIZED
+// Hook to use the Super Admin API client - MEMOIZED
 export function useSuperAdminApiClient(tenantId?: string) {
-  const { accessToken, validateTokenBeforeRequest } = useAuth();
-
-  return useMemo(() => {
-    const client = new SuperAdminApiClient(API_BASE_URL, accessToken, tenantId);
-
-    // Override the request method to validate token before each request
-    const originalRequest = client.request.bind(client);
-    client.request = async function <T>(endpoint: string, config: AxiosRequestConfig = {}): Promise<T> {
-      // Validate token before making the request
-      const isTokenValid = await validateTokenBeforeRequest();
-      if (!isTokenValid) {
-        throw new AppError('Authentication required', ErrorType.AUTHENTICATION, 401);
-      }
-
-      return originalRequest(endpoint, config);
-    };
-
-    return client;
-  }, [accessToken, validateTokenBeforeRequest, tenantId]);
+  return useMemo(() => new SuperAdminApiClient(API_BASE_URL, tenantId ?? null), [tenantId]);
 }

@@ -20,7 +20,7 @@ class TenantSettings(Base, TimestampMixin, UUIDMixin):
     
     __tablename__ = "tenant_settings"
     
-    tenant_id = Column(UUID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    tenant_id = Column(UUID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, unique=True)
     theme = Column(String(20), nullable=False, default="light")
     settings = Column(JSON, nullable=False, default=dict)
     is_active = Column(Boolean, nullable=False, default=True)

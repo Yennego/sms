@@ -23,7 +23,7 @@ import { useEnrollmentService } from '@/services/api/enrollment-service';
 import { useSectionService } from '@/services/api/section-service';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { MarksEntryDialog } from '@/components/grades/MarksEntryDialog';
+import { currentSchoolSlug } from '@/utils/tenant-utils';
 import { PermissionGuard } from '@/components/common/PermissionGuard';
 import { useAuth } from '@/hooks/use-auth';
 import { useSubmissionService, type Submission } from '@/services/api/submission-service';
@@ -49,8 +49,6 @@ export default function AssignmentsPage() {
   const [academicYearId, setAcademicYearId] = useState<string>('');
 
   // Marks Entry
-  const [isMarksEntryOpen, setIsMarksEntryOpen] = useState(false);
-  const [selectedAssignmentForMarks, setSelectedAssignmentForMarks] = useState<Assignment | null>(null);
 
   // Submission Dialog
   const [isSubmissionOpen, setIsSubmissionOpen] = useState(false);
@@ -376,9 +374,10 @@ export default function AssignmentsPage() {
     }
   };
 
-  const onOpenMarksEntry = (a: Assignment) => {
-    setSelectedAssignmentForMarks(a);
-    setIsMarksEntryOpen(true);
+  // Marks are entered in the gradebook (one place for every assessment and its period score)
+  const onOpenMarksEntry = (_a: Assignment) => {
+    const slug = currentSchoolSlug();
+    window.location.assign(slug ? `/${slug}/academics/gradebook` : '/login');
   };
 
   /* 
@@ -845,25 +844,6 @@ export default function AssignmentsPage() {
         </div>
       </div>
 
-      {/* Marks Entry Dialog */}
-      {selectedAssignmentForMarks && (
-        <MarksEntryDialog
-          isOpen={isMarksEntryOpen}
-          onClose={() => {
-            setIsMarksEntryOpen(false);
-            setSelectedAssignmentForMarks(null);
-          }}
-          examId={selectedAssignmentForMarks.id}
-          examTitle={selectedAssignmentForMarks.title}
-          gradeId={selectedAssignmentForMarks.grade_id}
-          sectionId={selectedAssignmentForMarks.section_id}
-          subjectId={selectedAssignmentForMarks.subject_id}
-          academicYearId={academicYearId}
-          maxScore={selectedAssignmentForMarks.max_score ?? 100}
-          assessmentType="ASSIGNMENT"
-          assessmentDate={selectedAssignmentForMarks.due_date}
-        />
-      )}
       {/* Student Submission Dialog */}
       {selectedAssignmentForSubmission && (
         <SubmissionDialog

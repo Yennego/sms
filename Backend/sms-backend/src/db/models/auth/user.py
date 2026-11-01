@@ -1,10 +1,9 @@
-from sqlalchemy import Column, String, Boolean, DateTime, JSON, ForeignKey, Table, Integer, Index
+from sqlalchemy import Column, String, Boolean, DateTime, JSON, ForeignKey, Table, Integer, Index, UniqueConstraint
 from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
 from src.db.models.base import Base, TimestampMixin, UUIDMixin
 from src.db.models.auth.user_role import user_role_association
-from src.db.models.communication.notification import Notification  # Add this import
 from typing import List, Optional
 import uuid
 
@@ -23,7 +22,8 @@ class User(Base, TimestampMixin, UUIDMixin):
     """Model representing a user in the system.
     
     Users can be students, teachers, parents, or administrators.
-    Each user has a unique email and can have multiple roles.
+    Each user belongs to one school; emails are unique within a school (case-insensitive),
+    so the same person can hold separate accounts at two schools.
     
     Attributes:
         email (str): Unique email address
@@ -42,14 +42,18 @@ class User(Base, TimestampMixin, UUIDMixin):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     # Tenant relationship
-    tenant_id = Column(UUID(as_uuid=True), nullable=True)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False)
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # User fields
-    email = Column(String(255), nullable=False, unique=True, comment="User's email address")
+    # Sign-in identifiers, both unique per school (case-insensitive). Every account has a
+    # username (generated from the name when none is given); email is optional because many
+    # families don't have one.
+    email = Column(String(255), nullable=True, comment="User's email address (unique per school)")
+    username = Column(String(50), nullable=False, comment="Sign-in name (unique per school)")
     password_hash = Column(String(255), nullable=False)
     first_name = Column(String(100), nullable=False, comment="User's first name")
     last_name = Column(String(100), nullable=False, comment="User's last name")
@@ -71,14 +75,16 @@ class User(Base, TimestampMixin, UUIDMixin):
 
     __table_args__ = (
         Index('ix_users_tenant_id', 'tenant_id'),
-        Index('ix_users_email', 'email', unique=True),
+        Index('uq_users_tenant_email', tenant_id, func.lower(email), unique=True),
+        Index('ix_users_email_lower', func.lower(email)),
+        Index('uq_users_tenant_username', tenant_id, func.lower(username), unique=True),
+        # Target for composite foreign keys from school tables (tenant_id, user_id)
+        UniqueConstraint('tenant_id', 'id', name='uq_users_tenant_id_id'),
     )
     
     # Relationships
     # Update this to use user_role_association
     roles = relationship("UserRole", secondary=user_role_association, back_populates="users")
-    # In the relationships section
-    notifications = relationship("Notification", back_populates="user")
     password_expiry_date = Column(DateTime, nullable=True, comment="Date when the password expires")
     
     tenant = relationship("src.db.models.tenant.tenant.Tenant", foreign_keys=[tenant_id], primaryjoin="User.tenant_id == Tenant.id", viewonly=True)
@@ -121,7 +127,7 @@ class User(Base, TimestampMixin, UUIDMixin):
     @property
     def is_super_admin(self) -> bool:
         """Check if user has super-admin role."""
-        return any(role.name in ["super-admin", "superadmin"] for role in self.roles)
+        return any(role.name in ["super-admin", "superadmin"] and role.tenant_id is None for role in self.roles)
 
     @property
     def full_name(self) -> str:

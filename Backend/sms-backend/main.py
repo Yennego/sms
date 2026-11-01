@@ -43,9 +43,10 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     description=settings.PROJECT_DESCRIPTION,
     version=settings.PROJECT_VERSION,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    docs_url="/docs",      
-    redoc_url="/redocs",   
+    # API docs are only served in development (DEBUG=true)
+    openapi_url=f"{settings.API_V1_STR}/openapi.json" if settings.DEBUG else None,
+    docs_url="/docs" if settings.DEBUG else None,
+    redoc_url="/redocs" if settings.DEBUG else None,
     lifespan=lifespan,
     debug=settings.DEBUG,
     redirect_slashes=False,      
@@ -63,22 +64,51 @@ async def debug_exception_handler(request: Request, exc: Exception):
         f.write(f"\n\n--- ERROR: {type(exc).__name__} at {datetime.now()} ---\n")
         f.write(traceback.format_exc())
     
+    # Internals (exception text, type, traceback) stay in the log, never in the response
     return JSONResponse(
         status_code=500,
-        content={
-            "detail": str(exc), 
-            "type": type(exc).__name__,
-            "message": "An unexpected server error occurred. Check backend logs."
-        }
+        content={"detail": "An unexpected server error occurred."}
     )
 
-from src.core.exceptions.business import BusinessLogicError
+from sqlalchemy.exc import IntegrityError
+
+# Unique rules people can trip over, by constraint name: answer 409 with what to change
+DUPLICATE_MESSAGES = {
+    "uq_users_tenant_username": "That username is already used in this school. Choose another.",
+    "uq_users_tenant_email": "That email is already used in this school.",
+    "uq_students_tenant_admission_number": "That admission number is already used in this school.",
+    "uq_teachers_tenant_employee_id": "That employee ID is already used in this school.",
+    "unique_class_identity": "This school already has a class for that grade and section this year.",
+    "uq_user_roles_tenant_name": "A role with that name already exists.",
+}
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError):
+    message = str(getattr(exc, "orig", exc))
+    for constraint, detail in DUPLICATE_MESSAGES.items():
+        if constraint in message:
+            return JSONResponse(status_code=409, content={"detail": detail})
+    return await debug_exception_handler(request, exc)
+
+
+from src.core.exceptions.business import (
+    BusinessLogicError, EntityNotFoundError, DuplicateEntityError, PermissionDeniedError
+)
 
 @app.exception_handler(BusinessLogicError)
 async def business_logic_exception_handler(request, exc):
     from fastapi.responses import JSONResponse
+    if isinstance(exc, EntityNotFoundError):
+        status_code = 404
+    elif isinstance(exc, DuplicateEntityError):
+        status_code = 409
+    elif isinstance(exc, PermissionDeniedError):
+        status_code = 403
+    else:
+        status_code = 400
     return JSONResponse(
-        status_code=400,
+        status_code=status_code,
         content={"detail": str(exc)}
     )
 
@@ -101,8 +131,6 @@ if settings.BACKEND_CORS_ORIGINS:
 print("📢 API prefix:", settings.API_V1_STR)
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
-for route in app.routes:
-    print(f"🛣️ {route.path}")
 
 # Static files and OpenAPI customization
 
@@ -169,10 +197,6 @@ def custom_openapi():
 
 # Override the default OpenAPI schema
 app.openapi = custom_openapi
-
-@app.get("/test-cors")
-async def test_cors():
-    return {"message": "CORS is working!"}
 
 app.add_middleware(IdleActivityMiddleware)
 app.add_middleware(AuditLoggingMiddleware)

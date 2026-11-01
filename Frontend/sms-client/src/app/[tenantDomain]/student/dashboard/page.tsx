@@ -5,7 +5,7 @@ import { useTenant } from '@/hooks/use-tenant';
 import {
     GraduationCap, BookOpen, Clock, Calendar,
     Award, FileText, CheckCircle2, AlertCircle,
-    TrendingUp, MessageSquare, ChevronRight
+    TrendingUp, ChevronRight
 } from 'lucide-react';
 import Link from 'next/link';
 import { useDashboardService } from '@/services/api/dashboard-service';
@@ -190,22 +190,7 @@ export default function StudentDashboard() {
                                 </Link>
                             </div>
                         </div>
-
-                        <div className="bg-gradient-to-br from-indigo-600 to-indigo-900 rounded-2xl p-6 text-white shadow-xl shadow-indigo-200">
-                            <div className="flex items-center gap-3 mb-4">
-                                <MessageSquare className="h-6 w-6 text-indigo-300" />
-                                <h4 className="font-bold">Student Hub</h4>
-                            </div>
-                            <p className="text-sm text-indigo-100 leading-relaxed mb-6">
-                                Got questions about your subjects? Use the communication center to reach out to your teachers.
-                            </p>
-                            <button
-                                onClick={() => window.location.href = './communication'}
-                                className="w-full py-3 bg-white text-indigo-600 font-bold rounded-xl text-sm hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2"
-                            >
-                                Go to Messenger <ChevronRight className="h-4 w-4" />
-                            </button>
-                        </div>
+                        {/* "Student Hub / Go to Messenger" card removed: there is no messages page yet */}
                     </div>
 
                 </div>

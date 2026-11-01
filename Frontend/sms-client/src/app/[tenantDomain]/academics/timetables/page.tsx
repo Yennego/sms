@@ -63,7 +63,8 @@ export default function TimetablesPage() {
         if (mounted) setGrades(Array.isArray(gradesRes) ? gradesRes : []);
 
         const sectionsData = await sectionService.getSections();
-        if (mounted) setSections(Array.isArray(sectionsData) ? sectionsData : []);
+        // getSections returns a { sections, total } envelope, not the array
+        if (mounted) setSections(sectionsData?.sections ?? []);
       } catch (e) {
         console.warn('[TimetablesPage] Failed to load initial data:', e);
       } finally {

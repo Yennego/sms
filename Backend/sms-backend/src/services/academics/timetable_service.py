@@ -250,7 +250,9 @@ class TimetableService(TenantBaseService[Timetable, TimetableCreate, TimetableUp
 
             # Get ClassSubject for this slot
             from src.db.models.academics.class_subject import ClassSubject
-            class_obj = self.db.query(ClassSubject).get(cls_id)
+            class_obj = self.db.query(ClassSubject).filter(
+                ClassSubject.id == cls_id, ClassSubject.tenant_id == self.tenant_id
+            ).first()
             if not class_obj: 
                 continue # Should not happen if foreign key valid, but safe
                 

@@ -1,6 +1,9 @@
 from typing import Any, Dict, List, Optional, Union
+from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from src.core.constants.reserved_slugs import normalize_slug, validate_slug
 from src.db.crud.base import CRUDBase
 from src.db.models.tenant import Tenant
 from src.schemas.tenant.tenant import TenantCreate, TenantUpdate
@@ -8,6 +11,21 @@ from src.schemas.tenant.tenant import TenantCreate, TenantUpdate
 
 class CRUDTenant(CRUDBase[Tenant, TenantCreate, TenantUpdate]):
     """CRUD operations for Tenant model."""
+
+    def remove_empty(self, db: Session, *, id: Any) -> Tenant:
+        """Delete a school that holds no records.
+
+        School data is protected by ON DELETE RESTRICT: a school with records must be
+        deactivated instead (permanent removal is a separate, audited purge).
+        """
+        try:
+            return self.remove(db, id=id)
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This school still has records. Deactivate it instead of deleting it.",
+            )
     
     def get_by_code(self, db: Session, code: str) -> Optional[Tenant]:
         """Get a tenant by its code."""
@@ -31,7 +49,7 @@ class CRUDTenant(CRUDBase[Tenant, TenantCreate, TenantUpdate]):
             db_obj = Tenant(**obj_in_data)
             print(f"[DEBUG] Created tenant object: {db_obj}")
             db.add(db_obj)
-            db.commit()
+            db.flush()  # committed once per request (get_db)
             db.refresh(db_obj)
             print(f"[DEBUG] Successfully committed tenant: {db_obj.id} - {db_obj.code}")
             return db_obj
@@ -55,12 +73,33 @@ class CRUDTenant(CRUDBase[Tenant, TenantCreate, TenantUpdate]):
             if update_data.get("code"):
                 update_data["code"] = update_data["code"].upper()
 
+        self._check_slug_changes(db_obj, update_data)
+
         db.add(db_obj)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(db_obj)
         
         return super().update(db, db_obj=db_obj, obj_in=update_data)
     
+    @staticmethod
+    def _check_slug_changes(db_obj: Tenant, update_data: Dict[str, Any]) -> None:
+        """A changed domain/subdomain must be a valid slug (the school's address).
+
+        Only changes are checked, so editing other fields of a school whose existing slug
+        predates these rules still works. Blank means none.
+        """
+        for field in ("domain", "subdomain"):
+            if field not in update_data:
+                continue
+            new = normalize_slug(update_data[field])
+            update_data[field] = new
+            if new == getattr(db_obj, field):
+                continue
+            try:
+                validate_slug(new, field)
+            except ValueError as e:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+
     def get_active_tenants(self, db: Session, skip: int = 0, limit: int = 100) -> List[Tenant]:
         """Get all active tenants."""
         return db.query(Tenant).filter(Tenant.is_active == True).offset(skip).limit(limit).all()

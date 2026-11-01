@@ -27,7 +27,7 @@ class TenantMixin:
     def tenant_id(cls):
         return Column(
             UUID(as_uuid=True),
-            ForeignKey("tenants.id", ondelete="CASCADE"),
+            ForeignKey("tenants.id", ondelete="RESTRICT"),
             nullable=False,
             index=True
         )

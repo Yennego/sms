@@ -1,6 +1,7 @@
 from typing import Any, List, Optional, Dict
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, Response
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
 from src.services.academics.class_enrollment_service import ClassEnrollmentService
@@ -124,13 +125,15 @@ async def bulk_create_class_enrollments(
         if failed:
             raise HTTPException(
                 status_code=status.HTTP_207_MULTI_STATUS,
-                detail={
+                detail=jsonable_encoder({
                     "message": f"Created {len(created)} enrollments, {len(failed)} failed",
                     "created": created,
                     "failed": failed,
-                }
+                })
             )
         return created
+    except HTTPException:
+        raise
     except EntityNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -198,7 +201,8 @@ async def update_class_enrollment(
     enrollment_in: ClassEnrollmentUpdate,
     current_user: User = Depends(has_permission("manage_students"))
 ) -> Any:
-    """Update a class enrollment (requires admin or teacher role)."""
+    """Update a class enrollment. Setting class_id moves the student to that class
+    (same academic year); grade and section follow the class."""
     try:
         # Check if enrollment exists
         existing_enrollment = await class_enrollment_service.get(id=enrollment_id)
@@ -213,6 +217,10 @@ async def update_class_enrollment(
         return updated_enrollment
     except HTTPException:
         raise
+    except EntityNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except DuplicateEntityError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except InvalidStatusTransitionError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -246,10 +254,12 @@ async def delete_class_enrollment(
                 detail=f"Class enrollment with ID {enrollment_id} not found"
             )
         
-        # Delete the enrollment
+        # Deletes the student's enrollment for the year (one table now)
         await class_enrollment_service.delete(id=enrollment_id)
     except HTTPException:
         raise
+    except BusinessRuleViolationError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

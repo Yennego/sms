@@ -346,7 +346,7 @@ export default function AcademicsPage() {
                 Administrative Quick Actions
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <Link href={`/${tenantDomain}/academics/structure`}>
+                <Link href={`/${tenantDomain}/academics?tab=structure`}>
                   <Card
                     className="border-indigo-100 bg-indigo-50/30 hover:bg-indigo-50 transition-colors cursor-pointer group"
                   >

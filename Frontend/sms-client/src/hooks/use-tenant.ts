@@ -1,6 +1,9 @@
 import { useContext } from 'react';
 import { TenantContext } from '@/contexts/tenant-context';
 import { contextualCookies, getCurrentContext } from '@/utils/cookie-manager';
+import { isReservedSlug } from '@/config/reserved-slugs';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function useTenant() {
   const context = useContext(TenantContext);
@@ -17,37 +20,38 @@ export function useTenant() {
 export function useTenantNavigation() {
   const { tenant, tenantId } = useTenant();
   
+  // Links use the school's slug (/foundation/...), never its id
   const getTenantPath = () => {
-    // 1. Try to maintain the current URL segment if it's valid to prevent redirect bouncing
+    // 1. The current URL's school slug (keeps the address the user is on; no redirect bounce)
     if (typeof window !== 'undefined') {
-      const currentPath = window.location.pathname;
-      const pathSegments = currentPath.split('/');
-      if (pathSegments.length > 1 && pathSegments[1]) {
-        const firstSegment = pathSegments[1];
-        const reserved = ['api', '_next', 'static', 'super-admin', 'login', 'register'];
-        if (!reserved.includes(firstSegment.toLowerCase())) {
-          return firstSegment;
-        }
+      const firstSegment = window.location.pathname.split('/')[1];
+      if (firstSegment && !isReservedSlug(firstSegment) && !UUID_RE.test(firstSegment)) {
+        return firstSegment.toLowerCase();
       }
     }
 
-    // 2. Try the tenant object's domain, subdomain, or code
+    // 2. The loaded school's domain (its slug), then subdomain or code
     if (tenant) {
       if (tenant.domain) return tenant.domain.toLowerCase();
       if (tenant.subdomain) return tenant.subdomain.toLowerCase();
       if (tenant.code) return tenant.code.toLowerCase();
     }
 
-    // 3. Fallback to domain from contextual cookies
+    // 3. The remembered domain (cookie, then localStorage)
     const cookieDomain = contextualCookies.get('currentTenantDomain', getCurrentContext());
-    if (cookieDomain) return cookieDomain;
+    if (cookieDomain) return cookieDomain.toLowerCase();
 
     if (typeof window !== 'undefined') {
       const storedDomain = localStorage.getItem('currentTenantDomain');
-      if (storedDomain) return storedDomain;
+      if (storedDomain) return storedDomain.toLowerCase();
     }
 
-    // 4. Last resort: tenant UUID
+    // 4. Last resort, no slug known at all: the id in the URL or the loaded school's id
+    //    (the school layout swaps an id address for the slug once the school loads)
+    if (typeof window !== 'undefined') {
+      const firstSegment = window.location.pathname.split('/')[1];
+      if (firstSegment && UUID_RE.test(firstSegment)) return firstSegment;
+    }
     if (tenantId) return tenantId;
     
     // 5. Try the tenant ID from contextual cookies
