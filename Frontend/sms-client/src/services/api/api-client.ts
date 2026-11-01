@@ -1,6 +1,10 @@
 import { useTenant } from '@/hooks/use-tenant';
-import { useAuth } from '@/hooks/use-auth';
+import { getCurrentContext } from '@/utils/cookie-manager';
+import { isReservedSlug } from '@/config/reserved-slugs';
+import { currentSchoolSlug } from '@/utils/tenant-utils';
 import { handleError, createError, ErrorType, AppError } from '@/utils/error-utils';
+import { BILLING_STATUS_HEADER, billingDetail, signOutForBilling } from '@/lib/billing-block';
+import { notify } from '@/components/ui/toaster';
 import { useMemo, useEffect } from 'react';
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from 'axios';
 
@@ -39,23 +43,22 @@ export function createWaitForApiClientReady(apiClient: ApiClient | null) {
   };
 }
 
-// Add: UUID validator (module-scope)
-function isValidUUID(str: string | null | undefined): boolean {
-  if (!str) return false;
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  return uuidRegex.test(str);
+// Where to send the user when the backend says the session is over or a password change is due
+function sessionExpiredPath(tenantId: string | null): string {
+  if (getCurrentContext() === 'SUPER_ADMIN') return '/platform/login';
+  // The school's slug, never its id (the id only when no slug is known at all)
+  const school = currentSchoolSlug() || tenantId;
+  return school ? `/${school}/session-expired` : '/session-expired';
 }
 
 export class ApiClient {
   private axiosInstance: AxiosInstance;
   private tenantId: string | null;
-  private accessToken: string | null;
 
-  constructor(baseUrl = API_BASE_URL, tenantId: string | null = null, accessToken: string | null = null) {
-    console.log('[ApiClient Constructor] Received tenantId:', tenantId, 'Type:', typeof tenantId);
-
+  // The session lives in httpOnly cookies that the /api/v1 proxy attaches; this client never
+  // sees a token.
+  constructor(baseUrl = API_BASE_URL, tenantId: string | null = null) {
     this.tenantId = tenantId;
-    this.accessToken = accessToken;
 
     // Create axios instance with base configuration
     this.axiosInstance = axios.create({
@@ -71,19 +74,9 @@ export class ApiClient {
     // Request interceptor for auth and headers
     this.axiosInstance.interceptors.request.use(
       (config) => {
-        console.log('[ApiClient Request] About to send request to:', config.url);
-        console.log('[ApiClient Request] Current tenantId:', this.tenantId, 'IsValidUUID:', isValidUUID(this.tenantId));
-
-        // Add auth token if available - check instance variable first, then cookies as fallback
-        let effectiveToken = this.accessToken;
-        if (!effectiveToken && typeof document !== 'undefined') {
-          const tokenMatch = document.cookie.match(/(?:^|; )tn_accessToken=([^;]+)/) ||
-            document.cookie.match(/(?:^|; )sa_accessToken=([^;]+)/) ||
-            document.cookie.match(/(?:^|; )accessToken=([^;]+)/);
-          effectiveToken = tokenMatch ? decodeURIComponent(tokenMatch[1]) : null;
-        }
-        if (effectiveToken) {
-          config.headers.Authorization = `Bearer ${effectiveToken}`;
+        // Tells the proxy which session (sa_ / tn_ / default cookies) this page belongs to
+        if (typeof window !== 'undefined') {
+          config.headers['X-Auth-Context'] = getCurrentContext();
         }
 
         const parseCookie = (name: string) => {
@@ -96,12 +89,7 @@ export class ApiClient {
 
           // Priority 2: Use the URL path segment (very reliable for tenant routes)
           const seg = typeof window !== 'undefined' ? window.location.pathname.split('/')[1] || null : null;
-          const reserved = [
-            'api', '_next', 'static', 'super-admin', 'login', 'session-expired', 'favicon.ico',
-            'students', 'teachers', 'parents', 'academics', 'communication', 'resources',
-            'logging', 'settings', 'dashboard', 'profile'
-          ];
-          if (seg && !reserved.includes(seg.toLowerCase())) {
+          if (seg && !isReservedSlug(seg)) {
             return seg;
           }
 
@@ -136,67 +124,52 @@ export class ApiClient {
           const method = originalRequest?.method?.toUpperCase() || 'UNKNOWN';
           const url = originalRequest?.url || 'UNKNOWN_URL';
 
-          // Handle 401 Unauthorized - Transparent Token Refresh
-          if (status === 401 && !originalRequest._retry) {
-            // Check if this is NOT a login/refresh/me request to avoid loops
-            const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/refresh') || url.includes('/auth/me');
+          // First login: the backend refuses everything until the password is changed
+          if (status === 403 && error.response.headers?.['x-password-change-required'] === '1'
+            && typeof window !== 'undefined') {
+            // Stay inside the school's address (/{school}/change-password) so its branding applies
+            const path = window.location.pathname;
+            if (!/\/change-password$/.test(path)) {
+              const first = path.split('/')[1] || '';
+              const outsideSchool = !first || isReservedSlug(first);
+              window.location.href = outsideSchool ? '/change-password' : `/${first}/change-password`;
+            }
+            return Promise.reject(error);
+          }
+
+          // The school's billing ended the session (the proxy's refresh was refused): sign out with the reason
+          const billingStatus = error.response.headers?.[BILLING_STATUS_HEADER];
+          if (status === 401 && billingStatus && typeof window !== 'undefined') {
+            await signOutForBilling(billingDetail(data));
+            return Promise.reject(error);
+          }
+
+          // 401: the catch-all proxy refreshes by itself, but the few custom routes don't, so try
+          // the refresh route once and retry; if that fails too the session is over
+          // (login/refresh/me handle their own 401s)
+          if (status === 401) {
+            // Only the session endpoints themselves; /auth/me/signature etc. refresh like any other call
+            const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/refresh') || /\/auth\/me(\?|$)/.test(url);
 
             if (!isAuthEndpoint && typeof window !== 'undefined') {
-              console.log('[ApiClient] 401 detected, attempting transparent refresh for:', url);
-              originalRequest._retry = true;
-
-              try {
-                // Trigger a refresh call and wait for it
-                // We use a custom event or a shared promise to coordinate with AuthContext
-                const refreshEvent = new CustomEvent('auth:refresh-required', {
-                  detail: { originalUrl: url }
-                });
-                window.dispatchEvent(refreshEvent);
-
-                // Wait for the token to be refreshed
-                // The AuthContext will update the cookie/state
-                // We'll wait a bit then retry
-                await new Promise(resolve => {
-                  const onRefreshed = () => {
-                    window.removeEventListener('auth:refreshed', onRefreshed);
-                    window.removeEventListener('auth:refresh-failed', onFailed);
-                    resolve(true);
-                  };
-                  const onFailed = () => {
-                    window.removeEventListener('auth:refreshed', onRefreshed);
-                    window.removeEventListener('auth:refresh-failed', onFailed);
-                    resolve(false);
-                  };
-                  window.addEventListener('auth:refreshed', onRefreshed);
-                  window.addEventListener('auth:refresh-failed', onFailed);
-
-                  // Timeout after 10s if nothing happens
-                  setTimeout(() => onFailed(), 10000);
-                });
-
-                // Get the updated token from cookies
-                const m = document.cookie.match(/(?:^|; )tn_accessToken=([^;]+)/) ||
-                  document.cookie.match(/(?:^|; )sa_accessToken=([^;]+)/) ||
-                  document.cookie.match(/(?:^|; )accessToken=([^;]+)/);
-                const newToken = m ? decodeURIComponent(m[1]) : null;
-
-                if (newToken) {
-                  console.log('[ApiClient] Token refreshed successfully, retrying request:', url);
-                  originalRequest.headers = {
-                    ...originalRequest.headers,
-                    Authorization: `Bearer ${newToken}`
-                  };
+              if (!originalRequest._retry) {
+                originalRequest._retry = true;
+                try {
+                  await axios.post('/api/auth/refresh', null, { headers: { 'X-Auth-Context': getCurrentContext() } });
                   return this.axiosInstance(originalRequest);
+                } catch (refreshError) {
+                  // A suspended school refuses non-admins: sign out with the reason instead
+                  if (axios.isAxiosError(refreshError) && refreshError.response?.status === 403
+                    && refreshError.response.headers?.[BILLING_STATUS_HEADER]) {
+                    await signOutForBilling(billingDetail(refreshError.response.data));
+                    return Promise.reject(error);
+                  }
+                  // fall through to the redirect
                 }
-              } catch (refreshErr) {
-                console.error('[ApiClient] Error during transparent refresh:', refreshErr);
               }
-
-              // If we reached here, refresh failed or skip retry
-              console.warn('[ApiClient] Refresh failed or skipped, redirecting to session-expired');
+              console.warn('[ApiClient] Session expired, redirecting');
               try { sessionStorage.setItem('sessionExpired', '1'); } catch { }
-              const tenantSeg = this.tenantId || 'foundation';
-              window.location.href = `/${tenantSeg}/session-expired`;
+              window.location.href = sessionExpiredPath(this.tenantId);
               return Promise.reject(error);
             }
           }
@@ -279,6 +252,13 @@ export class ApiClient {
               errorType = ErrorType.VALIDATION;
               errorMessage = 'Email already exists.';
             }
+          }
+
+          // Refused by the school's billing status (read-only, suspended, dormant): `detail` is the
+          // banner's line, shown as it is (one toast however many requests were refused)
+          if (status === 403 && billingStatus && typeof window !== 'undefined') {
+            errorMessage = billingDetail(data, errorMessage);
+            notify.error(errorMessage, { id: 'school-billing-blocked' });
           }
 
           throw new AppError(errorMessage, errorType, status, error);
@@ -386,16 +366,22 @@ export class ApiClient {
     });
   }
 
-  delete<T>(endpoint: string, config: AxiosRequestConfig = {}): Promise<T> {
-    return this.request<T>(endpoint, { ...config, method: 'DELETE' }).then(res => {
+  patch<T>(endpoint: string, data?: unknown, config: AxiosRequestConfig = {}): Promise<T> {
+    return this.request<T>(endpoint, {
+      ...config,
+      method: 'PATCH',
+      data,
+    }).then(res => {
       clearGlobalCache();
       return res;
     });
   }
 
-  // Method to update access token
-  updateAccessToken(token: string | null) {
-    this.accessToken = token;
+  delete<T>(endpoint: string, config: AxiosRequestConfig = {}): Promise<T> {
+    return this.request<T>(endpoint, { ...config, method: 'DELETE' }).then(res => {
+      clearGlobalCache();
+      return res;
+    });
   }
 }
 
@@ -410,7 +396,6 @@ export function clearGlobalCache() {
 // Enhanced useApiClient hook with better debugging and timing handling
 export function useApiClient(): ApiClient {
   const { tenant } = useTenant();
-  const { accessToken } = useAuth();
 
   // Clear cache only when tenant changes
   useEffect(() => {
@@ -423,9 +408,8 @@ export function useApiClient(): ApiClient {
   const apiClient = useMemo(() => {
     // Prefer ID, but fallback to domain or code if available
     const safeTenantId = (tenant?.id || tenant?.domain || tenant?.code) as string | null;
-    const client = new ApiClient(API_BASE_URL, safeTenantId, accessToken || null);
-    return client;
-  }, [tenant?.id, tenant?.domain, tenant?.code, accessToken]);
+    return new ApiClient(API_BASE_URL, safeTenantId);
+  }, [tenant?.id, tenant?.domain, tenant?.code]);
 
   return apiClient;
 }
@@ -433,7 +417,6 @@ export function useApiClient(): ApiClient {
 // New hook that provides both client and loading state
 export function useApiClientWithLoading(): { apiClient: ApiClient | null; isLoading: boolean } {
   const { tenant } = useTenant();
-  const { accessToken } = useAuth();
 
   const cookieMatch = typeof document !== 'undefined'
     ? (document.cookie.match(/(?:^|; )tn_tenantId=([^;]+)/) || document.cookie.match(/(?:^|; )tenantId=([^;]+)/))
@@ -466,8 +449,8 @@ export function useApiClientWithLoading(): { apiClient: ApiClient | null; isLoad
 
       return null;
     })();
-    return new ApiClient(API_BASE_URL, safeTenantId, accessToken || null);
-  }, [tenant?.id, tenant?.domain, tenant?.code, accessToken]);
+    return new ApiClient(API_BASE_URL, safeTenantId);
+  }, [tenant?.id, tenant?.domain, tenant?.code]);
 
   return { apiClient, isLoading: effectiveLoading };
 }

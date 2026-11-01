@@ -27,7 +27,7 @@ export function useCreateSemester() {
     const { tenantKey } = useTenant();
 
     return useMutation({
-        mutationFn: (data: Omit<Semester, 'id' | 'is_published' | 'is_active'>) =>
+        mutationFn: (data: Omit<Semester, 'id' | 'is_active'>) =>
             service.createSemester(data),
         onSuccess: (_, variables) => {
             queryClient.invalidateQueries({ queryKey: structuralKeys.semesters(tenantKey, variables.academic_year_id) });
@@ -62,19 +62,6 @@ export function useDeleteSemester(academicYearId: string) {
     });
 }
 
-export function useToggleSemesterPublication() {
-    const service = useSemesterService();
-    const queryClient = useQueryClient();
-    const { tenantKey } = useTenant();
-
-    return useMutation({
-        mutationFn: (id: string) => service.togglePublication(id),
-        onSuccess: (data) => {
-            queryClient.invalidateQueries({ queryKey: structuralKeys.semesters(tenantKey, data.academic_year_id) });
-        },
-    });
-}
-
 // --- Period Hooks ---
 
 export function usePeriods(semesterId: string) {
@@ -93,7 +80,7 @@ export function useCreatePeriod() {
     const { tenantKey } = useTenant();
 
     return useMutation({
-        mutationFn: (data: Omit<Period, 'id' | 'is_published' | 'is_active'>) =>
+        mutationFn: (data: Omit<Period, 'id' | 'is_active'>) =>
             service.createPeriod(data),
         onSuccess: (_, variables) => {
             queryClient.invalidateQueries({ queryKey: structuralKeys.periods(tenantKey, variables.semester_id) });
@@ -122,19 +109,6 @@ export function useDeletePeriod(semesterId: string) {
 
     return useMutation({
         mutationFn: (id: string) => service.removePeriod(id),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: structuralKeys.periods(tenantKey, semesterId) });
-        },
-    });
-}
-
-export function useTogglePeriodPublication(semesterId: string) {
-    const service = usePeriodService();
-    const queryClient = useQueryClient();
-    const { tenantKey } = useTenant();
-
-    return useMutation({
-        mutationFn: (id: string) => service.togglePublication(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: structuralKeys.periods(tenantKey, semesterId) });
         },

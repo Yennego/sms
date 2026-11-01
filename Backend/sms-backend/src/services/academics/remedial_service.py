@@ -21,13 +21,10 @@ class RemedialService(TenantBaseService[RemedialSession, RemedialSessionCreate, 
         Scans all enrollments for a given year/grade and identifies students 
         with aggregated subject grades below the passing mark.
         """
-        from src.services.academics.grade_calculation import GradeCalculationService
-        from src.services.academics.promotion_criteria_service import PromotionCriteriaService
+        from src.services.academics.results_service import subject_outcomes
         from src.db.models.academics.enrollment import Enrollment
-        
-        calc_service = GradeCalculationService(db=self.db, tenant_id=self.tenant_id)
-        criteria_service = PromotionCriteriaService(db=self.db, tenant=self.tenant_id)
-        
+        from src.db.models.academics.subject import Subject
+
         query = self.db.query(Enrollment).filter(
             Enrollment.tenant_id == self.tenant_id,
             Enrollment.academic_year_id == academic_year_id,
@@ -38,22 +35,18 @@ class RemedialService(TenantBaseService[RemedialSession, RemedialSessionCreate, 
             
         enrollments = query.all()
         at_risk = []
-        
+        cache = {}
+        subject_names = {}
+
+        # A subject is at risk when its published yearly average is below the pass mark
         for en in enrollments:
-            criteria = criteria_service.get_by_year_and_grade(
-                academic_year_id=en.academic_year_id, grade_id=en.grade_id
-            )
-            passing_mark = criteria.passing_mark if criteria else 70
-            
-            # Using str(academic_year_id) because generate_report_card supports string lookup
-            try:
-                report = await calc_service.generate_report_card(student_id=en.student_id, academic_year=str(academic_year_id))
-            except Exception:
-                continue
-                
-            for data in report.get("subjects", []):
-                sid = data.get("subject_id")
-                if data["percentage"] < passing_mark:
+            passing_mark, yearly, _ = subject_outcomes(self.db, self.tenant_id, en, cache=cache)
+            for sid, average in yearly.items():
+                if sid not in subject_names:
+                    subj = self.db.query(Subject).filter(Subject.tenant_id == self.tenant_id, Subject.id == sid).first()
+                    subject_names[sid] = subj.name if subj else "Unknown"
+                data = {"subject_name": subject_names[sid], "percentage": round(average, 2)}
+                if average < passing_mark:
                     # Check if session already exists
                     existing = self.db.query(RemedialSession).filter(
                         RemedialSession.tenant_id == self.tenant_id,

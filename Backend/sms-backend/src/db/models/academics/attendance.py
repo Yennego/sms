@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, Date, DateTime, Text, Enum, UniqueConstraint
+from sqlalchemy import Column, String, ForeignKey, Date, DateTime, Text, Enum, Index, cast, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import date, datetime
@@ -15,6 +15,24 @@ class AttendanceStatus(str, enum.Enum):
     EXCUSED = "excused"
     SICK = "sick"
     TARDY = "tardy"
+
+# Single source of truth for how statuses count toward attendance rates.
+# Excused/sick days are left out of the denominator so they don't lower the rate.
+PRESENT_STATUSES = frozenset({AttendanceStatus.PRESENT, AttendanceStatus.LATE, AttendanceStatus.TARDY})
+EXCUSED_STATUSES = frozenset({AttendanceStatus.EXCUSED, AttendanceStatus.SICK})
+
+def calculate_attendance_rate(status_counts: dict) -> float:
+    """Attendance rate (%) from {AttendanceStatus|str: count}: present / (total - excused)."""
+    present = excused = total = 0
+    for status, count in status_counts.items():
+        status = AttendanceStatus(getattr(status, "value", status))
+        total += count
+        if status in PRESENT_STATUSES:
+            present += count
+        elif status in EXCUSED_STATUSES:
+            excused += count
+    countable = total - excused
+    return (present / countable * 100) if countable > 0 else 0.0
 
 class Attendance(TenantModel):
     """Model representing student attendance for a specific date and class.
@@ -72,9 +90,15 @@ class Attendance(TenantModel):
     # Relationships for marked_by
     marked_by_user = relationship("User", foreign_keys=[marked_by])
     
-    # Ensure one attendance record per student per class per date
+    # One record per student per class per date per period. Without a schedule or
+    # period the record covers the whole day ('day').
     __table_args__ = (
-        UniqueConstraint('student_id', 'class_id', 'date', name='unique_student_class_date_attendance'),
+        Index(
+            'uq_attendance_student_class_date_period',
+            'tenant_id', 'student_id', 'class_id', 'date',
+            func.coalesce(cast(schedule_id, String), period, 'day'),
+            unique=True,
+        ),
     )
     
     def __repr__(self):
@@ -83,7 +107,7 @@ class Attendance(TenantModel):
     @property
     def is_present(self) -> bool:
         """Check if student was present (including late/tardy)."""
-        return self.status in [AttendanceStatus.PRESENT, AttendanceStatus.LATE, AttendanceStatus.TARDY]
+        return self.status in PRESENT_STATUSES
     
     @property
     def duration_minutes(self) -> int:
@@ -92,13 +116,3 @@ class Attendance(TenantModel):
             delta = self.check_out_time - self.check_in_time
             return int(delta.total_seconds() / 60)
         return 0
-    
-    @classmethod
-    def validate_student_enrollment(cls, student_id, class_id, academic_year_id):
-        """Validate that a student is enrolled in the class before marking attendance."""
-        from src.db.models.academics.class_enrollment import ClassEnrollment
-        from sqlalchemy.orm import sessionmaker
-        
-        # This would be called from the service layer with proper session management
-        # For now, this is a placeholder for the validation logic
-        return True  # Implementation would check ClassEnrollment table

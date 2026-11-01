@@ -33,7 +33,6 @@ class Section(TenantModel):
     
     # Relationships to other models
     assignments = relationship("Assignment", back_populates="section")
-    exams = relationship("Exam", back_populates="section")
     enrollments = relationship("Enrollment", back_populates="section_obj")
     
     def __repr__(self):

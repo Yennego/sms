@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import cookies from 'js-cookie';
 import { queryClient } from '@/lib/query-client';
 import { contextualCookies, getCurrentContext } from '@/utils/cookie-manager';
+import { isPlatformPath, isReservedSlug } from '@/config/reserved-slugs';
 
 type TenantContextType = {
   tenant: Tenant | null;
@@ -28,7 +29,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     
     if (pathSegments.length >= 1) {
       const firstSegment = pathSegments[0];
-      const isReserved = ['api', '_next', 'static', 'super-admin', 'login', 'session-expired'].includes(firstSegment);
+      const isReserved = isReservedSlug(firstSegment);
       if (!isReserved) {
         urlIdentifier = firstSegment;
       }
@@ -80,12 +81,12 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     // Extract tenant identifier from pathname
     const pathSegments = pathname.split('/').filter(Boolean);
     const tenantIdentifierFromPath = pathSegments[0] || null;
-    const isReserved = ['api', '_next', 'static', 'super-admin', 'login', 'session-expired'].includes(tenantIdentifierFromPath || '');
+    const isReserved = isReservedSlug(tenantIdentifierFromPath);
     
     const currentContext = getCurrentContext();
     
     // Isolation: Skip tenant resolution for super-admin and reserved routes
-    if (currentContext === 'SUPER_ADMIN' || pathname.startsWith('/super-admin') || isReserved) {
+    if (currentContext === 'SUPER_ADMIN' || isPlatformPath(pathname) || isReserved) {
       if (lastResolvedIdentifierRef.current !== 'SUPER_ADMIN') {
         console.log('[Tenant Context] Switching to Super Admin context or reserved route');
         setTenant(null);

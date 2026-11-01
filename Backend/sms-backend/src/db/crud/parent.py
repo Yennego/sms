@@ -15,7 +15,7 @@ def add_student(db: Session, tenant_id: Any, parent_id: UUID, student_id: UUID, 
     db.add(parent)
     
     if commit:
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(parent)
     
     return parent

@@ -27,7 +27,6 @@ class AcademicGrade(TenantModel):
     # Relationships to other models
     sections = relationship("Section", back_populates="grade")
     assignments = relationship("Assignment", back_populates="grade")
-    exams = relationship("Exam", back_populates="grade")
     enrollments = relationship("Enrollment", back_populates="grade_obj")
     promotion_criteria = relationship("PromotionCriteria", back_populates="grade")
     

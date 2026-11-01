@@ -139,13 +139,11 @@ export default function AdminUserCreation({
       }
       
       // Generate tenant-specific login URL
-      const tenantLoginUrl = tenant?.domain 
-        ? `https://${tenant.domain}/login`
-        : tenant?.subdomain 
-        ? `https://${tenant.subdomain}.yourdomain.com/login`
-        : tenant?.code
-        ? `https://yourdomain.com/${tenant.code}/login`
-        : 'https://yourdomain.com/login';
+      // The school's sign-in page lives at /{slug}/login on this app
+      const slug = tenant?.domain || tenant?.subdomain || tenant?.id;
+      const tenantLoginUrl = slug
+        ? `${window.location.origin}/${String(slug).toLowerCase()}/login`
+        : `${window.location.origin}/login`;
 
       const credentials = {
         email: formData.email,

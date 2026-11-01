@@ -11,6 +11,25 @@ from src.services.base.base import TenantBaseService, SuperAdminBaseService
 from src.db.session import get_db, get_super_admin_db
 from src.core.middleware.tenant import get_tenant_from_request
 
+# Only data changes are audit-worthy; reads, logins and exports are not shown.
+KEY_ACTIONS = ("create", "update", "delete")
+SUPER_ADMIN_ROLE_NAMES = ("super-admin", "superadmin")
+
+
+def is_key_event(model=ActivityLog):
+    """Create/update/delete only; old login/refresh calls were stored as "create auth"."""
+    return model.action.in_(KEY_ACTIONS) & ~((model.entity_type == "auth") & (model.action == "create"))
+
+
+def super_admin_user_ids(db: Session):
+    """Subquery of user ids holding a super-admin role."""
+    from src.db.models.auth.user_role import UserRole, user_role_association
+    return (
+        db.query(user_role_association.c.user_id)
+        .join(UserRole, UserRole.id == user_role_association.c.role_id)
+        .filter(UserRole.name.in_(SUPER_ADMIN_ROLE_NAMES))
+    )
+
 
 class AuditLoggingService(TenantBaseService[ActivityLog, ActivityLogCreate, ActivityLogUpdate]):
     """Service for managing audit and activity logs within a tenant."""
@@ -58,13 +77,25 @@ class AuditLoggingService(TenantBaseService[ActivityLog, ActivityLogCreate, Acti
         )
         return self.crud.create(self.db, tenant_id=self.tenant_id, obj_in=log_data)
 
+    def _school_scope(self):
+        """This school's key actions by its own users; never super-admin activity."""
+        from src.db.models.auth.user import User
+
+        query = self.db.query(ActivityLog).filter(
+            ActivityLog.tenant_id == self.tenant_id,
+            is_key_event(),
+        )
+        # Outer join keeps system logs (user_id is null)
+        query = query.outerjoin(User, ActivityLog.user_id == User.id)
+        return query.filter(
+            (User.id == None) | (User.tenant_id == self.tenant_id),  # noqa: E711
+            ~ActivityLog.user_id.in_(super_admin_user_ids(self.db)) | (ActivityLog.user_id == None),  # noqa: E711
+        )
+
     async def list_with_count(self, skip: int = 0, limit: int = 100, filters: Optional[Dict] = None, **kwargs) -> tuple[List[ActivityLog], int]:
         """List records with total count, eager loading of user, and super-admin filtering."""
-        from src.db.models.auth.user import User
-        
-        # Start with base query
-        query = self.db.query(ActivityLog).filter(ActivityLog.tenant_id == self.tenant_id)
-        
+        query = self._school_scope()
+
         # Apply filters
         if filters:
             for field, value in filters.items():
@@ -72,13 +103,7 @@ class AuditLoggingService(TenantBaseService[ActivityLog, ActivityLogCreate, Acti
                     column = getattr(ActivityLog, field)
                     if value is not None:
                         query = query.filter(column == value)
-        
-        # EXCLUDE logs where the user is NOT a tenant user (i.e. super-admins)
-        # We join with User and ensure User.tenant_id == self.tenant_id
-        # We use an outer join to keep system logs (user_id is null)
-        query = query.outerjoin(User, ActivityLog.user_id == User.id)
-        query = query.filter((User.id == None) | (User.tenant_id == self.tenant_id))
-        
+
         # Get total count
         total = query.count()
         
@@ -91,17 +116,8 @@ class AuditLoggingService(TenantBaseService[ActivityLog, ActivityLogCreate, Acti
 
     async def get_by_date_range(self, start_date: datetime, end_date: datetime, skip: int = 0, limit: int = 100) -> tuple[List[ActivityLog], int]:
         """Get activity logs within a date range with pagination support."""
-        from src.db.models.auth.user import User
-        
-        query = self.db.query(ActivityLog).filter(
-            ActivityLog.tenant_id == self.tenant_id,
-            ActivityLog.created_at.between(start_date, end_date)
-        )
-        
-        # Apply super-admin filter
-        query = query.outerjoin(User, ActivityLog.user_id == User.id)
-        query = query.filter((User.id == None) | (User.tenant_id == self.tenant_id))
-        
+        query = self._school_scope().filter(ActivityLog.created_at.between(start_date, end_date))
+
         total = query.count()
         
         query = query.options(joinedload(ActivityLog.user))
@@ -109,6 +125,13 @@ class AuditLoggingService(TenantBaseService[ActivityLog, ActivityLogCreate, Acti
         
         items = query.offset(skip).limit(limit).all()
         return items, total
+
+    async def get_by_entity(self, entity_type: str, entity_id: UUID) -> List[ActivityLog]:
+        """History of one record, using the same visibility rules as the list."""
+        return self._school_scope().filter(
+            ActivityLog.entity_type == entity_type,
+            ActivityLog.entity_id == entity_id,
+        ).options(joinedload(ActivityLog.user)).order_by(ActivityLog.created_at.desc()).all()
 
     async def get_recent_activities(self, days: int = 7, skip: int = 0, limit: int = 100) -> tuple[List[ActivityLog], int]:
         """Get all activity logs from the last X days."""
@@ -135,7 +158,7 @@ class SuperAdminAuditLoggingService(SuperAdminBaseService[ActivityLog, ActivityL
                             end_date: Optional[datetime] = None,
                             tenant_id: Optional[UUID] = None) -> tuple[List[ActivityLog], int]:
         """Get all activity logs across all tenants with filtering and return total count."""
-        query = self.db.query(ActivityLog)
+        query = self.db.query(ActivityLog).filter(is_key_event())
         
         # Apply filters
         if user_id:

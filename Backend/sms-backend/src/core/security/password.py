@@ -1,3 +1,5 @@
+import secrets
+import string
 import time
 from passlib.context import CryptContext
 
@@ -40,3 +42,29 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     """Generate a bcrypt password hash."""
     return password_context.hash(password)
+
+# Specials that are easy to read aloud and type on a phone keyboard
+SPECIAL_CHARS = "!@#$%&*?"
+
+_rng = secrets.SystemRandom()
+
+
+def generate_default_password(length=12):
+    """Generate a random password that satisfies the password policy.
+
+    Used for admin-issued passwords (new accounts, resets); the user must change it
+    at first login.
+
+    Args:
+        length (int): Length of the password, clamped between 10 and 16 characters
+
+    Returns:
+        str: A password with at least one uppercase, lowercase, digit and special character
+    """
+    length = max(10, min(16, length))
+    sets = [string.ascii_uppercase, string.ascii_lowercase, string.digits, SPECIAL_CHARS]
+    password = [_rng.choice(chars) for chars in sets]
+    all_chars = "".join(sets)
+    password.extend(_rng.choice(all_chars) for _ in range(length - len(sets)))
+    _rng.shuffle(password)
+    return "".join(password)

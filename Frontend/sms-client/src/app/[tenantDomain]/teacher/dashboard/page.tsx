@@ -13,6 +13,7 @@ import { useDashboardService } from '@/services/api/dashboard-service';
 import { useClassService } from '@/services/api/class-service';
 import { useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
+import { SponsorTodayCard } from '@/components/attendance/SponsorTodayCard';
 
 export default function TeacherDashboard() {
     const { user } = useAuth();
@@ -146,10 +147,11 @@ export default function TeacherDashboard() {
 
                     {/* Sidebar - Quick Actions & Information */}
                     <div className="lg:col-span-4 space-y-6">
+                        {user?.id && <SponsorTodayCard teacherId={user.id} attendanceHref="./attendance" />}
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                             <h3 className="text-lg font-bold text-slate-900 mb-6 font-display">Hub Actions</h3>
                             <div className="grid grid-cols-2 gap-4">
-                                <Link href="./classes" className="flex flex-col items-center justify-center p-4 rounded-xl bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 transition-colors group">
+                                <Link href="./attendance" className="flex flex-col items-center justify-center p-4 rounded-xl bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 transition-colors group">
                                     <ClipboardList className="h-6 w-6 text-indigo-600 mb-2" />
                                     <span className="text-[10px] font-bold text-indigo-900 uppercase">Attendance</span>
                                 </Link>

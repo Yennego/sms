@@ -4,7 +4,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from src.services.academics import AssignmentService, SuperAdminAssignmentService
 from src.schemas.academics.assignment import Assignment, AssignmentCreate, AssignmentUpdate
-from src.core.auth.dependencies import has_any_role, has_permission
+from src.core.auth.dependencies import has_any_role, has_permission, holds_any_permission
+
+# Who may see unpublished assignments; everyone else with view_assignments sees published ones only
+ASSIGNMENT_STAFF = ["create_assignments", "update_assignments", "manage_academic_data", "view_academic_data"]
 from src.schemas.auth import User
 from src.core.exceptions.business import (
     EntityNotFoundError,
@@ -37,8 +40,11 @@ async def get_assignments(
     academic_year_id: Optional[UUID] = None,
     period_id: Optional[UUID] = Query(None, description="Optional filter by period"),
     semester_id: Optional[UUID] = Query(None, description="Optional filter by semester"),
-    is_published: Optional[bool] = None
+    is_published: Optional[bool] = None,
+    current_user: User = Depends(has_permission("view_assignments"))
 ) -> Any:
+    if not holds_any_permission(current_user, ASSIGNMENT_STAFF):
+        is_published = True
     filters = {}
     if subject_id:
         filters["subject_id"] = subject_id
@@ -63,9 +69,12 @@ async def get_assignments(
 async def get_assignment(
     *,
     assignment_service: AssignmentService = Depends(),
-    assignment_id: UUID
+    assignment_id: UUID,
+    current_user: User = Depends(has_permission("view_assignments"))
 ) -> Any:
     assignment = await assignment_service.get(id=assignment_id)
+    if assignment and not assignment.is_published and not holds_any_permission(current_user, ASSIGNMENT_STAFF):
+        assignment = None
     if not assignment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Assignment with ID {assignment_id} not found")
     return assignment
@@ -83,7 +92,7 @@ async def update_assignment(
     if not db_obj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Assignment with ID {assignment_id} not found")
     try:
-        return await assignment_service.update(db_obj=db_obj, obj_in=assignment_in)
+        return await assignment_service.update(id=assignment_id, obj_in=assignment_in)
     except BusinessRuleViolationError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 

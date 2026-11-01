@@ -1,6 +1,5 @@
 from uuid import uuid4
-from sqlalchemy import Column, String, Boolean, Numeric
-import sqlalchemy as sa
+from sqlalchemy import Column, String, Boolean, Index, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 from src.db.models.base import TimestampMixin, UUIDMixin, Base
@@ -33,14 +32,18 @@ class Tenant(Base, TimestampMixin, UUIDMixin):
     # Additional fields for frontend compatibility
     domain = Column(String(255), unique=True, nullable=True, comment="Domain for the tenant")
     subdomain = Column(String(100), nullable=True, comment="Subdomain for the tenant")
+
+    # School addresses are matched without regard to case, so they're unique that way too
+    __table_args__ = (
+        Index("uq_tenants_domain_lower", func.lower(domain), unique=True),
+        Index("uq_tenants_subdomain_lower", func.lower(subdomain), unique=True),
+    )
     logo = Column(String(500), nullable=True, comment="Logo URL for the tenant")
     primary_color = Column(String(7), nullable=True, comment="Primary color for branding (hex)")
     secondary_color = Column(String(7), nullable=True, comment="Secondary color for branding (hex)")
-    
-    # Subscription & Billing Fields (Phase 2)
-    plan_type = Column(String(20), nullable=False, default="flat_rate", server_default="flat_rate", comment="'flat_rate' or 'per_user'")
-    plan_amount = sa.Column(sa.Numeric(10, 2), nullable=False, default=0.0, server_default="0.0", comment="Monthly amount based on plan_type")
-    subscription_status = Column(String(20), nullable=False, default="active", server_default="active", comment="'active', 'past_due', 'canceled'")
+
+    # Billing (what the school pays the platform and its access state) is in
+    # school_subscriptions and the platform_* tables (models/billing)
 
     # Relationships
     settings = relationship("TenantSettings", back_populates="tenant", uselist=False, cascade="all, delete-orphan")

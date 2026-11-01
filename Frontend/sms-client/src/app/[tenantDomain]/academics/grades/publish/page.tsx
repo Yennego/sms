@@ -1,256 +1,344 @@
 'use client';
-"use client";
 
-import React, { useState, useEffect } from "react";
-import { useAuth } from "@/hooks/use-auth";
-import { useAcademicYearService } from "@/services/api/academic-year-service";
-import { useAcademicGradeService } from "@/services/api/academic-grade-service";
-import { useSubjectService } from "@/services/api/subject-service";
-import { useStudentGradeService } from "@/services/api/student-grade-service";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+// Review and publish (phase4-design.md section 5): for a school year and one results column
+// (a period, or a semester's exam and average), every class's subjects with how many students
+// have a score, the class average and the teacher; then publish or unpublish per class.
+// Published results are what students and parents of the class see.
+import * as React from 'react';
+import { AlertCircle, CalendarRange, School } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { EmptyState } from '@/components/ui/empty-state';
+import { PageShell } from '@/components/ui/page-shell';
+import { Skeleton } from '@/components/ui/skeleton';
+import { notify } from '@/components/ui/toaster';
+import { errorMessage, formatDate } from '@/components/students/format';
+import { className as classLabel, useYearClasses } from '@/components/class-placement/queries';
+import { ClassResultsCard, subjectCompletion } from '@/components/publishing/class-results-card';
 import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import {
-    AlertCircle,
-    CheckCircle2,
-    FileUp,
-    Info,
-    Loader2,
-    ShieldCheck
-} from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+  useClassesProgress,
+  usePublications,
+  usePublishResults,
+  useResultColumns,
+  type ResultColumn,
+} from '@/components/publishing/queries';
+import { useAcademicYearsList } from '@/hooks/queries/academic-years';
+import type { ResultPublication } from '@/services/api/results-service';
 
-export default function PublishGradesPage() {
-    const { user, isLoading: authLoading } = useAuth();
-    const router = useRouter();
+const selectClass =
+  'h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50 md:h-9';
 
-    // Services
-    const ayService = useAcademicYearService();
-    const levelService = useAcademicGradeService();
-    const subjectService = useSubjectService();
-    const gradeService = useStudentGradeService();
+interface PendingAction {
+  classId: string;
+  className: string;
+  publish: boolean;
+  incomplete: string[];
+}
 
-    // State
-    const [academicYears, setAcademicYears] = useState<any[]>([]);
-    const [levels, setLevels] = useState<any[]>([]);
-    const [subjects, setSubjects] = useState<any[]>([]);
+function todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
-    const [selectedAY, setSelectedAY] = useState<string>("");
-    const [selectedLevel, setSelectedLevel] = useState<string>("");
-    const [selectedSubject, setSelectedSubject] = useState<string>("");
-    const [selectedPeriod, setSelectedPeriod] = useState<string>("1");
+/** The period running today, else the last one that has started, else the first column. */
+function defaultColumn(columns: ResultColumn[]): ResultColumn | undefined {
+  const today = todayIso();
+  const periods = columns.filter((c) => c.scope.period_id);
+  const running = periods.find((c) => c.start && c.end && c.start.slice(0, 10) <= today && today <= c.end.slice(0, 10));
+  if (running) return running;
+  const started = periods.filter((c) => c.start && c.start.slice(0, 10) <= today);
+  return started[started.length - 1] ?? columns[0];
+}
 
-    const [isPublishing, setIsPublishing] = useState(false);
-    const [loadingData, setLoadingData] = useState(true);
+function publicationFor(
+  publications: ResultPublication[] | undefined,
+  classId: string,
+  column: ResultColumn | undefined
+): ResultPublication | undefined {
+  if (!publications || !column) return undefined;
+  return publications.find(
+    (p) =>
+      p.class_id === classId &&
+      (column.scope.period_id ? p.period_id === column.scope.period_id : p.semester_id === column.scope.semester_id && !p.period_id)
+  );
+}
 
-    // Check Admin role
-    const isAdmin = user?.roles?.some(r => r.name.toLowerCase() === 'admin' || r.name.toLowerCase() === 'superadmin');
+function permissionMessage(error: unknown, fallback: string) {
+  const status = (error as { statusCode?: number } | null)?.statusCode;
+  if (status === 403) return "You don't have permission to publish results. Ask the principal or an administrator.";
+  return errorMessage(error, fallback);
+}
 
-    useEffect(() => {
-        if (!authLoading && !isAdmin) {
-            toast.error("Access Denied: Admin role required.");
-            router.back();
-        }
-    }, [isAdmin, authLoading, router]);
+export default function ReviewAndPublishPage() {
+  const yearsQuery = useAcademicYearsList();
+  const years = React.useMemo(() => yearsQuery.data ?? [], [yearsQuery.data]);
+  const [chosenYearId, setChosenYearId] = React.useState('');
+  const yearId = chosenYearId || years.find((y) => y.is_current)?.id || years[0]?.id || '';
+  const year = years.find((y) => y.id === yearId);
 
-    useEffect(() => {
-        async function loadInitialData() {
-            try {
-                const [ayRes, levelRes, subjectRes] = await Promise.all([
-                    ayService.getAcademicYears(),
-                    levelService.getActiveGrades(),
-                    subjectService.getAllSubjects()
-                ]);
-                setAcademicYears(ayRes || []);
-                setLevels(levelRes || []);
-                setSubjects(subjectRes || []);
-            } catch (err) {
-                console.error("Failed to load publishing data", err);
-                toast.error("Failed to load configuration data");
-            } finally {
-                setLoadingData(false);
-            }
-        }
-        if (isAdmin) loadInitialData();
-    }, [isAdmin]);
+  const { columns, isLoading: columnsLoading, error: columnsError } = useResultColumns(yearId || undefined);
+  const [chosenColumnKey, setChosenColumnKey] = React.useState('');
+  const column = columns.find((c) => c.key === chosenColumnKey) ?? defaultColumn(columns);
 
-    const handlePublish = async () => {
-        if (!selectedAY || !selectedLevel || !selectedSubject || !selectedPeriod) {
-            toast.warning("Please fill all selection fields");
-            return;
-        }
+  const classesQuery = useYearClasses(yearId || undefined);
+  const classes = React.useMemo(() => classesQuery.data ?? [], [classesQuery.data]);
+  const classIds = React.useMemo(() => classes.map((c) => c.id), [classes]);
+  const progressQueries = useClassesProgress(classIds, column?.scope);
+  const publicationsQuery = usePublications(yearId || undefined);
+  const publishMutation = usePublishResults(yearId || undefined);
 
-        if (!confirm(`Are you sure you want to publish all grades for this period? once published, they will be visible on report cards and student dashboards.`)) {
-            return;
-        }
+  const [pending, setPending] = React.useState<PendingAction | null>(null);
+  const [busyClassId, setBusyClassId] = React.useState<string | null>(null);
 
-        setIsPublishing(true);
-        try {
-            const res = await gradeService.publishGrades({
-                academic_year_id: selectedAY,
-                grade_id: selectedLevel,
-                subject_id: selectedSubject,
-                period_number: parseInt(selectedPeriod)
-            });
-            toast.success(`Successfully published ${res.published_count} grade records!`);
-        } catch (err) {
-            toast.error("Failed to publish grades. Please check your connection.");
-        } finally {
-            setIsPublishing(false);
-        }
-    };
+  const isPublished = (classId: string, index: number) => {
+    if (publicationsQuery.data) return Boolean(publicationFor(publicationsQuery.data, classId, column));
+    return Boolean(progressQueries[index]?.data?.published);
+  };
 
-    if (authLoading || loadingData) {
-        return (
-            <div className="h-screen flex items-center justify-center">
-                <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
-            </div>
-        );
+  const publishedCount = classes.filter((c, i) => isPublished(c.id, i)).length;
+  const columnLabel = column?.label ?? '';
+  const columnPhrase = column
+    ? column.scope.period_id
+      ? `${column.label} results`
+      : `${column.semesterName} exam and semester average`
+    : 'results';
+
+  const openConfirm = (classId: string, name: string, index: number, publish: boolean) => {
+    const subjects = progressQueries[index]?.data?.subjects ?? [];
+    setPending({
+      classId,
+      className: name,
+      publish,
+      incomplete: subjects.filter((s) => subjectCompletion(s) !== 'complete').map((s) => s.subject_name),
+    });
+  };
+
+  const confirm = async () => {
+    if (!pending || !column) return;
+    setBusyClassId(pending.classId);
+    try {
+      await publishMutation.mutateAsync({ classId: pending.classId, scope: column.scope, publish: pending.publish });
+      notify.success(
+        pending.publish
+          ? `${columnPhrase} published for ${pending.className}. Students and parents can see them now.`
+          : `${columnPhrase} unpublished for ${pending.className}. Students and parents no longer see them.`
+      );
+    } catch (error) {
+      // 409 for a semester whose periods aren't all published: show the server's words.
+      notify.error(
+        permissionMessage(
+          error,
+          pending.publish
+            ? `${pending.className}'s results weren't published. Try again.`
+            : `${pending.className}'s results weren't unpublished. Try again.`
+        )
+      );
+      throw error;
+    } finally {
+      setBusyClassId(null);
     }
+  };
 
-    if (!isAdmin) return null;
+  const yearSelectId = React.useId();
+  const columnSelectId = React.useId();
 
-    return (
-        <div className="p-6 max-w-4xl mx-auto space-y-6">
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-3xl font-black text-indigo-950 flex items-center gap-3">
-                        <ShieldCheck className="w-8 h-8 text-indigo-600" />
-                        Grade Publishing Hub
-                    </h1>
-                    <p className="text-muted-foreground mt-1">
-                        Officially release student results to dashboards and report cards.
-                    </p>
-                </div>
-            </div>
+  // Group the columns by semester for the select.
+  const groups = React.useMemo(() => {
+    const map = new Map<string, { name: string; items: ResultColumn[] }>();
+    for (const c of columns) {
+      if (!map.has(c.semesterId)) map.set(c.semesterId, { name: c.semesterName, items: [] });
+      map.get(c.semesterId)!.items.push(c);
+    }
+    return [...map.values()];
+  }, [columns]);
 
-            <Alert className="bg-amber-50 border-amber-200">
-                <Info className="h-4 w-4 text-amber-700" />
-                <AlertDescription className="text-amber-700">
-                    <span className="font-bold block mb-1">Important Notice</span>
-                    Publishing grades is a final action. Once published, grades become visible to students and parents.
-                    Teachers can still edit them, but changes will be immediately live.
-                </AlertDescription>
-            </Alert>
-
-            <Card className="border-indigo-100 shadow-sm">
-                <CardHeader>
-                    <CardTitle className="text-lg">Publish Selection</CardTitle>
-                    <CardDescription>Select the specific class and period to publish.</CardDescription>
-                </CardHeader>
-                <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                        <Label className="font-bold">Academic Year</Label>
-                        <Select onValueChange={setSelectedAY} value={selectedAY}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select Year" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {academicYears.map(ay => (
-                                    <SelectItem key={ay.id} value={ay.id}>{ay.name}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label className="font-bold">Grade Level</Label>
-                        <Select onValueChange={setSelectedLevel} value={selectedLevel}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select Grade" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {levels.map(l => (
-                                    <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label className="font-bold">Subject</Label>
-                        <Select onValueChange={setSelectedSubject} value={selectedSubject}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select Subject" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {subjects.map(s => (
-                                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label className="font-bold">Period Number</Label>
-                        <Select onValueChange={setSelectedPeriod} value={selectedPeriod}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select Period" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {[1, 2, 3, 4, 5, 6].map(p => (
-                                    <SelectItem key={p} value={String(p)}>Period {p}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                </CardContent>
-                <div className="p-6 border-t bg-gray-50/50 flex justify-end">
-                    <Button
-                        onClick={handlePublish}
-                        disabled={isPublishing || !selectedAY || !selectedLevel || !selectedSubject}
-                        className="bg-indigo-600 hover:bg-indigo-700 h-11 px-8 gap-2 font-bold"
-                    >
-                        {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileUp className="w-4 h-4" />}
-                        Publish Grades Now
-                    </Button>
-                </div>
-            </Card>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Card className="bg-emerald-50 border-emerald-100">
-                    <CardContent className="pt-6 flex items-center gap-4">
-                        <CheckCircle2 className="w-10 h-10 text-emerald-600" />
-                        <div>
-                            <h3 className="text-lg font-black text-emerald-950">Draft Mode</h3>
-                            <p className="text-xs text-emerald-700">Accumulate grades throughout the term without parents seeing them.</p>
-                        </div>
-                    </CardContent>
-                </Card>
-                <Card className="bg-indigo-50 border-indigo-100">
-                    <CardContent className="pt-6 flex items-center gap-4">
-                        <ShieldCheck className="w-10 h-10 text-indigo-600" />
-                        <div>
-                            <h3 className="text-lg font-black text-indigo-950">Review First</h3>
-                            <p className="text-xs text-indigo-700">Check class averages and completeness before you publish.</p>
-                        </div>
-                    </CardContent>
-                </Card>
-                <Card className="bg-amber-50 border-amber-100">
-                    <CardContent className="pt-6 flex items-center gap-4">
-                        <AlertCircle className="w-10 h-10 text-amber-600" />
-                        <div>
-                            <h3 className="text-lg font-black text-amber-950">One Button</h3>
-                            <p className="text-xs text-amber-700">Bulk publish as many as 500+ grades in a single request.</p>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-        </div>
+  let body: React.ReactNode;
+  if (yearsQuery.isLoading || (yearId && (columnsLoading || classesQuery.isLoading))) {
+    body = (
+      <div className="flex flex-col gap-4" aria-busy="true">
+        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
     );
+  } else if (yearsQuery.error || columnsError || classesQuery.error) {
+    body = (
+      <EmptyState
+        icon={AlertCircle}
+        description={errorMessage(
+          yearsQuery.error ?? columnsError ?? classesQuery.error,
+          "The school year couldn't be loaded. Check your connection and try again."
+        )}
+        action={
+          <Button
+            variant="outline"
+            onClick={() => {
+              void yearsQuery.refetch();
+              void classesQuery.refetch();
+            }}
+          >
+            Try again
+          </Button>
+        }
+      />
+    );
+  } else if (!yearId) {
+    body = (
+      <EmptyState
+        icon={CalendarRange}
+        title="No school year yet"
+        description="Set up a school year with its semesters and periods first, then come back to publish results."
+      />
+    );
+  } else if (columns.length === 0) {
+    body = (
+      <EmptyState
+        icon={CalendarRange}
+        title="No periods in this year"
+        description="Add semesters and periods to this school year first. Results are published per period and per semester."
+      />
+    );
+  } else if (classes.length === 0) {
+    body = (
+      <EmptyState
+        icon={School}
+        title="No classes in this year"
+        description="Create the classes for this school year first. Results are published one class at a time."
+      />
+    );
+  } else {
+    body = (
+      <div className="flex flex-col gap-4">
+        {classes.map((c, i) => {
+          const q = progressQueries[i];
+          const publication = publicationFor(publicationsQuery.data, c.id, column);
+          const name = classLabel(c);
+          const publishedNote = publication?.published_at
+            ? `on ${formatDate(publication.published_at)}${publication.published_by_name ? ` by ${publication.published_by_name}` : ''}`
+            : null;
+          return (
+            <ClassResultsCard
+              key={c.id}
+              classId={c.id}
+              className={name}
+              columnLabel={columnLabel}
+              progress={q?.data}
+              loading={Boolean(q?.isLoading)}
+              error={q?.error ?? null}
+              published={isPublished(c.id, i)}
+              publishedNote={publishedNote}
+              busy={busyClassId === c.id}
+              onPublish={() => openConfirm(c.id, name, i, true)}
+              onUnpublish={() => openConfirm(c.id, name, i, false)}
+              onRetry={() => void q?.refetch()}
+            />
+          );
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <PageShell
+      title="Review and publish"
+      description="Check that every subject has its scores, then publish a class's results. Students and parents only see published results."
+    >
+      <div className="flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-end">
+        <div className="grid gap-2 sm:w-56">
+          <label htmlFor={yearSelectId} className="text-sm font-medium">
+            School year
+          </label>
+          <select
+            id={yearSelectId}
+            className={selectClass}
+            value={yearId}
+            disabled={years.length === 0}
+            onChange={(e) => {
+              setChosenYearId(e.target.value);
+              setChosenColumnKey('');
+            }}
+          >
+            {years.map((y) => (
+              <option key={y.id} value={y.id}>
+                {y.name}
+                {y.is_current ? ' (current)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="grid gap-2 sm:w-80">
+          <label htmlFor={columnSelectId} className="text-sm font-medium">
+            Results
+          </label>
+          <select
+            id={columnSelectId}
+            className={selectClass}
+            value={column?.key ?? ''}
+            disabled={columns.length === 0}
+            onChange={(e) => setChosenColumnKey(e.target.value)}
+          >
+            {groups.map((g) => (
+              <optgroup key={g.name} label={g.name}>
+                {g.items.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+        {column && classes.length > 0 ? (
+          <p className="text-sm text-muted-foreground sm:ml-auto sm:text-right" aria-live="polite">
+            {publicationsQuery.isLoading ? 'Checking what is published…' : `${publishedCount} of ${classes.length} classes published`}
+            {year ? ` · ${year.name}` : ''}
+          </p>
+        ) : null}
+      </div>
+
+      {column?.scope.semester_id ? (
+        <p className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          Publishing the semester exam also publishes the semester average. All three periods of{' '}
+          {column.semesterName} must be published for the class first.
+        </p>
+      ) : null}
+
+      {body}
+
+      <ConfirmDialog
+        open={pending !== null}
+        onOpenChange={(open) => {
+          if (!open) setPending(null);
+        }}
+        title={
+          pending
+            ? pending.publish
+              ? `Publish ${columnPhrase} for ${pending.className}?`
+              : `Unpublish ${columnPhrase} for ${pending.className}?`
+            : ''
+        }
+        description={
+          pending
+            ? pending.publish
+              ? `Students and parents of ${pending.className} will see these results. After this, teachers can't change these scores; only an administrator can.`
+              : `Students and parents of ${pending.className} will no longer see these results. Teachers can change the scores again.`
+            : undefined
+        }
+        confirmLabel={pending?.publish ? 'Publish results' : 'Unpublish results'}
+        destructive={pending ? !pending.publish : false}
+        onConfirm={confirm}
+      >
+        {pending?.publish && pending.incomplete.length > 0 ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <p className="font-medium">
+              {pending.incomplete.length === 1 ? '1 subject is' : `${pending.incomplete.length} subjects are`} not
+              complete:
+            </p>
+            <p className="mt-1">{pending.incomplete.join(', ')}</p>
+            <p className="mt-1">Students without a score will have an incomplete average.</p>
+          </div>
+        ) : null}
+      </ConfirmDialog>
+    </PageShell>
+  );
 }

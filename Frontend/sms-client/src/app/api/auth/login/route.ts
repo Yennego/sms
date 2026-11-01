@@ -2,8 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
 import { getNamespacedKey } from '@/utils/cookie-manager';
 import { isValidUUID, getTenantUUIDByDomain } from '@/lib/cookies';
+import { decodeJwtPayload, setSessionFromTokens } from '@/app/api/_lib/auth-cookies';
+import { rejectCrossSite } from '@/app/api/_lib/csrf';
+import { trustedClientHeaders } from '@/app/api/_lib/client-ip';
+import { BILLING_STATUS_HEADER } from '@/lib/billing-block';
 
 export async function POST(request: NextRequest) {
+  const blocked = rejectCrossSite(request);
+  if (blocked) return blocked;
+
   try {
     // Robustly extract credentials from various formats
     let username = '';
@@ -29,7 +36,6 @@ export async function POST(request: NextRequest) {
 
     const headerTenantId = request.headers.get('X-Tenant-ID');
 
-    console.log('[Login API] Attempting login for:', username, 'Tenant Header:', headerTenantId);
 
     let backendUrl = process.env.BACKEND_API_URL || '';
     if (!backendUrl) {
@@ -65,6 +71,7 @@ export async function POST(request: NextRequest) {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           ...(tenantHeaderToSend && { 'X-Tenant-ID': tenantHeaderToSend }),
+          ...trustedClientHeaders(request),
         },
         timeout: 95000,
       }
@@ -79,60 +86,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Missing required tokens' }, { status: 500 });
     }
 
-    // Extract tenantId from token if available
-    const extractTenantFromToken = (token: string): string | null => {
-      try {
-        const [, payloadB64] = token.split('.');
-        const payload = JSON.parse(Buffer.from(payloadB64, 'base64').toString());
-        const tid = payload.tenant_id;
-        return (tid && tid !== 'None' && tid !== 'null') ? tid : null;
-      } catch { return null; }
-    };
-
-    const tokenTenantId = extractTenantFromToken(accessToken);
-    const finalTenantId = tokenTenantId || tenantHeaderToSend;
-
-    // Determine context: if super-admin and no tenant context, use SUPER_ADMIN
-    // If it's a tenant user (has tenantId), use TENANT
-    const isSuperAdmin = !tokenTenantId && !tenantHeaderToSend;
-    const context = isSuperAdmin ? 'SUPER_ADMIN' : 'TENANT';
-
-    const responseObj = NextResponse.json(data);
-
-    // Set accessToken cookie (tn_accessToken) - NOT httpOnly so client-side JS can read it
-    responseObj.cookies.set(getNamespacedKey('accessToken', context), accessToken, {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60,
+    // Both tokens go only into httpOnly cookies, never into the response body. The token carries
+    // the user's own school; super-admins get SUPER_ADMIN cookies, everyone else TENANT.
+    const payload = decodeJwtPayload(accessToken);
+    const responseObj = NextResponse.json({
+      token_type: 'bearer',
+      is_super_admin: payload.is_super_admin === true,
+      tenant_id: payload.tenant_id ?? null,
     });
-
-    // Set refreshToken cookie (tn_refreshToken)
-    responseObj.cookies.set(getNamespacedKey('refreshToken', context), refreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 14 * 24 * 60 * 60,
-    });
-
-    if (finalTenantId) {
-      responseObj.cookies.set(getNamespacedKey('tenantId', context), finalTenantId, {
-        httpOnly: false,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 30 * 24 * 60 * 60,
-      });
-    }
-
+    setSessionFromTokens(responseObj, accessToken, refreshToken, tenantHeaderToSend);
     return responseObj;
   } catch (error) {
-    console.error('Login API error:', error);
+    console.error('Login API error:', axios.isAxiosError(error) ? `${error.response?.status} ${error.message}` : error);
     if (axios.isAxiosError(error)) {
       const status = error.response?.status || 500;
       const message = error.response?.data?.detail || error.response?.data?.message || error.message;
+      // A suspended school lets only its admins sign in: keep the status and the reason for the login page
+      const billingStatus = error.response?.headers?.[BILLING_STATUS_HEADER];
+      if (status === 403 && typeof billingStatus === 'string' && billingStatus) {
+        return NextResponse.json(
+          { message, detail: message },
+          { status, headers: { [BILLING_STATUS_HEADER]: billingStatus } }
+        );
+      }
       return NextResponse.json({ message }, { status });
     }
     return NextResponse.json({ message: 'Internal server error' }, { status: 500 });

@@ -1,45 +1,23 @@
+// Public: asks the backend to email a password reset link. The school comes from the page URL
+// (sent as X-Tenant-ID); the backend answers the same way whether or not the account exists.
 import { NextRequest, NextResponse } from 'next/server';
+import { rejectCrossSite } from '@/app/api/_lib/csrf';
+import { forwardPublicAuthPost, readJson, schoolHeader } from '@/app/api/_lib/public-auth';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { email } = body;
-    
-    // Get tenant ID from header
-    const tenantId = request.headers.get('X-Tenant-ID');
-    
-    if (!tenantId) {
-      return NextResponse.json(
-        { message: 'Tenant ID is required' },
-        { status: 400 }
-      );
-    }
-    
-    // Call backend API
-    const response = await fetch(`${process.env.BACKEND_API_URL}/auth/forgot-password`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Tenant-ID': tenantId,
-      },
-      body: JSON.stringify({ email }),
-    });
-    
-    const data = await response.json();
-    
-    if (!response.ok) {
-      return NextResponse.json(
-        { message: data.detail || 'Failed to process request' },
-        { status: response.status }
-      );
-    }
-    
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error('Forgot password error:', error);
-    return NextResponse.json(
-      { message: 'Internal server error' },
-      { status: 500 }
-    );
+  const blocked = rejectCrossSite(request);
+  if (blocked) return blocked;
+
+  const tenant = schoolHeader(request);
+  if (!tenant) {
+    return NextResponse.json({ detail: "Open this page from your school's sign-in page." }, { status: 400 });
   }
+  const body = await readJson(request);
+  const email = typeof body?.email === 'string' ? body.email.trim() : '';
+  if (!email) {
+    return NextResponse.json({ detail: 'Enter your email address.' }, { status: 400 });
+  }
+  return forwardPublicAuthPost('auth/forgot-password', { email }, tenant, request);
 }

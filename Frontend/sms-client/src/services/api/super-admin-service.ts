@@ -2,6 +2,8 @@ import { useSuperAdminApiClient } from './super-admin-api-client';
 import { useMemo } from 'react';
 import { useTenant } from '@/hooks/use-tenant';
 import { toast } from 'sonner';
+import type { PerCurrency } from './fees-service';
+import type { SubscriptionStatus } from './billing-service';
 
 // Define types for dashboard data
 export interface TenantStats {
@@ -21,11 +23,14 @@ export interface UserStats {
   usersWithoutRoles: number;
 }
 
+/** Platform billing totals (phase7-design.md §8): money as strings, one entry per currency. */
 export interface RevenueStats {
-  total_monthly_revenue: number;
-  flat_rate_revenue: number;
-  per_user_revenue: number;
-  currency: string;
+  billed: PerCurrency;
+  collected: PerCurrency;
+  outstanding: PerCurrency;
+  /** Invoices with a charge and no payment yet, priced in both currencies */
+  not_yet_paid: { invoices: number; USD: string; LRD: string };
+  collected_usd_last_30_days: string;
 }
 
 export interface SystemStats {
@@ -55,9 +60,8 @@ export interface RecentTenant {
   createdAt: string;
   updatedAt: string;
   userCount: number;
-  plan_type?: string;
-  plan_amount?: number;
-  subscription_status?: string;
+  /** Platform billing status (trial, active, read_only, suspended, dormant) */
+  billing_status?: SubscriptionStatus;
 }
 
 export interface SystemMetrics {
@@ -158,16 +162,10 @@ export interface UserUpdate {
 export interface TenantRevenueBreakdown {
   tenant_id: string;
   tenant_name: string;
-  plan_type: string;
-  plan_amount: number;
-  billable_users: number;
-  monthly_revenue: number;
-}
-
-export interface TenantSubscriptionUpdate {
-  plan_type?: string;
-  plan_amount?: number;
-  subscription_status?: string;
+  billing_status: SubscriptionStatus;
+  staff_count: number;
+  amount_due: PerCurrency;
+  collected_usd_last_30_days: string;
 }
 
 export interface TenantSettings {
@@ -201,6 +199,21 @@ export interface PaginatedResponse<T> {
   limit: number;
   has_next: boolean;
   has_prev: boolean;
+  /** Totals across every page for the current search/filters, e.g. { all, active, inactive } */
+  counts?: Record<string, number> | null;
+}
+
+/** Server-side query for the platform user list */
+export interface UserListParams {
+  skip?: number;
+  limit?: number;
+  /** Name, email or username */
+  q?: string;
+  is_active?: boolean;
+  tenant_id?: string;
+  role?: string;
+  sort_by?: 'name' | 'email' | 'username' | 'last_login' | 'created_at' | 'school';
+  sort_order?: 'asc' | 'desc';
 }
 
 export interface TenantData {
@@ -211,9 +224,6 @@ export interface TenantData {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  plan_type?: string;
-  plan_amount?: number;
-  subscription_status?: string;
 }
 
 export function useSuperAdminService() {
@@ -247,9 +257,6 @@ export function useSuperAdminService() {
           createdAt: item.created_at ?? item.createdAt,
           updatedAt: item.updated_at ?? item.updatedAt,
           userCount: item.user_count ?? item.userCount ?? 0,
-          plan_type: item.plan_type,
-          plan_amount: item.plan_amount,
-          subscription_status: item.subscription_status
         }))
       };
     },
@@ -296,15 +303,8 @@ export function useSuperAdminService() {
         createdAt: item.created_at ?? item.createdAt,
         updatedAt: item.updated_at ?? item.updatedAt,
         userCount: item.user_count ?? item.userCount ?? 0,
-        plan_type: item.plan_type,
-        plan_amount: item.plan_amount,
-        subscription_status: item.subscription_status
+        billing_status: item.billing_status,
       }));
-    },
-
-    // Update tenant subscription
-    updateTenantSubscription: async (tenantId: string, subscriptionData: TenantSubscriptionUpdate): Promise<any> => {
-      return apiClient.patch(`/super-admin/tenants/${tenantId}/subscription`, subscriptionData);
     },
 
     // Get system reports
@@ -383,19 +383,12 @@ export function useSuperAdminService() {
     },
 
     // Enhanced user list with role filtering
-    getUserList: async (params?: {
-      skip?: number;
-      limit?: number;
-      email?: string;
-      is_active?: boolean;
-      tenant_id?: string;
-      sort_by?: string;
-      sort_order?: 'asc' | 'desc';
-    }): Promise<PaginatedResponse<UserWithRoles>> => {
+    getUserList: async (params?: UserListParams): Promise<PaginatedResponse<UserWithRoles>> => {
       const queryParams = new URLSearchParams();
       if (params?.skip !== undefined) queryParams.append('skip', params.skip.toString());
       if (params?.limit !== undefined) queryParams.append('limit', params.limit.toString());
-      if (params?.email) queryParams.append('email', params.email);
+      if (params?.q) queryParams.append('q', params.q);
+      if (params?.role) queryParams.append('role', params.role);
       if (params?.is_active !== undefined) queryParams.append('is_active', params.is_active.toString());
       if (params?.tenant_id) queryParams.append('tenant_id', params.tenant_id);
       if (params?.sort_by) queryParams.append('sort_by', params.sort_by);
@@ -449,6 +442,11 @@ export function useSuperAdminService() {
     updateUser: async (userId: string, userData: UserUpdate, tenant_id?: string): Promise<UserWithRoles> => {
       const url = `/super-admin/users/${userId}`;
       return apiClient.put<UserWithRoles>(url, userData);
+    },
+
+    /** Issues a new password to hand over (never chosen here); the user picks their own at next sign-in. */
+    resetUserPassword: async (userId: string): Promise<{ generated_password: string; username: string | null; email: string | null }> => {
+      return apiClient.post(`/super-admin/users/${userId}/reset-password`, {});
     },
 
     // Activate tenant

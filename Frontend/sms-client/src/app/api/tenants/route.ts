@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     
     // Call backend API to create tenant
-    const response = await fetch(`${process.env.BACKEND_API_URL}/tenants`, {
+    const response = await fetch(`${process.env.BACKEND_API_URL}/tenants/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

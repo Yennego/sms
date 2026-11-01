@@ -23,15 +23,3 @@ class PeriodService(TenantBaseService[Period, PeriodCreate, PeriodUpdate]):
     async def get_by_semester(self, semester_id: UUID) -> List[Period]:
         """Get all periods for a semester."""
         return period_crud.get_by_semester(self.db, self.tenant_id, semester_id)
-    
-    async def toggle_publication(self, period_id: UUID) -> Period:
-        """Toggle the global publication flag for a period."""
-        period = await self.get(period_id)
-        if not period:
-            from src.core.exceptions.business import EntityNotFoundError
-            raise EntityNotFoundError("Period", period_id)
-        
-        period.is_published = not period.is_published
-        self.db.commit()
-        self.db.refresh(period)
-        return period

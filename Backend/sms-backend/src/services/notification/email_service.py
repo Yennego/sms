@@ -1,52 +1,61 @@
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from src.core.config import settings
-import ssl
+import html
+import logging
+
+from src.services.notification.senders import OutgoingMessage, SmtpEmailSender
+
+logger = logging.getLogger(__name__)
+
 
 class EmailService:
+    """Account emails (welcome, generated password, password reset), sent straight away over the
+    same SMTP sender as the alert worker (senders.SmtpEmailSender)."""
+
     def __init__(self):
-        # For development, you can use your own email or a local SMTP server
-        self.smtp_server = settings.SMTP_SERVER
-        self.smtp_port = settings.SMTP_PORT
-        self.sender_email = settings.SENDER_EMAIL
-        self.sender_password = settings.SENDER_PASSWORD
-    
+        self.sender = SmtpEmailSender()
+
     def send_email(self, recipient_email, subject, message_html):
-        """Send an email to a recipient"""
-        try:
-            # Create message container
-            msg = MIMEMultipart('alternative')
-            msg['Subject'] = subject
-            msg['From'] = self.sender_email
-            msg['To'] = recipient_email
-            
-            # Create HTML message
-            html_part = MIMEText(message_html, 'html')
-            msg.attach(html_part)
-            
-            # Create SSL context for better security
-            context = ssl.create_default_context()
-            
-            # Connect to server and send
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls(context=context)  # Secure the connection with SSL context
-                server.login(self.sender_email, self.sender_password)
-                server.send_message(msg)
-                
-            print(f"Email sent successfully to {recipient_email}")
-            return True
-        except smtplib.SMTPAuthenticationError as e:
-            print(f"SMTP Authentication failed: {str(e)}")
-            print("Please check your email credentials or enable 2FA and use App Password")
-            return False
-        except smtplib.SMTPException as e:
-            print(f"SMTP error occurred: {str(e)}")
-            return False
-        except Exception as e:
-            print(f"Failed to send email: {str(e)}")
-            return False
-    
+        """Send an email to a recipient. Returns True when the server accepted it."""
+        result = self.sender.send(OutgoingMessage(to=recipient_email, subject=subject,
+                                                  text="Please open this email in an HTML-capable mail app.",
+                                                  html=message_html))
+        if result.status != "sent":
+            logger.warning("Email not sent (%s): %s", result.status, result.error)
+        return result.status == "sent"
+
+    def is_configured(self) -> bool:
+        """True when an SMTP server and sender account are set."""
+        return self.sender.configured()
+
+    def send_password_reset_link(self, user_email, reset_link, school_name, expires_minutes):
+        """Email a single-use password reset link."""
+        school = html.escape(school_name or "your school")
+        link = html.escape(reset_link, quote=True)
+        subject = f"Reset your password - {school_name or 'School Management System'}"
+        message = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h2 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">
+                    Reset your password
+                </h2>
+                <p>Someone asked to reset the password for your {school} account.</p>
+                <p style="margin: 24px 0;">
+                    <a href="{link}" style="background-color: #4f46e5; color: #fff; padding: 10px 18px; border-radius: 6px; text-decoration: none;">
+                        Choose a new password
+                    </a>
+                </p>
+                <p>The link works once and expires in {int(expires_minutes)} minutes.</p>
+                <p>If you didn't ask for this, you can ignore this email: your password stays the same.</p>
+                <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+                <p style="font-size: 12px; color: #666;">
+                    This is an automated message, please do not reply to this email.
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+        return self.send_email(user_email, subject, message)
+
     def send_password_notification(self, user_email, generated_password):
         """Send a notification with the generated password"""
         subject = "Your New Account Information - School Management System"

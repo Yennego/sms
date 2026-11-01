@@ -8,7 +8,6 @@ from src.db.crud.academics.academic_grade import academic_grade
 from src.db.crud.academics.section import section
 from src.db.crud.people import student as student_crud
 from src.db.models.academics.enrollment import Enrollment
-from src.db.models.academics.class_enrollment import ClassEnrollment
 from src.schemas.academics.enrollment import EnrollmentCreate, EnrollmentUpdate
 from src.services.base.base import TenantBaseService, SuperAdminBaseService
 from src.core.exceptions.business import (
@@ -107,6 +106,8 @@ class EnrollmentService(TenantBaseService[Enrollment, EnrollmentCreate, Enrollme
         
         # Prepare data with mirrors for display
         data = obj_in.model_dump()
+        if not data.get("class_id"):
+            data.pop("class_id", None)  # resolved from year/grade/section on flush
         data["academic_year"] = ay.name
         data["grade"] = gr.name
         data["section"] = sec.name
@@ -124,47 +125,9 @@ class EnrollmentService(TenantBaseService[Enrollment, EnrollmentCreate, Enrollme
             # Create new enrollment record
             enrollment = await super().create(obj_in=EnrollmentCreate(**data))
 
-        # Auto-enroll in all classes configured for this Grade & Section
-        try:
-            from src.db.crud.academics.class_crud import class_crud
-            from src.services.academics.class_enrollment_service import ClassEnrollmentService
-            from src.schemas.academics.class_enrollment import ClassEnrollmentCreate
-            
-            # Find classes for this grade/section
-            eligible_classes = class_crud.get_by_grade_and_section(
-                self.db, 
-                tenant_id=self.tenant_id, 
-                academic_year_id=obj_in.academic_year_id,
-                grade_id=obj_in.grade_id, 
-                section_id=obj_in.section_id
-            )
-            
-            if eligible_classes:
-                ce_service = ClassEnrollmentService(tenant=self.tenant_id, db=self.db)
-                for cls in eligible_classes:
-                    try:
-                        # Skip if not active class?
-                        if not cls.is_active:
-                            continue
-                            
-                        await ce_service.enroll_student(obj_in=ClassEnrollmentCreate(
-                            student_id=obj_in.student_id,
-                            class_id=cls.id,
-                            academic_year_id=obj_in.academic_year_id,
-                            enrollment_date=obj_in.enrollment_date or date.today(),
-                            status="active",
-                            is_active=True
-                        ))
-                    except DuplicateEntityError:
-                        # Already enrolled, skip
-                        continue
-                    except Exception as e:
-                        print(f"Auto-enrollment warning for class {cls.id}: {e}")
-                        
-        except Exception as e:
-            print(f"Auto-enrollment failed: {e}")
-            # We don't block the main enrollment if class auto-enrollment fails
-            
+        # The enrollment's class (class_id) is the class with this year/grade/section; it is
+        # set (and created if missing) when the enrollment is flushed: see
+        # src/db/models/academics/enrollment.py sync_enrollment_classes.
         return enrollment
     
     async def update_status(self, id: UUID, status: str, 
@@ -245,19 +208,10 @@ class EnrollmentService(TenantBaseService[Enrollment, EnrollmentCreate, Enrollme
 
     
     async def remove(self, *, id: Any) -> Optional[Enrollment]:
-        """Remove an enrollment and associated class enrollments."""
+        """Remove an enrollment (it carries the class too: there is no separate class row)."""
         db_obj = await self.get(id=id)
         if not db_obj:
             return None
-        
-        # Cleanup associated class enrollments first
-        self.db.query(ClassEnrollment).filter(
-            ClassEnrollment.tenant_id == self.tenant_id,
-            ClassEnrollment.student_id == db_obj.student_id,
-            ClassEnrollment.academic_year_id == db_obj.academic_year_id
-        ).delete(synchronize_session=False)
-        self.db.commit()
-        
         return self.crud.remove(self.db, self.tenant_id, id=id)
 
 

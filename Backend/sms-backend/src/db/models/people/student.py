@@ -1,5 +1,5 @@
-from sqlalchemy import Column, String, Date, ForeignKey, Integer
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, UniqueConstraint, ForeignKeyConstraint, String, Date, DateTime, ForeignKey, Integer
+from sqlalchemy.orm import relationship, column_property
 from src.db.models.auth.user import User
 from datetime import date
 from sqlalchemy.dialects.postgresql import UUID
@@ -11,9 +11,16 @@ class Student(User):
     
     # Link to parent table
     id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
+    # Copy of users.tenant_id (one attribute writes both) so admission_number can be unique per school
+    tenant_id = column_property(Column("tenant_id", UUID(as_uuid=True), nullable=False), User.__table__.c.tenant_id)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "admission_number", name="uq_students_tenant_admission_number"),
+        ForeignKeyConstraint(["tenant_id", "id"], ["users.tenant_id", "users.id"], name="fk_students_tenant_user"),
+    )
     
     # Student-specific fields
-    admission_number = Column(String(50), nullable=False, unique=True)
+    admission_number = Column(String(50), nullable=False)  # unique per school
     roll_number = Column(Integer, nullable=True)
     # grade = Column(String(20), nullable=True) class_enrollments instead
     # section = Column(String(10), nullable=True)  
@@ -35,6 +42,10 @@ class Student(User):
     emergency_contact = Column(String(255), nullable=True)
     photo = Column(String(500), nullable=True, comment="URL to student profile photo")
 
+    # ID card QR: reissuing a card bumps the version, which invalidates older cards
+    card_version = Column(Integer, nullable=False, default=1, server_default="1")
+    card_issued_at = Column(DateTime(timezone=True), nullable=True)
+
     status = Column(
         String(20),
         nullable=False,
@@ -50,6 +61,8 @@ class Student(User):
     
     __mapper_args__ = {
         "polymorphic_identity": "student",
+        # Two FKs point at users (id, and tenant_id+id): join on id
+        "inherit_condition": id == User.id,
     }
 
     def graduate(self, grad_date: date):
@@ -67,10 +80,8 @@ class Student(User):
         self.transfer_school = new_school
         self.transfer_reason = reason
     
-    # Relationships - Updated with proper class enrollment relationship
-    class_enrollments = relationship("ClassEnrollment", back_populates="student", lazy="dynamic")
+    # Relationships
     enrollments = relationship("Enrollment", back_populates="student", lazy="dynamic")
-    grades = relationship("Grade", back_populates="student", lazy="dynamic", foreign_keys="[Grade.student_id]")
     attendances = relationship("Attendance", back_populates="student")
     
     # Helper methods to get current grade/section information
@@ -88,10 +99,10 @@ class Student(User):
     
     def get_enrolled_classes(self, academic_year_id=None):
         """Get all classes the student is enrolled in for a specific academic year."""
-        query = self.class_enrollments.filter_by(is_active=True)
+        query = self.enrollments.filter_by(is_active=True)
         if academic_year_id:
             query = query.filter_by(academic_year_id=academic_year_id)
-        return [enrollment.class_obj for enrollment in query.all()]
+        return [enrollment.class_obj for enrollment in query.all() if enrollment.class_obj]
     
     def __repr__(self):
         return f"<Student {self.email} - {self.admission_number}>"

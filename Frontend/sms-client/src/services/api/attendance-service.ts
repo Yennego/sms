@@ -67,7 +67,9 @@ export function useAttendanceService() {
     // ✅ Attendance Marking
     markDailyAttendance: async (data: {
       student_id: string;
-      schedule_id: string;
+      class_id: string;
+      schedule_id?: string;
+      period?: string;
       academic_year_id: string;
       status: AttendanceStatus;
       date?: string;
@@ -88,20 +90,22 @@ export function useAttendanceService() {
       return client.post<Attendance[]>('/academics/attendance/bulk-mark', attendanceRecords);
     },
 
-    // Proper method declaration
+    // Saves a whole roster in one backend transaction (needs schedule_id or period)
     bulkMarkAttendanceViaProxy: async (data: {
       class_id: string;
       academic_year_id: string;
-      date: string; // ISO YYYY-MM-DD
+      date?: string; // school-local YYYY-MM-DD; server uses today if omitted
       schedule_id?: string;
       period?: number | string;
-      attendances: Array<{ student_id: string; status: AttendanceStatus }>;
-    }): Promise<{ results: unknown[]; resolved_schedule_id: string | null }> => {
+      attendances: Array<{ student_id: string; status: AttendanceStatus; notes?: string }>;
+    }): Promise<Attendance[]> => {
       const client = await waitForApiClientReady();
-      return client.post<{ results: unknown[]; resolved_schedule_id: string | null }>(
-        '/academics/attendance/bulk-mark',
-        data
-      );
+      return client.post<Attendance[]>('/academics/attendance/bulk-mark', {
+        ...data,
+        // Backend expects period as a string and lowercase status values
+        period: data.period === undefined || data.period === null || data.period === '' ? undefined : String(data.period),
+        attendances: data.attendances.map(a => ({ ...a, status: String(a.status).toLowerCase() })),
+      });
     },
 
     updateAttendanceStatus: async (
@@ -118,7 +122,7 @@ export function useAttendanceService() {
       Object.entries(data).forEach(([key, val]) => {
         if (val !== undefined && val !== null && val !== '') queryParams.append(key, String(val));
       });
-      return client.put<Attendance>(`/academics/attendance/${id}/status?${queryParams.toString()}`);
+      return client.patch<Attendance>(`/academics/attendance/${id}/status?${queryParams.toString()}`);
     },
 
     // ✅ Query Endpoints

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
-import { Toaster } from "sonner";
+import { Toaster } from "@/components/ui/toaster";
 
 // Disable static prerendering for all pages (many use dynamic hooks like useSearchParams)
 export const dynamic = 'force-dynamic';
@@ -38,7 +38,7 @@ export default function RootLayout({
       <body suppressHydrationWarning={true}>
         <Providers>
           {children}
-          <Toaster position="top-right" richColors />
+          <Toaster />
         </Providers>
       </body>
     </html>

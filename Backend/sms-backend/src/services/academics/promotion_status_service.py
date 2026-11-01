@@ -15,7 +15,7 @@ class PromotionStatusService(TenantBaseService[PromotionStatus, PromotionStatusC
         tenant_id = tenant.id if hasattr(tenant, "id") else tenant
         super().__init__(crud=promotion_status_crud, model=PromotionStatus, tenant_id=tenant_id, db=db)
 
-    def upsert_status_from_eval(self, eval_result: dict) -> PromotionStatus:
+    async def upsert_status_from_eval(self, eval_result: dict) -> PromotionStatus:
         existing = promotion_status_crud.get_by_enrollment(
             self.db, tenant_id=self.tenant_id, enrollment_id=eval_result["enrollment_id"]
         )
@@ -28,9 +28,19 @@ class PromotionStatusService(TenantBaseService[PromotionStatus, PromotionStatusC
             total_score=eval_result.get("total_score"),
             notes=eval_result.get("notes"),
         )
-        if existing:
-            return self.update(id=existing.id, obj_in=payload.model_dump())
-        return self.create(obj_in=payload)
+        # Written on the model (keeps ids as UUIDs; JSON only for the subject id list)
+        values = payload.model_dump()
+        values["failed_subject_ids"] = [str(s) for s in values.get("failed_subject_ids") or []]
+        if values.get("total_score") is not None:
+            values["total_score"] = str(values["total_score"])
+        row = existing or PromotionStatus(tenant_id=self.tenant_id)
+        for key, value in values.items():
+            if hasattr(PromotionStatus, key):
+                setattr(row, key, value)
+        if existing is None:
+            self.db.add(row)
+        self.db.flush()
+        return row
 
     def _resolve_enrollment_year(self, enrollment_id: UUID) -> UUID:
         from src.db.models.academics.enrollment import Enrollment

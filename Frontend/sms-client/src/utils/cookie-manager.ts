@@ -1,4 +1,5 @@
 import Cookies from 'js-cookie';
+import { isPlatformPath } from '@/config/reserved-slugs';
 
 // Cookie namespaces for different contexts
 export const COOKIE_NAMESPACES = {
@@ -17,14 +18,14 @@ export function getCurrentContext(): CookieNamespace {
   const hostname = window.location.hostname;
 
   // List of reserved top-level paths that are NOT tenant specific
-  const reservedPaths = ['super-admin', 'api', '_next', 'static', 'public', 'favicon.ico'];
+  const reservedPaths = ['platform', 'super-admin', 'api', '_next', 'static', 'public', 'favicon.ico'];
   
   const pathSegments = pathname.split('/').filter(Boolean);
   const firstSegment = pathSegments[0]?.toLowerCase();
 
   if (firstSegment && reservedPaths.includes(firstSegment)) {
-    // Check for super-admin specifically
-    if (firstSegment === 'super-admin') return 'SUPER_ADMIN';
+    // The platform operator's pages (/platform, and the old /super-admin address)
+    if (isPlatformPath(pathname)) return 'SUPER_ADMIN';
     return 'DEFAULT';
   }
 

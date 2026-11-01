@@ -26,6 +26,8 @@ class UserRoleUpdate(BaseModel):
 class UserRole(UserRoleBase, TimestampSchema):
     """Schema for UserRole model response."""
     id: UUID
+    tenant_id: Optional[UUID] = None
+    is_system: bool = False
     permissions: List[Permission] = []
 
     class Config:

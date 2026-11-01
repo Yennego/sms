@@ -4,24 +4,29 @@ import { createContext, useContext, useState, useEffect, ReactNode, useCallback,
 import { useRouter, usePathname } from 'next/navigation';
 import cookies from 'js-cookie';
 import { User } from '@/types/auth';
-import { contextualCookies, getCurrentContext, type CookieNamespace } from '@/utils/cookie-manager';
+import { contextualCookies, getCurrentContext } from '@/utils/cookie-manager';
+import { currentSchoolSlug } from '@/utils/tenant-utils';
+import { isPlatformPath } from '@/config/reserved-slugs';
 import axios from 'axios';
+import { BILLING_STATUS_HEADER, billingDetail, signOutForBilling } from '@/lib/billing-block';
+
+// The session lives in httpOnly cookies set by the /api/auth routes. This context never sees a
+// token: it asks /api/auth/me who is signed in, and /api/auth/refresh to extend the session.
+// At a suspended school both refuse non-admins (X-School-Billing-Status): the user is signed out
+// and the login page says why.
 
 type AuthContextType = {
   user: User | null;
-  accessToken: string | null;
-  refreshToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   requiresPasswordChange: boolean;
   selectedTenantId: string | null;
   setSelectedTenant: (tenantId: string | null) => void;
-  login: (email: string, password: string, tenantId?: string) => Promise<{ requiresPasswordChange?: boolean, user?: User, access_token?: string, refresh_token?: string }>;
+  login: (email: string, password: string, tenantId?: string) => Promise<{ requiresPasswordChange?: boolean, user?: User }>;
   logout: (options?: { redirectTo?: string }) => void;
-  refreshAccessToken: () => Promise<string | null>;
+  /** Extend the session with the httpOnly refresh cookie; false when the session is over. */
+  refreshAccessToken: () => Promise<boolean>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
-  prepareAuthHeaders: () => Promise<Record<string, string> | null>;
-  validateTokenBeforeRequest: () => Promise<boolean>;
   refetchUser: () => Promise<void>;
   updateUser: (userId: string, data: any) => Promise<void>;
   isLoggingOut: boolean;
@@ -30,19 +35,40 @@ type AuthContextType = {
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/** Headers that tell the server routes which session (sa_ / tn_ / default) this page uses. */
+function contextHeaders(): Record<string, string> {
+  const context = getCurrentContext();
+  const tenantId = contextualCookies.get('tenantId', context);
+  return {
+    'X-Auth-Context': context,
+    ...(tenantId && { 'X-Tenant-ID': tenantId }),
+  };
+}
+
+/** A fetch answer saying the school's billing keeps this user out: sign out with the reason. */
+async function endIfBillingRefused(res: Response): Promise<boolean> {
+  if (res.status !== 403 || !res.headers.get(BILLING_STATUS_HEADER)) return false;
+  const data = await res.clone().json().catch(() => null);
+  await signOutForBilling(billingDetail(data));
+  return true;
+}
+
+/** The script-readable "signed in" marker set next to the httpOnly cookies (it holds no secret). */
+function hasSessionMarker(): boolean {
+  return ['sa_session', 'tn_session', 'session'].some(name => cookies.get(name) === '1');
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const isValidating = useRef(false);
   const isFetchingUser = useRef(false);
 
   const [user, setUser] = useState<User | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [requiresPasswordChange, setRequiresPasswordChange] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [hasInitialized, setHasInitialized] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const refreshPromise = useRef<Promise<string | null> | null>(null);
-  
+  const refreshPromise = useRef<Promise<boolean> | null>(null);
+
   const [selectedTenantIdState, setSelectedTenantIdState] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       return contextualCookies.get('selectedTenantId', 'SUPER_ADMIN') || null;
@@ -61,206 +87,93 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Forget the user in this tab. The httpOnly session cookies are cleared by /api/auth/logout.
   const clearAuthState = useCallback(() => {
     setUser(null);
-    setAccessToken(null);
-    setRefreshToken(null);
     setRequiresPasswordChange(false);
     setSelectedTenantIdState(null);
 
-    // Clear all known cookie contexts
     contextualCookies.clearContext('DEFAULT');
     contextualCookies.clearContext('SUPER_ADMIN');
     contextualCookies.clearContext('TENANT');
-
-    // Remove general cookies (fallback)
-    cookies.remove('accessToken');
-    cookies.remove('refreshToken');
     cookies.remove('tenantId');
     cookies.remove('selectedTenantId');
 
-    // Clear localStorage
     localStorage.removeItem('userTenantId');
     localStorage.removeItem('superAdminTenantId');
     localStorage.removeItem('selectedTenantId');
     localStorage.removeItem('user');
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
   }, []);
 
   const refreshAccessToken = useCallback(async () => {
-    // Return existing promise if refresh is already in progress
-    if (refreshPromise.current) {
-      console.log('[Auth] Refresh already in progress, returning existing promise');
-      return refreshPromise.current;
-    }
+    // Share one refresh between callers: refresh tokens rotate, so a second call would fail
+    if (refreshPromise.current) return refreshPromise.current;
 
-    const context = getCurrentContext();
-    const storedRefreshToken = contextualCookies.get('refreshToken', context);
-
-    if (!storedRefreshToken) return null;
-
-    const tenantId = contextualCookies.get('tenantId', context);
-
-    // Create new refresh promise
     refreshPromise.current = (async () => {
       try {
-        console.log('[Auth] Starting token refresh...');
-        const response = await axios.post('/api/auth/refresh',
-          { refresh_token: storedRefreshToken },
-          {
-            headers: {
-              'Authorization': `Bearer ${storedRefreshToken}`,
-              ...(tenantId && { 'X-Tenant-ID': tenantId }),
-            },
-            timeout: 90000,
-          }
-        );
-
-        const data = response.data;
-
-        contextualCookies.set('accessToken', data.access_token, { expires: 1 / 24 }, context);
-        contextualCookies.set('refreshToken', data.refresh_token, { expires: 7 }, context);
-        
-        // Update states
-        setAccessToken(data.access_token);
-        setRefreshToken(data.refresh_token);
-
-        console.log('[Auth] Token refresh successful');
-        return data.access_token;
+        await axios.post('/api/auth/refresh', null, {
+          headers: { 'X-Auth-Context': getCurrentContext() },
+          timeout: 90000,
+        });
+        return true;
       } catch (error) {
-        console.error('Token refresh failed:', error);
-        if (!(error instanceof TypeError && error.message.includes('fetch'))) {
-          if (axios.isAxiosError(error) &&
-            !error.message.includes('timeout') &&
-            !error.message.includes('Network Error')) {
-            clearAuthState();
-          }
+        // Only a definite "no" from the server ends the session; network trouble doesn't
+        if (axios.isAxiosError(error) && error.response?.status === 401) {
+          clearAuthState();
+        } else if (axios.isAxiosError(error) && error.response?.status === 403
+          && error.response.headers?.[BILLING_STATUS_HEADER]) {
+          // A full page load to the login page follows, which forgets the user in this tab
+          await signOutForBilling(billingDetail(error.response.data));
         }
-        return null;
+        return false;
       } finally {
-        // Clear promise when done
         refreshPromise.current = null;
       }
     })();
 
     return refreshPromise.current;
-  }, [clearAuthState, getCurrentContext]);
+  }, [clearAuthState]);
+
+  /** GET /api/auth/me, refreshing once on 401. Null when nobody is signed in. */
+  const fetchCurrentUser = useCallback(async (): Promise<User | null> => {
+    const get = async () => {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          const res = await fetch('/api/auth/me', { headers: contextHeaders(), cache: 'no-store' });
+          if (res.status < 500 || attempt >= 3) return res;
+          console.warn(`[Auth] /api/auth/me returned ${res.status}, retrying (${attempt}/3)...`);
+        } catch (err) {
+          if (attempt >= 3) throw err;
+          console.warn(`[Auth] Network error fetching user, retrying (${attempt}/3)...`);
+        }
+        await new Promise(r => setTimeout(r, 1000 * attempt));
+      }
+    };
+
+    let res = await get();
+    // Refresh only when a session exists (signed-out visitors just get a 401)
+    if (res.status === 401 && hasSessionMarker() && (await refreshAccessToken())) {
+      res = await get();
+    }
+    if (await endIfBillingRefused(res)) return null;
+    if (!res.ok) return null;
+    return (await res.json()) as User;
+  }, [refreshAccessToken]);
 
   useEffect(() => {
-    if (isFetchingUser.current || user) return;
+    if (isFetchingUser.current || user || isLoggingOut) return;
 
     const loadAuthData = async () => {
-      if (isFetchingUser.current || user || isLoggingOut) {
-        // If we are already fetching, don't set loading to false!
-        // The active fetch will handle it in its finally block.
-        return;
-      }
       isFetchingUser.current = true;
       setIsLoading(true);
-
       try {
-        const currentContext = getCurrentContext();
-        let storedAccessToken = contextualCookies.get('accessToken', currentContext);
-        let storedRefreshToken = contextualCookies.get('refreshToken', currentContext);
-
-        if (!storedAccessToken) {
-          // Fallback sequence: TENANT -> SUPER_ADMIN -> DEFAULT
-          const contextsToTry: CookieNamespace[] = ['TENANT', 'SUPER_ADMIN', 'DEFAULT'];
-          for (const ctx of contextsToTry) {
-            if (ctx === currentContext) continue; // Already tried
-            const token = contextualCookies.get('accessToken', ctx);
-            if (token) {
-              storedAccessToken = token;
-              storedRefreshToken = contextualCookies.get('refreshToken', ctx);
-              console.log(`[Auth] Found token in fallback context: ${ctx}`);
-              break;
-            }
-          }
-        }
-
-        if (storedAccessToken && storedRefreshToken) {
-          setAccessToken(storedAccessToken);
-          setRefreshToken(storedRefreshToken);
-
-          try {
-            const fetchUserWithRetry = async (token: string, retries = 3): Promise<Response> => {
-              for (let i = 0; i < retries; i++) {
-                try {
-                  const res = await fetch('/api/auth/me', {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                  });
-                  if (res.ok || res.status === 401) return res;
-                  // If 5xx error, wait and retry
-                  if (res.status >= 500) {
-                    console.warn(`[Auth] /api/auth/me returned ${res.status}, retrying (${i + 1}/${retries})...`);
-                    await new Promise(r => setTimeout(r, 1000 * (i + 1)));
-                    continue;
-                  }
-                  return res;
-                } catch (err) {
-                  console.warn(`[Auth] Network error fetching user, retrying (${i + 1}/${retries})...`, err);
-                  if (i === retries - 1) throw err;
-                  await new Promise(r => setTimeout(r, 1000 * (i + 1)));
-                }
-              }
-              throw new Error('Max retries exceeded fetching user data');
-            };
-
-            const response = await fetchUserWithRetry(storedAccessToken);
-
-            if (!response.ok) {
-              if (response.status === 401) {
-                const newAccessToken = await refreshAccessToken();
-                if (newAccessToken) {
-                  const refreshedResponse = await fetch('/api/auth/me', {
-                    headers: { 'Authorization': `Bearer ${newAccessToken}` }
-                  });
-                  if (!refreshedResponse.ok) throw new Error('Failed to fetch user after refresh');
-                  const refreshedUserData = await refreshedResponse.json();
-                  setUser(refreshedUserData as User);
-                } else {
-                  clearAuthState();
-                }
-              } else {
-                throw new Error('Failed to fetch user data');
-              }
-            } else {
-              const userData = await response.json();
-              setUser(userData as User);
-            }
-          } catch (error) {
-            console.error('Failed fetching user, trying to refresh token', error);
-            clearAuthState();
-          }
-        } else {
-          // No client-side tokens found - but they may exist as httpOnly cookies
-          // Try calling /api/auth/me without auth header; the server route reads cookies directly
-          console.log('[Auth] No client-side tokens found, trying server-side cookie fallback...');
-          try {
-            const res = await fetch('/api/auth/me', { 
-              // Important: specify credits to include cookies if different origin (though usually same-origin here)
-              credentials: 'include',
-              headers: { 'Accept': 'application/json' }
-            });
-            
-            if (res.ok) {
-              const userData = await res.json();
-              console.log('[Auth] Server-side cookie fallback succeeded, user authenticated:', userData.email);
-              setUser(userData as User);
-            } else if (res.status === 401) {
-              console.log('[Auth] Server-side fallback: User not authenticated (401)');
-              // Definitely not authenticated
-            } else {
-              console.log('[Auth] Server-side fallback returned non-OK status:', res.status);
-            }
-          } catch (err) {
-            console.warn('[Auth] Server-side cookie fallback error:', err);
-          }
+        const current = await fetchCurrentUser();
+        if (current) {
+          setUser(current);
+          setRequiresPasswordChange(!!current.isFirstLogin);
         }
       } catch (e) {
-        console.error("Error in auth data loading logic", e);
-        clearAuthState();
+        console.error('Error loading the signed-in user', e);
       } finally {
         setIsLoading(false);
         setHasInitialized(true);
@@ -270,61 +183,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     loadAuthData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshAccessToken, clearAuthState, isLoggingOut]);
+  }, [fetchCurrentUser, isLoggingOut]);
 
-  // Handle global refresh requests from ApiClient
+  // Check the session every 10 minutes while signed in
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const handleRefreshRequired = async () => {
-      console.log('[Auth] Received global refresh requirement');
-      const newToken = await refreshAccessToken();
-      if (newToken) {
-        window.dispatchEvent(new CustomEvent('auth:refreshed', { detail: { token: newToken } }));
-      } else {
-        window.dispatchEvent(new CustomEvent('auth:refresh-failed'));
-      }
-    };
-
-    window.addEventListener('auth:refresh-required', handleRefreshRequired as any);
-    return () => {
-      window.removeEventListener('auth:refresh-required', handleRefreshRequired as any);
-    };
-  }, [refreshAccessToken]);
-
-  useEffect(() => {
-    if (!accessToken) return;
+    if (!user) return;
 
     const interval = setInterval(async () => {
       if (isValidating.current) return;
-
       try {
         isValidating.current = true;
-        const currentContext = getCurrentContext();
-        const tenantId = contextualCookies.get('tenantId', currentContext);
         const response = await fetch('/api/auth/me', {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            ...(tenantId && { 'X-Tenant-ID': tenantId }),
-          },
-          signal: AbortSignal.timeout(5000)
+          headers: contextHeaders(),
+          signal: AbortSignal.timeout(5000),
         });
-
-        if (!response.ok && response.status === 401) {
-          const newToken = await refreshAccessToken();
-          if (!newToken) clearAuthState();
+        if (await endIfBillingRefused(response)) return;
+        if (response.status === 401 && !(await refreshAccessToken())) {
+          clearAuthState();
         }
       } catch (error) {
-        console.error('Token validation failed:', error);
+        console.error('Session check failed:', error);
       } finally {
         isValidating.current = false;
       }
-    }, 10 * 60 * 1000); // 10 minutes
+    }, 10 * 60 * 1000);
 
     return () => clearInterval(interval);
-  }, [accessToken, refreshAccessToken, clearAuthState]);
+  }, [user, refreshAccessToken, clearAuthState]);
 
-  const login = async (email: string, password: string, explicitTenantId?: string): Promise<{ requiresPasswordChange?: boolean, user?: User, access_token?: string, refresh_token?: string }> => {
+  const login = async (email: string, password: string, explicitTenantId?: string): Promise<{ requiresPasswordChange?: boolean, user?: User }> => {
     try {
       const formData = new URLSearchParams();
       formData.append("username", email);
@@ -335,50 +222,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const headers: { [key: string]: string } = {
         'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Auth-Context': currentContext,
       };
-
       if (tenantId) headers['X-Tenant-ID'] = tenantId;
 
-      const response = await axios.post('/api/auth/login', formData, {
-        headers,
-        timeout: 90000,
-      });
+      // Sets the httpOnly session cookies; the response carries no token
+      await axios.post('/api/auth/login', formData, { headers, timeout: 90000 });
 
-      const data = response.data;
-
-      if (data.requires_password_change) {
-        setRequiresPasswordChange(true);
-        return { requiresPasswordChange: true };
-      }
-
-      const tempAxios = axios.create();
-      const userResponse = await tempAxios.get('/api/auth/me', {
+      const userResponse = await axios.get('/api/auth/me', {
         headers: {
-          'Authorization': `Bearer ${data.access_token}`,
+          'X-Auth-Context': currentContext,
           ...(tenantId && { 'X-Tenant-ID': tenantId }),
         },
         timeout: 90000,
       });
-
       const userData = userResponse.data;
       setUser(userData);
 
-      // Use current context for saving tokens to ensure correct namespacing (tn_ vs sa_)
-      contextualCookies.set('accessToken', data.access_token, { expires: 1 }, currentContext);
-      if (data.refresh_token) {
-        contextualCookies.set('refreshToken', data.refresh_token, { expires: 7 }, currentContext);
+      if (userData.tenantId && userData.tenantId !== 'None' && userData.tenantId !== 'null') {
+        contextualCookies.set('tenantId', userData.tenantId, { expires: 7 }, currentContext);
       }
 
-      // Always save tenantId in context if available
-      if (userData.tenant_id && userData.tenant_id !== 'None' && userData.tenant_id !== 'null') {
-        contextualCookies.set('tenantId', userData.tenant_id, { expires: 7 }, currentContext);
+      // First login with an admin-issued password: the backend allows nothing else until it's changed
+      if (userData.isFirstLogin) {
+        setRequiresPasswordChange(true);
+        return { requiresPasswordChange: true, user: userData };
       }
-
-      setAccessToken(data.access_token);
-      setRefreshToken(data.refresh_token);
-
-      return { ...data, user: userData };
-
+      return { user: userData };
     } catch (error) {
       console.error('Login API error:', error);
       clearAuthState();
@@ -386,18 +256,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const refetchUser = async () => {
+    try {
+      const current = await fetchCurrentUser();
+      if (current) setUser(current);
+    } catch (error) {
+      console.error('Failed to refetch user data:', error);
+    }
+  };
+
   const changePassword = async (currentPassword: string, newPassword: string) => {
     try {
-      const currentContext = getCurrentContext();
-      const tenantId = contextualCookies.get('tenantId', currentContext);
-      await axios.post('/api/auth/change-password', {
+      await axios.post('/api/v1/auth/change-password', {
         current_password: currentPassword,
         new_password: newPassword
       }, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          ...(tenantId && { 'X-Tenant-ID': tenantId }),
-        },
+        headers: contextHeaders(),
         timeout: 90000,
       });
 
@@ -411,16 +285,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updateUser = async (userId: string, data: any) => {
     try {
-      const currentContext = getCurrentContext();
-      const tenantId = contextualCookies.get('tenantId', currentContext);
       await axios.put(`/api/v1/auth/users/${userId}`, data, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          ...(tenantId && { 'X-Tenant-ID': tenantId }),
-        },
+        headers: contextHeaders(),
         timeout: 90000,
       });
-
       await refetchUser();
     } catch (error) {
       console.error('User update failed:', error);
@@ -428,114 +296,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const refetchUser = async () => {
-    if (!accessToken) return;
-    try {
-      const currentContext = getCurrentContext();
-      const tenantId = contextualCookies.get('tenantId', currentContext);
-      const userResponse = await axios.get('/api/auth/me', {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          ...(tenantId && { 'X-Tenant-ID': tenantId }),
-        },
-        timeout: 90000,
-      });
-      setUser(userResponse.data);
-    } catch (error) {
-      console.error('Failed to refetch user data:', error);
-    }
-  };
-
   const logout = useCallback(async (options?: { redirectTo?: string }) => {
     try {
       setIsLoggingOut(true);
 
-      if (accessToken) {
-        const currentContext = getCurrentContext();
-        const tenantId = contextualCookies.get('tenantId', currentContext);
-
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-            ...(tenantId && { 'X-Tenant-ID': tenantId }),
-          },
-        }).catch(err => console.error('Backend logout error:', err));
-      }
+      // The server route revokes the tokens and clears the httpOnly cookies
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Auth-Context': getCurrentContext(),
+        },
+      }).catch(err => console.error('Backend logout error:', err));
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
       // Get tenant domain BEFORE clearing auth state
       const currentContext = getCurrentContext();
-      const tenantDomain = contextualCookies.get('currentTenantDomain', currentContext) || localStorage.getItem('currentTenantDomain');
-      const isSA = window.location.pathname.startsWith('/super-admin');
+      // The school in the address first, then the one remembered from sign-in
+      const tenantDomain = currentSchoolSlug()
+        || contextualCookies.get('currentTenantDomain', currentContext) || localStorage.getItem('currentTenantDomain');
+      const isSA = isPlatformPath(window.location.pathname);
 
       clearAuthState();
       await new Promise(resolve => setTimeout(resolve, 50));
 
       if (options?.redirectTo) {
         router.push(options.redirectTo);
-        return;
-      }
-
-      if (isSA) {
-        router.push('/super-admin/login');
+      } else if (isSA) {
+        router.push('/platform/login');
       } else if (tenantDomain) {
         router.push(`/${tenantDomain}/login`);
       } else {
         router.push('/login');
       }
     }
-  }, [router, clearAuthState, accessToken]);
-
-  const validateTokenBeforeRequest = async () => {
-    // If we have a user, we are nominally authenticated
-    if (user && !accessToken) return true;
-    if (!accessToken) return false;
-    if (isValidating.current) return true;
-    isValidating.current = true;
-
-    try {
-      const tokenParts = accessToken.split('.');
-      if (tokenParts.length === 3) {
-        const payload = JSON.parse(atob(tokenParts[1]));
-        const expiry = payload.exp * 1000;
-        if (Date.now() >= expiry - 60000) {
-          const newToken = await refreshAccessToken();
-          return !!newToken;
-        }
-      }
-      return true;
-    } catch (error) {
-      console.error('Error validating token:', error);
-      const newToken = await refreshAccessToken();
-      return !!newToken;
-    } finally {
-      isValidating.current = false;
-    }
-  };
-
-  const prepareAuthHeaders = async () => {
-    const isValid = await validateTokenBeforeRequest();
-    if (!isValid) return null;
-
-    const headers: Record<string, string> = {};
-    
-    if (accessToken) {
-      headers['Authorization'] = `Bearer ${accessToken}`;
-    }
-
-    const currentContext = getCurrentContext();
-    const tenantId = contextualCookies.get('tenantId', currentContext);
-    const isSA = user?.roles?.some((r: any) => r.name === 'superadmin' || r.name === 'super-admin');
-
-    if (tenantId && !isSA) {
-      headers['X-Tenant-ID'] = tenantId;
-    }
-
-    return headers;
-  };
+  }, [router, clearAuthState]);
 
   const pathname = usePathname();
   useEffect(() => {
@@ -553,32 +349,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     events.forEach(e => window.addEventListener(e, activityHandler, { passive: true }));
 
     const interval = setInterval(() => {
-      // Don't trigger if we don't have a token, or if we're still initializing or logging out
-      if (!accessToken || !hasInitialized || isLoggingOut) return;
-      
-      // If we have a token but NO user object yet, wait (likely still loading /me)
-      if (!user) {
-        console.log('[Auth] Token present but user data still loading. Delaying idle check.');
-        return;
-      }
+      // Only while signed in, initialised and not already logging out
+      if (!user || !hasInitialized || isLoggingOut) return;
 
       if (Date.now() - lastActiveRef.current > idleTimeoutMs) {
-        // Robust super-admin check
-        const isSA = user?.role === 'superadmin' || 
-                    user?.role === 'super-admin' || 
-                    user?.roles?.some((r: any) => 
-                      typeof r === 'string' 
+        const isSA = user?.role === 'superadmin' ||
+                    user?.role === 'super-admin' ||
+                    user?.roles?.some((r: any) =>
+                      typeof r === 'string'
                         ? (r === 'superadmin' || r === 'super-admin')
                         : (r.name === 'superadmin' || r.name === 'super-admin')
                     );
-        
-        // Prefer domain name for user-friendly redirects
-        const domain = contextualCookies.get('currentTenantDomain', 'TENANT');
-        const uuid = contextualCookies.get('tenantId', 'TENANT');
-        const tid = domain || uuid;
-        
+
+        // The school's slug (URL, then remembered domain); its id only when no slug is known
+        const tid = currentSchoolSlug() || contextualCookies.get('tenantId', 'TENANT');
+
         const target = (tid && !isSA) ? `/${tid}/session-expired` : '/session-expired';
-        
+
         console.warn(`[Auth] Idle timeout reached (${minutesVal}m). Redirecting to ${target}`);
         logout({ redirectTo: target });
       }
@@ -588,13 +375,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       events.forEach(e => window.removeEventListener(e, activityHandler));
       clearInterval(interval);
     };
-  }, [accessToken, logout, user]);
+  }, [logout, user, hasInitialized, isLoggingOut]);
 
   return (
     <AuthContext.Provider value={{
       user,
-      accessToken,
-      refreshToken,
       isAuthenticated: !!user,
       isLoading,
       requiresPasswordChange,
@@ -604,8 +389,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout,
       refreshAccessToken,
       changePassword,
-      prepareAuthHeaders,
-      validateTokenBeforeRequest,
       refetchUser,
       updateUser,
       isLoggingOut,

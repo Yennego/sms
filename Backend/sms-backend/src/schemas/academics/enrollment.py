@@ -29,6 +29,9 @@ class EnrollmentCreate(EnrollmentBase):
     academic_year_id: UUID
     grade_id: UUID
     section_id: UUID
+    # Optional: when given, year/grade/section are taken from the class; otherwise the class
+    # with that year/grade/section is used (and created if the school has none).
+    class_id: Optional[UUID] = None
     semester: int = 1
     semester_1_status: Optional[str] = None
     semester_2_status: Optional[str] = None
@@ -60,6 +63,7 @@ class EnrollmentInDB(EnrollmentBase):
     academic_year_id: UUID
     grade_id: UUID
     section_id: UUID
+    class_id: Optional[UUID] = None
     # Pydantic v2: enable ORM serialization
     model_config = ConfigDict(from_attributes=True)
 

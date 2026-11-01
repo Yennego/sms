@@ -19,3 +19,4 @@ class TokenPayload(BaseModel):
     type: Optional[str] = None
     is_super_admin: bool = False  # Add this field
     jti: Optional[str] = None
+    iat: Optional[int] = None  # issued-at; tokens from before a password reset are rejected

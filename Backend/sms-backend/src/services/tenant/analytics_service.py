@@ -8,11 +8,10 @@ Provides:
 """
 from typing import Dict, Any, List
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import func, not_
+from sqlalchemy import func
 import numpy as np
 
 from src.db.models.auth import User
-from src.db.models.auth.user_role import UserRole
 from src.db.models.tenant import Tenant
 from src.db.models.logging.activity_log import ActivityLog
 
@@ -130,37 +129,18 @@ class PredictiveAnalyticsService:
 
         return forecast
 
+    def _usd_collected_last_30_days(self) -> Dict[Any, float]:
+        """USD each school paid the platform in the last 30 days (platform billing payments)."""
+        from src.services.billing.platform_billing import BillingService
+        since = datetime.now(timezone.utc) - timedelta(days=30)
+        return {t: float(v) for t, v in BillingService(self.db).collected_usd_since(since).items()}
+
     def _get_avg_revenue_per_tenant(self) -> float:
-        """Calculate average revenue per active tenant."""
-        active_tenants = self.db.query(Tenant).filter(Tenant.is_active == True).all()
-        if not active_tenants:
+        """Average USD received per active tenant over the last 30 days."""
+        tenant_count = self.db.query(func.count(Tenant.id)).filter(Tenant.is_active == True).scalar() or 0
+        if not tenant_count:
             return 0.0
-
-        total_revenue = 0.0
-        tenant_count = 0
-
-        # Billable users per tenant
-        user_counts_query = (
-            self.db.query(User.tenant_id, func.count(User.id))
-            .filter(
-                User.is_active == True,
-                User.roles.any(),
-                not_(User.roles.any(UserRole.name.in_(['super-admin', 'superadmin'])))
-            )
-            .group_by(User.tenant_id)
-            .all()
-        )
-        user_counts = {str(tid): count for tid, count in user_counts_query}
-
-        for tenant in active_tenants:
-            amount = float(tenant.plan_amount or 0.0)
-            if tenant.plan_type == "flat_rate":
-                total_revenue += amount
-            elif tenant.plan_type == "per_user":
-                total_revenue += amount * user_counts.get(str(tenant.id), 0)
-            tenant_count += 1
-
-        return total_revenue / tenant_count if tenant_count > 0 else 0.0
+        return sum(self._usd_collected_last_30_days().values()) / tenant_count
 
     # ─── Anomaly Detection ───────────────────────────────────────────
 
@@ -262,6 +242,7 @@ class PredictiveAnalyticsService:
         thirty_days_ago = now - timedelta(days=30)
 
         active_tenants = self.db.query(Tenant).filter(Tenant.is_active == True).all()
+        collected = self._usd_collected_last_30_days()
         churn_data = []
 
         for tenant in active_tenants:
@@ -302,15 +283,8 @@ class PredictiveAnalyticsService:
             # Normalize: 0 activity = 100 risk, 100+ = 0 risk
             activity_score = max(0, min(100, 100 - activity_count))
 
-            # Factor 4: Revenue tier — Weight: 15%
-            revenue = float(tenant.plan_amount or 0.0)
-            if tenant.plan_type == "per_user":
-                user_count = self.db.query(func.count(User.id)).filter(
-                    User.tenant_id == tid,
-                    User.is_active == True,
-                    User.roles.any()
-                ).scalar() or 0
-                revenue = revenue * user_count
+            # Factor 4: Revenue tier (USD paid to the platform in the last 30 days) — Weight: 15%
+            revenue = collected.get(tid, 0.0)
 
             revenue_score = 100 if revenue == 0 else max(0, min(100, 100 - (revenue / 10)))
 

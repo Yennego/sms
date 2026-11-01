@@ -47,7 +47,7 @@ class CRUDResource(TenantCRUDBase[Resource, ResourceCreate, ResourceUpdate]):
         
         if resource:
             resource.access_count += 1
-            db.commit()
+            db.flush()  # committed once per request (get_db)
             db.refresh(resource)
         
         return resource

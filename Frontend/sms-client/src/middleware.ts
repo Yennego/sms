@@ -1,19 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { COOKIE_NAMESPACES, getNamespacedKey } from './utils/cookie-manager';
+import { getSession, getSuperAdminSession } from './lib/session';
+import { rejectCrossSite } from './app/api/_lib/csrf';
+import { isPlatformPath, isReservedSlug } from './config/reserved-slugs';
 
 type CookieNamespace = keyof typeof COOKIE_NAMESPACES;
 
-// Utility function to mask sensitive tokens in logs
+// Tokens never appear in logs, in any environment: only whether one is present
 function maskToken(token: string | undefined): string {
-  if (!token) return 'undefined';
-  if (process.env.NODE_ENV === 'production') {
-    return token.length > 10 ? `${token.substring(0, 6)}...${token.substring(token.length - 4)}` : '***masked***';
-  }
-  return token; // Show full token in development
+  return token ? '[present]' : 'undefined';
 }
 
 function getContextFromPath(pathname: string): CookieNamespace {
-  if (pathname.startsWith('/super-admin')) {
+  if (isPlatformPath(pathname)) {
     return 'SUPER_ADMIN';
   }
   
@@ -29,6 +28,11 @@ function getContextFromPath(pathname: string): CookieNamespace {
   // Check if it's a top-level public page (e.g. /login, /session-expired)
   const segments = pathname.split('/').filter(Boolean);
   if (segments.length === 1 && topLevelNonTenant.includes(segments[0])) {
+    return 'DEFAULT';
+  }
+
+  // Public pages outside any school: /verify/{code} (report card verification)
+  if (segments[0] === 'verify') {
     return 'DEFAULT';
   }
   
@@ -75,13 +79,7 @@ function extractTenantFromSubdomain(hostname: string): string | null {
 
 function extractTenantFromPath(pathname: string): string | null {
   const pathSegments = pathname.split('/');
-  
-  // Define dashboard routes that should not be treated as tenant domains
-  const dashboardRoutes = [
-      'dashboard', 'students', 'teachers', 'classes', 'timetable', 
-      'timetables', 'attendance', 'exams', 'grades', 'communication', 'settings', 'academics'
-  ];
-  
+
   // Check for UUID-based tenant paths first
   if (pathSegments.length > 1 && pathSegments[1]) {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -95,32 +93,16 @@ function extractTenantFromPath(pathname: string): string | null {
   
   if (pathSegments.length >= 2 && 
       firstSegment && 
-      !firstSegment.startsWith('_') && 
-      !firstSegment.startsWith('api') &&
-      !firstSegment.startsWith('super-admin') &&
-      !dashboardRoutes.includes(firstSegment) &&
-      !['login', 'register', 'session-expired', 'forgot-password', 'reset-password'].includes(firstSegment)) {
+      !firstSegment.startsWith('_') &&
+      !isReservedSlug(firstSegment)) {
     return firstSegment;
   }
   
   return null;
 }
 
-function extractTenantFromToken(accessToken: string): string | null {
-  try {
-    const payload = JSON.parse(atob(accessToken.split('.')[1]));
-    const tenantId = payload.tenant_id;
-    if (!tenantId || tenantId === 'None' || tenantId === 'null' || tenantId === 'undefined') {
-      return null;
-    }
-    return tenantId;
-  } catch {
-    return null;
-  }
-}
-
 function resolveTenantId(request: NextRequest, context: CookieNamespace): string | null {
-  const { pathname, searchParams } = request.nextUrl;
+  const { pathname } = request.nextUrl;
   const hostname = request.headers.get('host') || '';
   
   console.log(`[Middleware] Resolving tenant ID for context: ${context}`);
@@ -162,18 +144,19 @@ function resolveTenantId(request: NextRequest, context: CookieNamespace): string
     }
   }
 
-  // 6. Try extract from JWT token - check both current and TENANT namespace for API calls
-  let jwtAccessToken = getNamespacedCookie(request, 'accessToken', context);
-  if (!jwtAccessToken && pathname.startsWith('/api/') && context !== 'TENANT') {
-    jwtAccessToken = getNamespacedCookie(request, 'accessToken', 'TENANT');
-  }
+  // 6. The school in the signed-in user's token (current namespace first)
+  return getSession(request.cookies, context)?.tenantId ?? null;
+}
 
-  if (jwtAccessToken) {
-    const fromToken = extractTenantFromToken(jwtAccessToken);
-    if (fromToken) return fromToken;
-  }
-  
-  return null;
+// The school's address for a redirect: its slug (from the URL, then the remembered domain),
+// and its id only when no slug is known (the school layout swaps an id for the slug)
+function schoolPathSegment(request: NextRequest, context: CookieNamespace, tenantId: string): string {
+  const fromPath = extractTenantFromPath(request.nextUrl.pathname);
+  if (fromPath && !isValidUUID(fromPath)) return fromPath;
+  const remembered = getNamespacedCookie(request, 'currentTenantDomain', context)
+    || request.cookies.get('currentTenantDomain')?.value;
+  if (remembered && !isReservedSlug(remembered)) return remembered.toLowerCase();
+  return tenantId;
 }
 
 export async function middleware(request: NextRequest) {
@@ -182,7 +165,7 @@ export async function middleware(request: NextRequest) {
   // Basic normalization
   const segs = pathname.split('/');
   const first = segs[1];
-  const reserved = ['api', '_next', 'static', 'super-admin'];
+  const reserved = ['api', '_next', 'static', 'platform', 'super-admin'];
 
   if (first && /[A-Z]/.test(first) && !reserved.includes(first.toLowerCase())) {
     segs[1] = first.toLowerCase();
@@ -191,10 +174,30 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Report card verification is public and belongs to no school: no session, no school lookup,
+  // no school cookies (like the public sign-in pages, but without a school in the address)
+  if (pathname === '/verify' || pathname.startsWith('/verify/') || pathname.startsWith('/api/v1/verify/')) {
+    if (pathname.startsWith('/api/')) {
+      const blocked = rejectCrossSite(request);
+      if (blocked) return blocked;
+    }
+    return NextResponse.next();
+  }
+
   const context = getContextFromPath(pathname);
   console.log(`[Middleware] Processing ${context} request for: ${pathname}`);
 
-  const accessToken = getNamespacedCookie(request, 'accessToken', context);
+  // Cross-site writes never reach a route handler (session cookies would otherwise be sent along)
+  if (pathname.startsWith('/api/')) {
+    const blocked = rejectCrossSite(request);
+    if (blocked) return blocked;
+  }
+
+  // Signed in = an access cookie (httpOnly) in any namespace; /platform pages need a super-admin one
+  const session = context === 'SUPER_ADMIN'
+    ? getSuperAdminSession(request.cookies)
+    : getSession(request.cookies, context);
+  console.log(`[Middleware] Session (${context}): ${maskToken(session?.token)}`);
   let tenantId = resolveTenantId(request, context);
   let cookieResponse: NextResponse | null = null;
   
@@ -237,7 +240,7 @@ export async function middleware(request: NextRequest) {
       (pathSegments.length === 3 && pathSegments[1] === 'settings')) {
     
     if (tenantId) {
-      const targetPath = `/${tenantId}${pathname}`;
+      const targetPath = `/${schoolPathSegment(request, context, tenantId)}${pathname}`;
       console.log(`[Middleware] URL missing tenant segment. Redirecting to: ${targetPath}`);
       const redirect = NextResponse.redirect(new URL(targetPath, request.url));
       // Carry over any cookies we might have set
@@ -250,24 +253,23 @@ export async function middleware(request: NextRequest) {
   }
   
   const isPublicRoute = [
-    '/login', '/session-expired', '/super-admin/login', '/register',
+    '/login', '/session-expired', '/platform/login', '/register',
     '/forgot-password', '/reset-password', '/_next', '/favicon.ico',
-    '/api/auth/login', '/api/auth/logout', '/api/auth/me', '/api/auth/register',
+    '/api/auth/login', '/api/auth/logout', '/api/auth/me',
+    '/api/auth/forgot-password', '/api/auth/reset-password',
     '/api/auth/refresh', '/api/tenants/public', '/api/tenants',
+    // Report card verification: the page and its API call, no sign-in, outside any school
+    '/verify/', '/api/v1/verify/',
   ].some(route => pathname.startsWith(route));
-  
+
   const isTenantPublicRoute = /^\/[^/]+\/(login|session-expired|register|forgot-password|reset-password)$/.test(pathname);
   const isPublic = isPublicRoute || isTenantPublicRoute;
-  
-  // API Route Handling
+
+  // API Route Handling: the route handlers and the backend check the session; here we only
+  // supply the school when the caller didn't name one (super-admins name it explicitly).
   if (pathname.startsWith('/api/')) {
-    if (isPublic) return NextResponse.next();
-    
-    if (context !== 'SUPER_ADMIN' && !tenantId) {
-      console.log(`[Middleware] Blocked API request: No tenant context for ${pathname}`);
-      return NextResponse.json({ message: 'Tenant context required' }, { status: 400 });
-    }
-    
+    if (isPublic || request.headers.has('X-Tenant-ID')) return NextResponse.next();
+
     if (tenantId && isValidUUID(tenantId)) {
       const headers = new Headers(request.headers);
       headers.set('X-Tenant-ID', tenantId);
@@ -275,12 +277,16 @@ export async function middleware(request: NextRequest) {
     }
     return NextResponse.next();
   }
-  
+
   // Page Route Protected Check
   if (!isPublic) {
-    if (!accessToken) {
-      console.log(`[Middleware] No token. Redirecting to session-expired.`);
-      const target = (tenantId) ? `/${tenantId}/session-expired` : '/session-expired';
+    if (!session) {
+      if (context === 'SUPER_ADMIN') {
+        console.log(`[Middleware] No super-admin session. Redirecting to /platform/login.`);
+        return NextResponse.redirect(new URL('/platform/login', request.url));
+      }
+      console.log(`[Middleware] No session. Redirecting to session-expired.`);
+      const target = (tenantId) ? `/${schoolPathSegment(request, context, tenantId)}/session-expired` : '/session-expired';
       return NextResponse.redirect(new URL(target, request.url));
     }
 
@@ -294,7 +300,9 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next|static|public|_vercel).*)'],
+  // Skip build assets and anything that looks like a file or a well-known URI
+  // (/.well-known/..., /favicon.ico, /robots.txt): those are never a school's address
+  matcher: ['/((?!_next|static|public|_vercel|\\.well-known|.*\\.[a-zA-Z0-9]+$).*)'],
 };
 
 function isValidUUID(str: string): boolean {
@@ -307,7 +315,7 @@ async function getTenantUUIDByDomain(domain: string): Promise<string | null> {
     const backendUrl = process.env.BACKEND_API_URL || 'http://localhost:8000/api/v1';
     console.log(`[Middleware] Resolving domain '${domain}' via ${backendUrl}`);
     
-    const response = await fetch(`${backendUrl}/tenants?domain=${encodeURIComponent(domain.toLowerCase())}`, {
+    const response = await fetch(`${backendUrl}/tenants/?domain=${encodeURIComponent(domain.toLowerCase())}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
       next: { revalidate: 3600 } // Cache for 1 hour

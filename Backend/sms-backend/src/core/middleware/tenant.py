@@ -31,10 +31,23 @@ async def get_tenant_from_request(
     x_tenant_id: Optional[str] = Depends(X_TENANT_ID),
     db: Session = Depends(get_db)
 ) -> Tenant:
-    """Get tenant from request using multiple strategies: X-Tenant-ID (UUID or code), then domain."""
+    """Get the request's tenant.
+
+    Authenticated requests use the tenant bound by `get_current_user` (the user's own
+    school, or the school a super-admin chose). Only when nothing is bound do we fall
+    back to X-Tenant-ID (UUID or code), then domain.
+    """
+    bound_tenant_id = getattr(request.state, "tenant_id", None)
+    if bound_tenant_id is not None:
+        tenant = db.query(Tenant).filter(Tenant.id == bound_tenant_id, Tenant.is_active == True).first()
+        if not tenant:
+            raise TenantNotFoundError("Tenant not found")
+        set_tenant_id(tenant.id)
+        return tenant
+
     tenant = None
     host = request.headers.get("host", "").split(":")[0]
-    
+
     print(f"[TENANT] Resolving tenant - X-Tenant-ID: {x_tenant_id}, Host: {host}")
     
     # Strategy 1: Get from header
@@ -89,9 +102,6 @@ async def get_tenant_from_request(
 
     if not tenant:
         print(f"[TENANT] ERROR: Tenant not found for X-Tenant-ID: {x_tenant_id}, Host: {host}")
-        # List available tenants for debugging
-        available_tenants = db.query(Tenant).filter(Tenant.is_active == True).all()
-        print(f"[TENANT] Available active tenants: {[(t.name, t.domain, str(t.id)) for t in available_tenants]}")
         raise TenantNotFoundError("Tenant not found")
     
     print(f"[TENANT] Setting tenant context: {tenant.id} - {tenant.name}")
@@ -104,8 +114,12 @@ async def get_optional_tenant_from_request(
     db: Session = Depends(get_db)
 ) -> Optional[Tenant]:
     """Get tenant optionally, returning None if not found."""
+    bound_tenant_id = getattr(request.state, "tenant_id", None)
+    if bound_tenant_id is not None:
+        return db.query(Tenant).filter(Tenant.id == bound_tenant_id, Tenant.is_active == True).first()
+
     tenant = None
-    
+
     # Strategy 1: Check context (set by auth middleware)
     try:
         context_tenant_id = get_tenant_id()
@@ -189,6 +203,7 @@ async def tenant_middleware(request: Request, call_next):
         or path.startswith("/api/tenant/")
         or path.startswith("/api/v1/auth/")
         or path.startswith("/api/v1/super-admin/")
+        or path.startswith("/api/v1/verify/")  # public report card check: no school in the request
         or "/super-admin/" in path
         or "/export" in path
     )

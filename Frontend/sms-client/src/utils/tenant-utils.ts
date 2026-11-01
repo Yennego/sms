@@ -1,5 +1,6 @@
 import cookies from 'js-cookie';
 import { contextualCookies, getCurrentContext } from './cookie-manager';
+import { isPlatformPath, isReservedSlug } from '@/config/reserved-slugs';
 
 /**
  * Utility interface for tenant data
@@ -26,7 +27,7 @@ export function extractTenantId(): string | null {
     if (pathSegments.length > 1 && pathSegments[1] && 
         !pathSegments[1].startsWith('_') && 
         !pathSegments[1].startsWith('api') &&
-        pathSegments[1] !== 'super-admin') {
+        !isPlatformPath(pathname)) {
       
       const tenantIdentifier = pathSegments[1];
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tenantIdentifier) || 
@@ -62,24 +63,13 @@ export function extractTenantSubdomain(): string | null {
     const pathname = window.location.pathname;
     const pathSegments = pathname?.split('/') || [];
     
-    if (pathSegments.length > 1 && pathSegments[1] && 
-        !pathSegments[1].startsWith('_') && 
-        !pathSegments[1].startsWith('api') &&
-        pathSegments[1] !== 'super-admin') {
-      
-      const knownRoutes = [
-        'dashboard', 'login', 'register', 'forgot-password', 'reset-password', 
-        'change-password', 'admin-dashboard', 'settings',
-        'students', 'teachers', 'classes', 'timetable', 'attendance', 
-        'exams', 'grades', 'communication'
-      ];
-      
-      // If it's not a known route, it should be a tenant subdomain
-      if (!knownRoutes.includes(pathSegments[1])) {
-        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pathSegments[1]);
-        if (!isUUID) {
-          return pathSegments[1]; // Return subdomain from URL path
-        }
+    // If the first segment isn't a reserved word, it's the school's slug
+    if (pathSegments.length > 1 && pathSegments[1] &&
+        !pathSegments[1].startsWith('_') &&
+        !isReservedSlug(pathSegments[1])) {
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pathSegments[1]);
+      if (!isUUID) {
+        return pathSegments[1]; // Return subdomain from URL path
       }
     }
     
@@ -91,6 +81,23 @@ export function extractTenantSubdomain(): string | null {
   }
   
   return null;
+}
+
+/**
+ * The current school's slug for building links (/{slug}/...): the URL's first segment when it
+ * is a school slug, then the remembered domain (cookie, localStorage). Null when none is known.
+ */
+export function currentSchoolSlug(): string | null {
+  if (typeof window === 'undefined') return null;
+  const first = window.location.pathname.split('/')[1];
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (first && !first.startsWith('_') && !isReservedSlug(first) && !isUUID.test(first)) {
+    return first.toLowerCase();
+  }
+  const remembered = contextualCookies.get('currentTenantDomain', getCurrentContext())
+    || contextualCookies.get('currentTenantDomain', 'TENANT')
+    || localStorage.getItem('currentTenantDomain');
+  return remembered ? remembered.toLowerCase() : null;
 }
 
 /**

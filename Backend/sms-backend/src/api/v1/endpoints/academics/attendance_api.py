@@ -33,7 +33,20 @@ async def create_attendance(
 ) -> Any:
     """Create a new attendance record (requires admin or teacher role)."""
     try:
-        return await attendance_service.create(obj_in=attendance_in)
+        # Same validation/upsert path as manual marking; marked_by is always the caller
+        return await attendance_service.mark_daily_attendance(
+            student_id=attendance_in.student_id,
+            class_id=attendance_in.class_id,
+            schedule_id=attendance_in.schedule_id,
+            period=attendance_in.period,
+            academic_year_id=attendance_in.academic_year_id,
+            status=attendance_in.status,
+            marked_by=current_user.id,
+            attendance_date=attendance_in.date,
+            check_in_time=attendance_in.check_in_time,
+            check_out_time=attendance_in.check_out_time,
+            comments=attendance_in.notes
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -53,9 +66,10 @@ async def get_attendance_records(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     status_filter: Optional[AttendanceStatus] = None,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_any_role(["admin", "teacher", "student", "parent"]))
 ) -> Any:
     """Get attendance records with optional filtering."""
+    student_id = attendance_service.resolve_viewable_student_id(current_user, student_id)
     try:
         return attendance_service.get_multi(
             skip=skip,
@@ -83,9 +97,10 @@ async def get_attendance_summary(
     class_id: Optional[UUID] = None,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_any_role(["admin", "teacher", "student", "parent"]))
 ) -> Any:
     """Get attendance summary statistics."""
+    student_id = attendance_service.resolve_viewable_student_id(current_user, student_id)
     return await attendance_service.get_attendance_summary(
         student_id=student_id,
         class_id=class_id,
@@ -105,7 +120,7 @@ async def generate_attendance_report(
     current_user: User = Depends(has_any_role(["admin", "teacher"]))
 ) -> Any:
     """Generate attendance report."""
-    return await attendance_service.generate_report(
+    return await attendance_service.generate_attendance_report(
         class_id=class_id,
         student_id=student_id,
         start_date=start_date,
@@ -124,7 +139,7 @@ async def get_absent_students(
     """Get list of absent students."""
     return await attendance_service.get_absent_students(
         class_id=class_id,
-        date=attendance_date or date.today()
+        attendance_date=attendance_date or date.today()
     )
 
 @router.get("/attendance/late", response_model=List[Attendance])
@@ -138,7 +153,7 @@ async def get_late_students(
     """Get list of late students."""
     return await attendance_service.get_late_students(
         class_id=class_id,
-        date=attendance_date or date.today()
+        attendance_date=attendance_date or date.today()
     )
 
 @router.get("/attendance/global-stats", response_model=dict)
@@ -147,10 +162,10 @@ async def get_global_attendance_stats(
     super_admin_service: SuperAdminAttendanceService = Depends(),
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    current_user: User = Depends(has_any_role(["super_admin"]))
+    current_user: User = Depends(has_any_role(["superadmin"]))
 ) -> Any:
     """Get global attendance statistics (super admin only)."""
-    return await super_admin_service.get_global_stats(
+    return super_admin_service.get_global_attendance_stats(
         start_date=start_date,
         end_date=end_date
     )
@@ -162,9 +177,10 @@ async def get_student_attendance_percentage(
     student_id: UUID,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_any_role(["admin", "teacher", "student", "parent"]))
 ) -> Any:
     """Calculate student's attendance percentage for a period."""
+    attendance_service.resolve_viewable_student_id(current_user, student_id)
     percentage = await attendance_service.get_student_attendance_percentage(
         student_id=student_id,
         start_date=start_date,
@@ -198,7 +214,7 @@ async def get_attendance(
     *,
     attendance_service: AttendanceService = Depends(),
     attendance_id: UUID,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_any_role(["admin", "teacher", "student", "parent"]))
 ) -> Any:
     """Get a specific attendance record by ID."""
     attendance = await attendance_service.get(id=attendance_id)
@@ -207,6 +223,7 @@ async def get_attendance(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Attendance record with ID {attendance_id} not found"
         )
+    attendance_service.resolve_viewable_student_id(current_user, attendance.student_id)
     return attendance
 
 @router.put("/attendance/{attendance_id}", response_model=Attendance)
@@ -218,13 +235,16 @@ async def update_attendance(
     current_user: User = Depends(has_any_role(["admin", "teacher"]))
 ) -> Any:
     """Update an attendance record."""
+    attendance = await attendance_service.get(id=attendance_id)
+    if not attendance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Attendance record with ID {attendance_id} not found"
+        )
+    attendance_service.ensure_can_modify(attendance, current_user.id)
     try:
-        attendance = await attendance_service.get(id=attendance_id)
-        if not attendance:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Attendance record with ID {attendance_id} not found"
-            )
+        attendance_in.marked_by = current_user.id
+        attendance_in.marked_at = datetime.utcnow()
         return await attendance_service.update(id=attendance_id, obj_in=attendance_in)
     except BusinessLogicError as e:
         raise HTTPException(
@@ -255,23 +275,26 @@ async def mark_daily_attendance(
     attendance_service: AttendanceService = Depends(),
     student_id: UUID,
     class_id: UUID,
-    schedule_id: UUID,
     academic_year_id: UUID,
-    status: AttendanceStatus,
-    attendance_date: Optional[date] = None,
+    # Named attendance_status so it doesn't shadow fastapi.status; still sent as ?status=
+    attendance_status: AttendanceStatus = Query(..., alias="status"),
+    schedule_id: Optional[UUID] = None,
+    period: Optional[str] = None,
+    attendance_date: Optional[date] = Query(None, alias="date"),
     check_in_time: Optional[datetime] = None,
     check_out_time: Optional[datetime] = None,
     comments: Optional[str] = None,
     current_user: User = Depends(has_any_role(["admin", "teacher"]))
 ) -> Any:
-    """Mark daily attendance for a student."""
+    """Mark daily attendance for a student (needs schedule_id or period)."""
     try:
         return await attendance_service.mark_daily_attendance(
             student_id=student_id,
             class_id=class_id,
             schedule_id=schedule_id,
+            period=period,
             academic_year_id=academic_year_id,
-            status=status,
+            status=attendance_status,
             marked_by=current_user.id,
             attendance_date=attendance_date,
             check_in_time=check_in_time,
@@ -308,7 +331,8 @@ async def update_attendance_status(
     *,
     attendance_service: AttendanceService = Depends(),
     attendance_id: UUID,
-    status: AttendanceStatus,
+    # Named attendance_status so it doesn't shadow fastapi.status; still sent as ?status=
+    attendance_status: AttendanceStatus = Query(..., alias="status"),
     check_in_time: Optional[datetime] = None,
     check_out_time: Optional[datetime] = None,
     comments: Optional[str] = None,
@@ -317,7 +341,7 @@ async def update_attendance_status(
     """Update attendance status and related fields."""
     attendance = await attendance_service.update_attendance_status(
         attendance_id=attendance_id,
-        status=status,
+        status=attendance_status,
         marked_by=current_user.id,
         check_in_time=check_in_time,
         check_out_time=check_out_time,

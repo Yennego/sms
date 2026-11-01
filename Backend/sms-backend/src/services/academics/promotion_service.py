@@ -17,6 +17,10 @@ from src.db.session import get_db
 
 PromotionType = Literal["semester", "grade", "graduation"]
 
+
+# Evaluation status for a student with no grades recorded: no promotion decision yet
+NOT_GRADED = "Not graded"
+
 class PromotionService(TenantBaseService):
     """Enhanced service for handling semester and grade promotions."""
     
@@ -24,13 +28,15 @@ class PromotionService(TenantBaseService):
         tenant_id = tenant.id if hasattr(tenant, "id") else tenant
         self.tenant_id = tenant_id
         self.db = db
+        self._results_cache = {}  # class id -> ClassResults, shared by evaluations in one request
 
     async def process_year_end_transition(self, current_year_id: UUID, target_year_name: str) -> Dict[str, Any]:
         """Processes year-end transitions: Promoting passing students and flagging failures for remedial."""
         from src.services.academics.remedial_service import RemedialService
         from src.db.models.academics.enrollment import Enrollment as EnrollmentModel
         
-        results = {"promoted": [], "remedial": [], "errors": []}
+        # Students without grades aren't judged: they're listed as skipped, not held back
+        results = {"promoted": [], "remedial": [], "skipped": [], "errors": []}
         
         # 1. Get all active enrollments for the year
         enrollments = self.db.query(EnrollmentModel).filter(
@@ -50,8 +56,10 @@ class PromotionService(TenantBaseService):
             try:
                 # Evaluate eligibility
                 eval_res = await self.evaluate_eligibility(en.id)
-                
-                if eval_res["status"] == "Eligible":
+
+                if eval_res["status"] == NOT_GRADED:
+                    results["skipped"].append({"student_id": en.student_id, "reason": eval_res["notes"]})
+                elif eval_res["status"] == "Eligible":
                     # Promote
                     promo_res = await self._promote_to_next_grade(
                         en, target_year_name, grade_sequence, max_sequence
@@ -181,7 +189,6 @@ class PromotionService(TenantBaseService):
     
     async def evaluate_eligibility(self, enrollment_id: UUID) -> Dict[str, Any]:
         from src.db.models.academics.enrollment import Enrollment as EnrollmentModel
-        from src.db.models.academics.grade import Grade
         from src.services.academics.promotion_criteria_service import PromotionCriteriaService
         from src.services.academics.promotion_status_service import PromotionStatusService
         from src.services.academics.attendance_service import AttendanceService
@@ -221,20 +228,13 @@ class PromotionService(TenantBaseService):
         section = self.db.query(Section).filter(Section.id == enrollment.section_id).first()
         section_name = section.name if section else "Unknown"
 
-        # 2. Get Grades
-        grades = (
-            self.db.query(Grade)
-            .filter(Grade.tenant_id == self.tenant_id, Grade.enrollment_id == enrollment_id)
-            .all()
+        # 2. Published yearly averages per subject (phase4-design.md §1): a subject fails when its
+        # yearly average is below the pass mark (school setting, overridden by the criteria)
+        from src.services.academics.results_service import subject_outcomes
+        passing_mark, subject_avg, overall = subject_outcomes(
+            self.db, self.tenant_id, enrollment, cache=self._results_cache
         )
-        
-        from collections import defaultdict
-        subject_percentages = defaultdict(list)
-        for g in grades:
-            subject_percentages[g.subject_id].append(g.percentage)
-        
-        subject_avg = {sid: (sum(vals) / len(vals)) for sid, vals in subject_percentages.items()}
-        avg_subject_score = sum(subject_avg.values()) / max(len(subject_avg), 1)
+        avg_subject_score = overall if overall is not None else 0.0
         failed_subject_ids = [sid for sid, avg in subject_avg.items() if avg < passing_mark]
 
         # 3. Calculate Total Score (Weighted or Average)
@@ -265,10 +265,11 @@ class PromotionService(TenantBaseService):
         else:
             total_score = avg_subject_score
 
-        # 4. Determine Status
-        if not grades and (not weighting_schema or float(weighting_schema.get('attendance', 0)) == 0):
-            status = "Repeating"
-            notes = "No grades recorded"
+        # 4. Determine Status. No published results means nothing to judge yet: "Not graded",
+        # never "Repeating"
+        if not subject_avg:
+            status = NOT_GRADED
+            notes = "No published results yet"
         else:
             status = "Eligible"
             notes = ""
@@ -295,7 +296,9 @@ class PromotionService(TenantBaseService):
             "total_score": round(total_score, 2),
             "notes": notes,
         }
-        await PromotionStatusService(tenant=self.tenant_id, db=self.db).upsert_status_from_eval(result)
+        # Only a real decision is saved; "Not graded" is re-evaluated once marks exist
+        if status != NOT_GRADED:
+            await PromotionStatusService(tenant=self.tenant_id, db=self.db).upsert_status_from_eval(result)
         return result
 
     async def apply_manual_scaling(self, enrollment_id: UUID, scaling_points: float, notes: Optional[str] = None) -> Dict[str, Any]:
@@ -323,8 +326,9 @@ class PromotionService(TenantBaseService):
         criteria = criteria_service.get_by_year_and_grade(
             academic_year_id=ps.academic_year_id, grade_id=grade_id
         )
-        passing_mark = criteria.passing_mark if criteria else 70
-        
+        from src.services.academics.results_service import pass_mark_for
+        passing_mark = pass_mark_for(self.db, self.tenant_id, ps.academic_year_id, grade_id)
+
         new_status = ps.status
         if new_score >= passing_mark and ps.status in ["Repeating", "Conditional"]:
             new_status = "Eligible"
@@ -397,15 +401,10 @@ class PromotionService(TenantBaseService):
         from src.services.academics.academic_year_service import AcademicYearService
         from src.services.academics.academic_grade_service import AcademicGradeService
         from src.services.academics.section_service import SectionService
-        from src.services.academics.class_service import ClassService
-        from src.services.academics.class_enrollment_service import ClassEnrollmentService
-        from src.schemas.academics.class_enrollment import ClassEnrollmentCreate
 
         ay_service = AcademicYearService(tenant=self.tenant_id, db=self.db)
         ag_service = AcademicGradeService(tenant=self.tenant_id, db=self.db)
         sec_service = SectionService(tenant=self.tenant_id, db=self.db)
-        cls_service = ClassService(tenant=self.tenant_id, db=self.db)
-        cl_enroll_service = ClassEnrollmentService(tenant=self.tenant_id, db=self.db)
 
         ay_obj = ay_service.get_by_name(target_academic_year)
         if not ay_obj:
@@ -440,22 +439,9 @@ class PromotionService(TenantBaseService):
             semester_2_status="pending",
             comments=f"Promoted from {current_grade} to {next_grade} on {date.today()}"
         )
+        # The new enrollment's class is the next grade/section's class for that year (created
+        # if missing) when it is flushed: see Enrollment sync_enrollment_classes.
         new_enrollment = enrollment_crud.create(self.db, tenant_id=self.tenant_id, obj_in=new_enrollment_data)
-
-        classes = cls_service.get_by_grade_and_section(next_grade_obj.id, target_section_obj.id)
-        for c in classes:
-            if c.academic_year != target_academic_year:
-                continue
-            try:
-                cl_enroll_service.enroll_student(
-                    obj_in=ClassEnrollmentCreate(
-                        student_id=current_enrollment.student_id,
-                        class_id=c.id,
-                        academic_year_id=ay_obj.id
-                    )
-                )
-            except Exception:
-                continue
 
         return {
             "student_id": current_enrollment.student_id,

@@ -55,7 +55,7 @@ export default function SuperAdminDashboard() {
     contextualCookies.remove('currentTenantName', currentContext);
     localStorage.removeItem('currentTenantDomain');
     localStorage.removeItem('currentTenantName');
-    router.replace('/super-admin/dashboard');
+    router.replace('/platform/dashboard');
     setCurrentTenantDomain(null);
     setCurrentTenantName(null);
   };

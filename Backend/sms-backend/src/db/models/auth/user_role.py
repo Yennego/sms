@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, Table, Integer
+from sqlalchemy import Boolean, Column, String, ForeignKey, Table, Integer, UniqueConstraint
 from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.dialects.postgresql import UUID
 from src.db.models.base import TimestampMixin, UUIDMixin, Base
@@ -17,6 +17,10 @@ class UserRole(Base, TimestampMixin, UUIDMixin):
     
     Roles define what actions a user can perform in the system.
     Users can have multiple roles.
+
+    System roles (tenant_id NULL, is_system) are shared by every school and only change on
+    the platform; a school may add custom roles of its own (tenant_id set). Custom roles
+    can't take a system role's name, and grant only what their permissions say.
     
     Attributes:
         name (str): Name of the role (e.g., 'admin', 'teacher', 'student', 'parent')
@@ -28,8 +32,16 @@ class UserRole(Base, TimestampMixin, UUIDMixin):
     __tablename__ = "user_roles"
     
     # user_id = Column(Integer, ForeignKey("users.id"))
-    name = Column(String(50), nullable=False, unique=True, comment="Name of the role")
+    name = Column(String(50), nullable=False, comment="Name of the role (unique per school)")
     description = Column(String(200), nullable=True, comment="Description of the role")
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=True,
+                       comment="School that owns a custom role; NULL for system roles")
+    is_system = Column(Boolean, nullable=False, default=False, server_default="false")
+
+    __table_args__ = (
+        # PostgreSQL enforces this with NULLS NOT DISTINCT (system role names are unique too)
+        UniqueConstraint("tenant_id", "name", name="uq_user_roles_tenant_name"),
+    )
     
     # Relationships
     users = relationship("User", secondary=user_role_association, back_populates="roles")

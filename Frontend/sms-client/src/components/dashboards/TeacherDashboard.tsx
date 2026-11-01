@@ -119,8 +119,8 @@ export default function TeacherDashboard() {
     
     return classes.slice(0, 4).map((cls, index) => ({
       id: cls.id,
-      subject: cls.subject?.name || 'Unknown Subject',
-      grade: `${cls.grade?.name || 'Unknown Grade'} ${cls.section?.name || ''}`,
+      subject: cls.subject_name || 'Unknown Subject',
+      grade: `${cls.grade_name || 'Unknown Grade'} ${cls.section_name || ''}`,
       time: times[index] || '09:00 AM',
       room: rooms[index] || 'TBA'
     }));
@@ -138,8 +138,8 @@ export default function TeacherDashboard() {
       
       return {
         id: `assignment-${cls.id}-${index}`,
-        title: `${cls.subject?.name || 'Subject'} ${assignmentTypes[index % assignmentTypes.length]}`,
-        class: `${cls.grade?.name || 'Grade'} ${cls.section?.name || ''} ${cls.subject?.name || ''}`,
+        title: `${cls.subject_name || 'Subject'} ${assignmentTypes[index % assignmentTypes.length]}`,
+        class: `${cls.grade_name || 'Grade'} ${cls.section_name || ''} ${cls.subject_name || ''}`,
         dueDate: new Date(Date.now() + (index + 1) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         submitted,
         total,

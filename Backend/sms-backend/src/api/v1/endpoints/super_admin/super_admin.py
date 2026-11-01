@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, text
+from sqlalchemy import case, func, or_, text
 from sqlalchemy.exc import IntegrityError
 from psycopg2.errors import UniqueViolation
 
@@ -33,7 +33,7 @@ from src.db.models.tenant.notification_config import TenantNotificationConfig
 
 # Import security and utility functions
 from src.core.security.password import get_password_hash
-from src.services.auth.password import generate_default_password
+from src.core.security.password import generate_default_password
 from src.core.security.permissions import require_super_admin
 from src.services.tenant.dashboard import DashboardMetricsService
 from src.services.email import send_new_user_email
@@ -217,13 +217,7 @@ def create_tenant_with_admin(
     
 
 
-    # Check if admin user email already exists globally (across all tenants) BEFORE starting transaction
-    existing_user = user_crud.get_by_email_any_tenant(db, email=tenant_data.admin_user.email)
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A user with this email address already exists in the system. Please use a different email address."
-        )
+    # Emails are unique per school, so a new school's admin can't clash with existing accounts
 
     try:
         # Start transaction - all operations will be in one transaction
@@ -347,10 +341,10 @@ def create_tenant_with_admin(
         print(f"[DEBUG] Transaction rolled back due to integrity error: {str(e)}")
         
         # Check if it's a unique constraint violation on email
-        if "users_email_key" in str(e.orig):
+        if "uq_users_tenant_email" in str(e.orig):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="A user with this email address already exists in the system. Please use a different email address."
+                detail="A user with this email address already exists in this school."
             )
         else:
             # Other integrity errors
@@ -401,7 +395,7 @@ def delete_tenant(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Tenant not found"
         )
-    return tenant_crud.remove(db, id=tenant_id)
+    return tenant_crud.remove_empty(db, id=tenant_id)
 
 # New endpoints for tenant settings management
 @router.get("/tenants/{tenant_id}/settings", response_model=TenantSettings)
@@ -464,56 +458,75 @@ def update_tenant_settings(
     return tenant_settings_crud.update(db, tenant_id=tenant_id, db_obj=settings, obj_in=settings_in)
 
 # Enhanced user listing with filtering and sorting
+# Sortable columns of the platform user list (anything else is refused, not guessed)
+USER_SORTS = {
+    "name": (User.last_name, User.first_name),
+    "email": (User.email,),
+    "username": (User.username,),
+    "last_login": (User.last_login,),
+    "created_at": (User.created_at,),
+    "school": (TenantModel.name,),
+}
+MAX_USER_PAGE = 100
+
+
 @router.get("/users", response_model=PaginatedResponse[UserWithRoles])
 async def get_all_users(
     *,
     db: Session = Depends(get_super_admin_db),
     _: UserSchema = Depends(require_super_admin()),
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1),
-    email: Optional[str] = None,
+    limit: int = Query(25, ge=1, le=MAX_USER_PAGE),
+    q: Optional[str] = Query(None, max_length=100, description="Name, email or username"),
+    email: Optional[str] = Query(None, description="Deprecated: use q"),
     is_active: Optional[bool] = None,
     tenant_id: Optional[UUID] = None,
-    sort_by: str = Query("email", description="Field to sort by"),
-    sort_order: str = Query("asc", description="Sort order (asc or desc)")
+    role: Optional[str] = Query(None, description="Role name, e.g. admin, teacher"),
+    sort_by: str = Query("name", description="name, email, username, last_login, created_at or school"),
+    sort_order: str = Query("asc", pattern="^(asc|desc)$"),
 ) -> Any:
-    """Get all users across all tenants with filtering and sorting (super-admin only)."""
-    # Use joinedload to eagerly load roles and their permissions
-    query = db.query(User).options(
-        joinedload(User.roles).joinedload(UserRoleModel.permissions),
-        joinedload(User.tenant)
-    )
-    
-    # Apply filters
-    if email:
-        query = query.filter(User.email.ilike(f"%{email}%"))
-    if is_active is not None:
-        query = query.filter(User.is_active == is_active)
-    
+    """Users across all schools, paged on the server (super-admin only).
+
+    Search, filters and sorting run in the database; `counts` gives totals across every page
+    (all / active / inactive) for the current search and school/role filters.
+    """
+    if sort_by not in USER_SORTS:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail=f"sort_by must be one of: {', '.join(USER_SORTS)}")
+
+    base = db.query(User).outerjoin(TenantModel, TenantModel.id == User.tenant_id)
+    term = (q or email or "").strip().lower()
+    if term:
+        like = f"%{term}%"
+        base = base.filter(or_(
+            func.lower(func.concat(User.first_name, " ", User.last_name)).like(like),
+            func.lower(User.email).like(like),
+            func.lower(User.username).like(like),
+        ))
     if tenant_id:
-        query = query.filter(User.tenant_id == tenant_id)
-    
-    # Get total count before pagination
-    total = query.count()
-    
-    # Apply sorting
-    if hasattr(User, sort_by):
-        sort_field = getattr(User, sort_by)
-        if sort_order.lower() == "desc":
-            query = query.order_by(sort_field.desc())
-        else:
-            query = query.order_by(sort_field.asc())
-    
-    # Apply pagination
-    users = query.offset(skip).limit(limit).all()
-    
+        base = base.filter(User.tenant_id == tenant_id)
+    if role:
+        base = base.filter(User.roles.any(UserRoleModel.name == role))
+
+    # Totals before the status filter, so the header can show active and inactive together
+    all_count, active_count = base.with_entities(
+        func.count(User.id), func.sum(case((User.is_active == True, 1), else_=0))  # noqa: E712
+    ).one()
+    counts = {"all": all_count or 0, "active": int(active_count or 0)}
+    counts["inactive"] = counts["all"] - counts["active"]
+
+    filtered = base if is_active is None else base.filter(User.is_active == is_active)
+    total = filtered.with_entities(func.count(User.id)).scalar() or 0
+
+    order = [c.desc().nulls_last() if sort_order == "desc" else c.asc().nulls_last() for c in USER_SORTS[sort_by]]
+    users = (
+        filtered.options(joinedload(User.roles).joinedload(UserRoleModel.permissions), joinedload(User.tenant))
+        .order_by(*order, User.id)  # id breaks ties so pages never overlap or skip
+        .offset(skip).limit(limit).all()
+    )
     return PaginatedResponse(
-        items=users,
-        total=total,
-        skip=skip,
-        limit=limit,
-        has_next=skip + limit < total,
-        has_prev=skip > 0
+        items=users, total=total, skip=skip, limit=limit,
+        has_next=skip + limit < total, has_prev=skip > 0, counts=counts,
     )
 
 # Enhanced reports implementation
@@ -631,12 +644,12 @@ def create_user_cross_tenant(
     tenant_id = user_in.tenant_id
     user_create_data = user_in
     
-    # Check if user with this email already exists globally
-    existing_user = user_crud.get_by_email_any_tenant(db, email=user_in.email)
+    # Emails are unique per school
+    existing_user = user_crud.get_by_email(db, tenant_id=tenant_id, email=user_in.email)
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A user with this email address already exists in the system. Please use a different email address."
+            detail="A user with this email address already exists in this school."
         )
     
     # Generate password if not provided
@@ -659,10 +672,10 @@ def create_user_cross_tenant(
         print(f"[DEBUG] Database integrity error during user creation: {str(e)}")
         
         # Check if it's a unique constraint violation on email
-        if "users_email_key" in str(e.orig):
+        if "uq_users_tenant_email" in str(e.orig):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="A user with this email address already exists in the system. Please use a different email address."
+                detail="A user with this email address already exists in this school."
             )
         else:
             # Other integrity errors
@@ -708,7 +721,7 @@ def create_user_cross_tenant(
                     print(f"Error auto-assigning admin role: {e}")
     
     # Send email with login details if password was generated
-    if password_was_generated and generated_password:
+    if password_was_generated and generated_password and user.email:
         try:
             send_new_user_email(user.email, user.first_name, generated_password)
         except Exception as e:
@@ -773,7 +786,11 @@ def update_user_cross_tenant(
     user_id: UUID,
     user_in: UserUpdate
 ) -> Any:
-    """Update a user across any tenant (super-admin only)."""
+    """Update a user across any tenant (super-admin only). Passwords are not changed here: use
+    POST /users/{user_id}/reset-password."""
+    if user_in.password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Passwords aren't set here. Use Reset password, which issues a new one.")
     # Global user lookup
     user = user_crud.get_by_id_global(db, id=user_id)
     if not user:
@@ -785,6 +802,47 @@ def update_user_cross_tenant(
     # Update the user using their actual tenant_id
     updated_user = user_crud.update(db, tenant_id=user.tenant_id, db_obj=user, obj_in=user_in)
     return updated_user
+
+
+@router.post("/users/{user_id}/reset-password")
+async def reset_user_password_cross_tenant(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    current_user: User = Depends(require_super_admin()),
+    user_id: UUID,
+) -> Any:
+    """Reset any school user's password (super-admin only), e.g. a school admin who is locked out.
+
+    Same rules as the school office reset (POST /auth/admin/reset-password/{id}): a new password
+    is generated and returned once to hand over, never emailed and never chosen by the operator;
+    the user must choose their own at next sign-in, every session ends and any lockout is lifted.
+    """
+    from src.api.v1.endpoints.auth.auth import _clear_login_failures
+    from src.services.auth.token_blacklist import TokenBlacklistService
+
+    if current_user.id == user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Use change password for your own account")
+    user = user_crud.get_by_id_global(db, id=user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    new_password = generate_default_password()
+    user.password_hash = get_password_hash(new_password)
+    user.is_first_login = True
+    db.add(user)
+    db.flush()
+
+    await TokenBlacklistService().revoke_user_sessions(user.id)
+    for name in {user.email, getattr(user, "username", None)} - {None, ""}:
+        await _clear_login_failures(name)
+
+    return {
+        "message": "Password reset successful",
+        "generated_password": new_password,
+        "username": getattr(user, "username", None),
+        "email": user.email,
+        "tenant_id": user.tenant_id,
+    }
 
 # Add these endpoints after the existing endpoints (around line 640)
 
@@ -940,32 +998,7 @@ def assign_roles_to_user(
     
     return {"message": "Roles assigned successfully"}
 
-@router.patch("/tenants/{tenant_id}/subscription", response_model=Tenant)
-def update_tenant_subscription(
-    *,
-    db: Session = Depends(get_super_admin_db),
-    _: User = Depends(require_super_admin()),
-    tenant_id: UUID,
-    subscription_in: TenantUpdate
-) -> Any:
-    """Update tenant subscription details (super-admin only)."""
-    tenant = tenant_crud.get(db, id=tenant_id)
-    if not tenant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tenant not found"
-        )
-    
-    update_data = subscription_in.model_dump(exclude_unset=True)
-    
-    # Validate plan type if provided
-    if "plan_type" in update_data and update_data["plan_type"] not in ["flat_rate", "per_user"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid plan type. Must be 'flat_rate' or 'per_user'"
-        )
-
-    return tenant_crud.update(db, db_obj=tenant, obj_in=update_data)
+# Billing and access status: /super-admin/billing (billing.py; phase7-design.md §5)
 
 
 # ─── AI & Predictive Analytics Endpoints ─────────────────────────

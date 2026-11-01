@@ -1,27 +1,13 @@
-import { ReactNode } from 'react';
-import { FinanceNav } from './FinanceNav';
+import type { ReactNode } from 'react';
 
-export default async function FinanceLayout({
-    children,
-    params
-}: {
-    children: ReactNode;
-    params: Promise<{ tenantDomain: string }>;
-}) {
-    const resolvedParams = await params;
-    const tenantDomain = resolvedParams.tenantDomain;
+import { FeatureGate } from '@/components/ui/feature-gate';
 
-    return (
-        <div className="space-y-6">
-            <div className="flex flex-col gap-4 xs:flex-row xs:items-center xs:justify-between">
-                <h2 className="text-2xl font-bold tracking-tight text-gray-900">Finance Management</h2>
-            </div>
-
-            <FinanceNav tenantDomain={tenantDomain} />
-
-            <div className="mt-4">
-                {children}
-            </div>
-        </div>
-    );
+// The Fees area's tabs come from the app shell (config/navigation.ts); each page renders its own
+// PageShell heading. While the school's finance switch is off, every page here says so instead.
+export default function FinanceLayout({ children }: { children: ReactNode }) {
+  return (
+    <FeatureGate feature="enable_finance" label="Fees">
+      {children}
+    </FeatureGate>
+  );
 }

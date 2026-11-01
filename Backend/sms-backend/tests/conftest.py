@@ -70,3 +70,12 @@ def tenant_settings(db_session, tenant):
     db_session.add(settings)
     db_session.commit()
     return settings
+
+@pytest.fixture(autouse=True)
+def file_storage(tmp_path):
+    """Uploaded files go to a temporary folder, never the real storage."""
+    from src.services.files.storage import LocalFileStorage, set_storage
+    storage = LocalFileStorage(tmp_path / "files")
+    set_storage(storage)
+    yield storage
+    set_storage(None)

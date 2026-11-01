@@ -4,14 +4,12 @@ from sqlalchemy.orm import Session
 from src.db.crud.base import TenantCRUDBase
 from src.db.models.people import Student
 from src.schemas.people.student import StudentCreate, StudentUpdate
-from src.core.security.password import get_password_hash
-import secrets
-import string
+from src.core.security.password import get_password_hash, generate_default_password
 
-def generate_default_password(length=12):
-    """Generate a secure random password."""
-    alphabet = string.ascii_letters + string.digits + string.punctuation
-    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+# Student statuses that end sign-in (a former student keeps no access to the school's data)
+NO_SIGN_IN_STATUSES = ("inactive", "withdrawn", "transferred")
+
 
 class CRUDStudent(TenantCRUDBase[Student, StudentCreate, StudentUpdate]):
     """CRUD operations for Student model."""
@@ -40,9 +38,15 @@ class CRUDStudent(TenantCRUDBase[Student, StudentCreate, StudentUpdate]):
         student.status = status
         if status == "withdrawn" and reason:
             student.withdrawal_reason = reason
+        # Sign-in follows the status (every request re-checks is_active, so it applies at once).
+        # Graduates keep access to see their final results.
+        if status in NO_SIGN_IN_STATUSES:
+            student.is_active = False
+        elif status == "active":
+            student.is_active = True
             
         db.add(student)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(student)
         return student
     
@@ -86,7 +90,7 @@ class CRUDStudent(TenantCRUDBase[Student, StudentCreate, StudentUpdate]):
         # Increment sequence
         sequence.last_number += 1
         db.add(sequence)
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(sequence)
         
         next_num = sequence.last_number
@@ -180,7 +184,7 @@ class CRUDStudent(TenantCRUDBase[Student, StudentCreate, StudentUpdate]):
                 Student.tenant_id == tenant_id
             ).update(student_fields)
         
-        db.commit()
+        db.flush()  # committed once per request (get_db)
         db.refresh(db_obj)
         return db_obj
 

@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from datetime import date as DateType  # for fields named `date`
 from typing import Optional, List
 from uuid import UUID
 from pydantic import BaseModel, Field, ConfigDict
@@ -21,7 +22,7 @@ class AttendanceBase(BaseModel):
 
 class AttendanceCreate(AttendanceBase):
     """Schema for creating a new attendance record."""
-    marked_by: UUID
+    marked_by: Optional[UUID] = None  # ignored by the API; set from the current user
     marked_at: Optional[datetime] = None
 
 class AttendanceUpdate(BaseModel):
@@ -69,10 +70,10 @@ class BulkAttendanceCreate(BaseModel):
     class_id: Optional[UUID] = None
     schedule_id: Optional[UUID] = None
     academic_year_id: UUID
-    date: date
+    date: Optional[DateType] = None  # defaults to today on the server
     period: Optional[str] = None
     marked_by: Optional[UUID] = None
-    attendances: List[dict] = Field(..., description="List of {student_id: UUID, status: AttendanceStatus}")
+    attendances: List[dict] = Field(..., description="List of {student_id: UUID, status: AttendanceStatus, notes?: str}")
 
 class AttendanceReport(BaseModel):
     """Schema for attendance reports."""

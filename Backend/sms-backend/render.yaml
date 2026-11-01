@@ -12,6 +12,8 @@ services:
         sync: false  # Set manually in Render dashboard
       - key: SECRET_KEY
         generateValue: true  # Render auto-generates a random secret
+      - key: ATTENDANCE_QR_SECRET
+        generateValue: true  # signs ID-card QR codes; never change it once cards are printed
       - key: CORS_ORIGINS
         sync: false  # Set to your Vercel frontend URL
       - key: PYTHON_VERSION

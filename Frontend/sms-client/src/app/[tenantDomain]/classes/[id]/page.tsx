@@ -20,6 +20,14 @@ import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
 import type { Grade, Section } from '@/types/enrollment';
 import type { Student } from '@/types/student';
 
+type RosterEntry = {
+  student_id?: string;
+  student?: { id?: string };
+  student_name?: string;
+  student_full_name?: string;
+  enrollment_date?: string;
+};
+
 export default function ClassDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -37,7 +45,7 @@ export default function ClassDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [classDetails, setClassDetails] = useState<ClassWithDetails | null>(null);
   const [enrollmentCount, setEnrollmentCount] = useState<number>(0);
-  const [enrollments, setEnrollments] = useState<Array<{ student_id?: string; student?: { id?: string }; student_name?: string; student_full_name?: string; enrollment_date?: string }>>([]);
+  const [enrollments, setEnrollments] = useState<RosterEntry[]>([]);
   const [schedules, setSchedules] = useState<Array<{ id: string; day_of_week: string; period?: number; start_time: string; end_time: string }>>([]);
 
   const fetchData = useCallback(async () => {
@@ -55,7 +63,8 @@ export default function ClassDetailPage() {
 
       setClassDetails(details);
       setEnrollmentCount(count);
-      setEnrollments(roster || []);
+      // getClassEnrollments is untyped (unknown[]); entries follow the backend ClassEnrollmentWithDetails shape.
+      setEnrollments((roster || []) as RosterEntry[]);
       setSchedules(scheds || []);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to load class data';
@@ -167,7 +176,8 @@ export default function ClassDetailPage() {
         section: sectionName,
         status: 'active',
       });
-      let list = Array.isArray(res) ? res : [];
+      // getStudents returns a paged envelope ({ items, total }).
+      let list: Student[] = res.items ?? [];
       
       // Build roster set to exclude students already enrolled in this class
       const classRosterIds = new Set<string>(
@@ -373,7 +383,7 @@ export default function ClassDetailPage() {
             </Badge>
             <span className="flex items-center gap-1">
               <Calendar className="h-4 w-4" />
-              {classDetails.academic_year}
+              {classDetails.academic_year_name}
             </span>
             {classDetails.room && (
               <span className="flex items-center gap-1">
@@ -383,7 +393,7 @@ export default function ClassDetailPage() {
             )}
           </div>
           <div className="mt-1 text-gray-600">
-            <span className="font-medium">{classDetails.teacher_name}</span> • {classDetails.subject_name} • {classDetails.grade_name} {classDetails.section_name ? `(${classDetails.section_name})` : ''}
+            <span className="font-medium">{classDetails.class_teacher_name}</span> • {classDetails.subject_name} • {classDetails.grade_name} {classDetails.section_name ? `(${classDetails.section_name})` : ''}
           </div>
         </div>
         <div className="flex gap-2">
@@ -446,9 +456,9 @@ export default function ClassDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-1 text-gray-700">
-              <div>Academic Year: {classDetails.academic_year}</div>
+              <div>Academic Year: {classDetails.academic_year_name}</div>
               <div>Subject: {classDetails.subject_name}</div>
-              <div>Teacher: {classDetails.teacher_name}</div>
+              <div>Teacher: {classDetails.class_teacher_name}</div>
               <div>Grade: {classDetails.grade_name}{classDetails.section_name ? `, ${classDetails.section_name}` : ''}</div>
             </div>
           </CardContent>
