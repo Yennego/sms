@@ -8,8 +8,9 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react';
 import {
-  ChevronDown, KeyRound, LogOut, MoreHorizontal, PenLine, School, Settings, ShieldCheck, UserCog, type LucideIcon,
+  Bell, ChevronDown, KeyRound, LogOut, MoreHorizontal, PenLine, School, Settings, ShieldCheck, UserCog, type LucideIcon,
 } from 'lucide-react';
+import { InboxBell } from '@/components/communication/inbox-bell';
 import { Sheet } from '@/components/ui/sheet';
 import { useAuth } from '@/hooks/use-auth';
 import { useTenant } from '@/hooks/use-tenant';
@@ -38,6 +39,8 @@ interface ShellFrameProps {
   /** Turns a tab path into a link */
   linkFor: (path: string) => string;
   userMenu: MenuLink[];
+  /** Controls in the top bar before the user menu (the school's inbox bell) */
+  headerActions?: ReactNode;
   children: ReactNode;
 }
 
@@ -52,7 +55,7 @@ function Mark({ logo, className }: { logo?: string | null; className?: string })
   );
 }
 
-function ShellFrame({ title, logo, brand, areas, currentPath, linkFor, userMenu, children }: ShellFrameProps) {
+function ShellFrame({ title, logo, brand, areas, currentPath, linkFor, userMenu, headerActions, children }: ShellFrameProps) {
   const { user, logout } = useAuth();
   const [moreOpen, setMoreOpen] = useState(false);
   const current = locate(areas, currentPath);
@@ -104,49 +107,52 @@ function ShellFrame({ title, logo, brand, areas, currentPath, linkFor, userMenu,
           </div>
           <p className="hidden truncate text-lg font-semibold text-slate-900 lg:block">{current?.area.label ?? ''}</p>
 
-          <Menu as="div" className="relative">
-            <MenuButton className="flex min-h-11 items-center gap-2 rounded-full pl-1 pr-2 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--school-primary)]">
-              <span
-                className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold text-white"
-                style={{ backgroundColor: brand }}
-              >
-                {initials}
-              </span>
-              <span className="hidden max-w-40 truncate text-sm font-medium text-slate-700 sm:block">{userName}</span>
-              <ChevronDown className="h-4 w-4 text-slate-500" aria-hidden />
-              <span className="sr-only">Open the user menu</span>
-            </MenuButton>
-            <MenuItems
-              anchor="bottom end"
-              className="z-50 mt-2 w-60 rounded-lg border border-slate-200 bg-white p-1 shadow-lg focus:outline-none"
-            >
-              <div className="px-3 py-2">
-                <p className="truncate text-sm font-medium text-slate-900">{userName}</p>
-                <p className="truncate text-xs text-slate-500">{user?.email}</p>
-              </div>
-              <div className="my-1 h-px bg-slate-100" />
-              {userMenu.map(({ label, href, icon: Icon }) => (
-                <MenuItem key={href}>
-                  <Link
-                    href={href}
-                    className="flex min-h-11 items-center gap-2 rounded-md px-3 text-sm text-slate-700 data-[focus]:bg-slate-100"
-                  >
-                    <Icon className="h-4 w-4" aria-hidden /> {label}
-                  </Link>
-                </MenuItem>
-              ))}
-              <div className="my-1 h-px bg-slate-100" />
-              <MenuItem>
-                <button
-                  type="button"
-                  onClick={() => logout()}
-                  className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-sm text-red-600 data-[focus]:bg-red-50"
+          <div className="flex shrink-0 items-center gap-1">
+            {headerActions}
+            <Menu as="div" className="relative">
+              <MenuButton className="flex min-h-11 items-center gap-2 rounded-full pl-1 pr-2 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--school-primary)]">
+                <span
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold text-white"
+                  style={{ backgroundColor: brand }}
                 >
-                  <LogOut className="h-4 w-4" aria-hidden /> Sign out
-                </button>
-              </MenuItem>
-            </MenuItems>
-          </Menu>
+                  {initials}
+                </span>
+                <span className="hidden max-w-40 truncate text-sm font-medium text-slate-700 sm:block">{userName}</span>
+                <ChevronDown className="h-4 w-4 text-slate-500" aria-hidden />
+                <span className="sr-only">Open the user menu</span>
+              </MenuButton>
+              <MenuItems
+                anchor="bottom end"
+                className="z-50 mt-2 w-60 rounded-lg border border-slate-200 bg-white p-1 shadow-lg focus:outline-none"
+              >
+                <div className="px-3 py-2">
+                  <p className="truncate text-sm font-medium text-slate-900">{userName}</p>
+                  <p className="truncate text-xs text-slate-500">{user?.email}</p>
+                </div>
+                <div className="my-1 h-px bg-slate-100" />
+                {userMenu.map(({ label, href, icon: Icon }) => (
+                  <MenuItem key={href}>
+                    <Link
+                      href={href}
+                      className="flex min-h-11 items-center gap-2 rounded-md px-3 text-sm text-slate-700 data-[focus]:bg-slate-100"
+                    >
+                      <Icon className="h-4 w-4" aria-hidden /> {label}
+                    </Link>
+                  </MenuItem>
+                ))}
+                <div className="my-1 h-px bg-slate-100" />
+                <MenuItem>
+                  <button
+                    type="button"
+                    onClick={() => logout()}
+                    className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-sm text-red-600 data-[focus]:bg-red-50"
+                  >
+                    <LogOut className="h-4 w-4" aria-hidden /> Sign out
+                  </button>
+                </MenuItem>
+              </MenuItems>
+            </Menu>
+          </div>
         </header>
 
         {/* The current area's pages */}
@@ -282,6 +288,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const userMenu: MenuLink[] = [
     { label: 'Your profile', href: linkFor('/settings/user'), icon: UserCog },
     { label: 'Change password', href: linkFor('/change-password'), icon: KeyRound },
+    { label: 'Notification settings', href: linkFor('/settings/notifications'), icon: Bell },
     ...(nav.signs ? [{ label: 'My signature', href: linkFor('/settings/signature'), icon: PenLine }] : []),
     ...(nav.settings ?? []).map((s) => ({ label: s.label, href: linkFor(s.path), icon: Settings })),
   ];
@@ -295,6 +302,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       currentPath={schoolRelativePath(pathname)}
       linkFor={linkFor}
       userMenu={userMenu}
+      headerActions={<InboxBell href={linkFor('/inbox')} active={schoolRelativePath(pathname) === '/inbox'} />}
     >
       {children}
     </ShellFrame>

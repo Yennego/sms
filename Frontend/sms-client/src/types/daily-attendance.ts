@@ -112,8 +112,16 @@ export interface AttendanceEvent {
 export type ScanMode = 'check_in' | 'check_out';
 export type ScanRejectReason =
   | 'invalid_signature' | 'wrong_tenant' | 'unknown_student' | 'revoked' | 'inactive_student'
-  | 'not_school_day' | 'scan_closed' | 'not_enrolled' | 'not_your_class'
+  | 'not_school_day' | 'scan_closed' | 'scan_expired' | 'not_enrolled' | 'not_your_class'
   | 'checkout_disabled' | 'not_checked_in';
+
+/** The offline queue's fields on a scan (phase6-design.md section 8): sent with every scan. */
+export interface QueuedScanFields {
+  /** When the card was read, ISO 8601 with offset (counts only today, not future, <= 12 h old) */
+  scanned_at?: string;
+  /** 1-64 characters; sending it again returns the first outcome */
+  client_scan_id?: string;
+}
 
 export interface ScannedStudent {
   id: string;

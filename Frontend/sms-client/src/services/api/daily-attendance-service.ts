@@ -15,6 +15,7 @@ import {
   ExcuseStatus,
   IdCard,
   ParentExcuseInput,
+  QueuedScanFields,
   ScanMode,
   ScanResult,
   SchoolCalendarDay,
@@ -119,16 +120,25 @@ export function useDailyAttendanceService() {
     },
 
     // QR scanning & ID cards
-    scan: async (token: string, mode: ScanMode, deviceLabel?: string): Promise<ScanResult> => {
+    // `queued` carries the offline queue's fields: when the card was read and the scan's own id
+    scan: async (token: string, mode: ScanMode, deviceLabel?: string, queued?: QueuedScanFields): Promise<ScanResult> => {
       const client = await waitForApiClientReady();
-      return client.post<ScanResult>(`${BASE}/scan`, { token, mode, device_label: deviceLabel || undefined });
+      return client.post<ScanResult>(`${BASE}/scan`, {
+        token,
+        mode,
+        device_label: deviceLabel || undefined,
+        scanned_at: queued?.scanned_at,
+        client_scan_id: queued?.client_scan_id,
+      });
     },
 
-    manualCheckIn: async (admissionNumber: string, deviceLabel?: string): Promise<ScanResult> => {
+    manualCheckIn: async (admissionNumber: string, deviceLabel?: string, queued?: QueuedScanFields): Promise<ScanResult> => {
       const client = await waitForApiClientReady();
       return client.post<ScanResult>(`${BASE}/scan/manual`, {
         admission_number: admissionNumber,
         device_label: deviceLabel || undefined,
+        scanned_at: queued?.scanned_at,
+        client_scan_id: queued?.client_scan_id,
       });
     },
 

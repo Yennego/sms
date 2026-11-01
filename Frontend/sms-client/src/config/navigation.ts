@@ -1,13 +1,13 @@
 // One navigation map for the school app (docs/remodel/03-app-flow.md §2–3).
 //
-// Each role gets a home page and at most 7 menu areas. An area is one menu item; its pages are
+// Each role gets a home page and at most 7 menu areas (school admins 8: Messages came with Phase 6). An area is one menu item; its pages are
 // shown as tabs at the top of every page in the area. The sidebar, the phone bottom bar, the area
 // tabs, the post-login redirect and the change-password redirect all read from here, so they
 // can't disagree. Paths are relative to the school: `/students` means `/{school}/students`.
 import type { ComponentType } from 'react';
 import {
   BookOpen, CalendarDays, ClipboardCheck, GraduationCap, Home, Receipt, ScanLine, School,
-  Settings, Users, Award, UserCog, History, ShieldCheck,
+  Settings, Users, Award, UserCog, History, ShieldCheck, Megaphone,
 } from 'lucide-react';
 
 export type Icon = ComponentType<{ className?: string }>;
@@ -126,6 +126,19 @@ const FEES: NavArea = {
   ],
 };
 
+// Announcements and the inbox (phase6-design.md section 6). Everyone reaches the inbox through the
+// bell too; staff land on announcements, families on their inbox. Who may send is decided by the
+// server (GET /communication/announcements/audiences), so the same area serves every role.
+const MESSAGES: NavArea = {
+  key: 'messages', label: 'Messages', icon: Megaphone,
+  tabs: [tab('Announcements', '/communication/announcements'), tab('Inbox', '/inbox')],
+};
+
+const MESSAGES_FAMILY: NavArea = {
+  ...MESSAGES,
+  tabs: [tab('Inbox', '/inbox'), tab('Announcements', '/communication/announcements')],
+};
+
 const SCHOOL_SETTINGS: NavTab[] = [
   tab('School settings', '/settings'),
   tab('School profile', '/settings/school-profile'),
@@ -133,6 +146,7 @@ const SCHOOL_SETTINGS: NavTab[] = [
   tab('Roles', '/admin/roles'),
   tab('Role assignment', '/admin/role-assignment'),
   tab('Attendance rules', '/settings/attendance'),
+  tab('Delivery log', '/settings/deliveries'),
   tab('Audit log', '/admin/activity-logs'),
 ];
 
@@ -141,7 +155,7 @@ const SCHOOL_SETTINGS: NavTab[] = [
 const ADMIN: RoleNavigation = {
   home: '/admin-dashboard',
   signs: true,
-  areas: [HOME('/admin-dashboard'), STUDENTS, STAFF, CLASSES, ATTENDANCE, GRADES, FEES],
+  areas: [HOME('/admin-dashboard'), STUDENTS, STAFF, CLASSES, ATTENDANCE, GRADES, FEES, MESSAGES],
   settings: SCHOOL_SETTINGS,
 };
 
@@ -151,16 +165,16 @@ const ROLES: Record<string, RoleNavigation> = {
   'academic-admin': {
     home: '/admin-dashboard',
     signs: true,
-    areas: [HOME('/admin-dashboard'), STUDENTS, STAFF, CLASSES, ATTENDANCE, GRADES],
+    areas: [HOME('/admin-dashboard'), STUDENTS, STAFF, CLASSES, ATTENDANCE, GRADES, MESSAGES],
   },
   registrar: {
     home: '/admin-dashboard',
     signs: true,
-    areas: [HOME('/admin-dashboard'), STUDENTS, CLASSES, ATTENDANCE],
+    areas: [HOME('/admin-dashboard'), STUDENTS, CLASSES, ATTENDANCE, MESSAGES],
   },
-  accountant: { home: '/finance', areas: [{ ...FEES, feature: undefined }, STUDENTS_READ_ONLY] },
-  'financial-admin': { home: '/finance', areas: [{ ...FEES, feature: undefined }, STUDENTS_READ_ONLY] },
-  counselor: { home: '/students', areas: [STUDENTS_READ_ONLY] },
+  accountant: { home: '/finance', areas: [{ ...FEES, feature: undefined }, STUDENTS_READ_ONLY, MESSAGES] },
+  'financial-admin': { home: '/finance', areas: [{ ...FEES, feature: undefined }, STUDENTS_READ_ONLY, MESSAGES] },
+  counselor: { home: '/students', areas: [STUDENTS_READ_ONLY, MESSAGES] },
   teacher: {
     home: '/teacher/dashboard',
     signs: true,
@@ -179,6 +193,7 @@ const ROLES: Record<string, RoleNavigation> = {
         ],
       },
       { key: 'timetable', label: 'Timetable', icon: CalendarDays, tabs: [tab('Timetable', '/academics/timetables')] },
+      MESSAGES,
     ],
   },
   student: {
@@ -192,6 +207,7 @@ const ROLES: Record<string, RoleNavigation> = {
         tabs: [tab('My results', '/student/grades')],
       },
       { key: 'attendance', label: 'Attendance', icon: ClipboardCheck, tabs: [tab('Attendance', '/student/attendance')] },
+      MESSAGES_FAMILY,
     ],
   },
   parent: {
@@ -201,6 +217,7 @@ const ROLES: Record<string, RoleNavigation> = {
       { key: 'attendance', label: 'Attendance', icon: ClipboardCheck, tabs: [tab('Attendance', '/parent/attendance')] },
       { key: 'results', label: 'Results', icon: Award, tabs: [tab('Results', '/parent/results')] },
       { key: 'fees', label: 'Fees', icon: Receipt, feature: 'enable_finance', tabs: [tab('Fees', '/parent/fees')] },
+      MESSAGES_FAMILY,
     ],
   },
   'attendance-scanner': {

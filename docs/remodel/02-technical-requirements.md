@@ -65,6 +65,10 @@ These are hard rules. Every pull request is reviewed against them, and the isola
 - `DEBUG` defaults to off. API docs (`/docs`) are served only when `DEBUG=true`.
 - 500 responses carry a generic message; details go to logs only.
 - Required variables: `SECRET_KEY`, `DATABASE_URL` (the restricted `sms_app` login), `ALEMBIC_DATABASE_URL` (owner login, migrations only), `PROXY_SHARED_SECRET` (same value on backend and frontend: lets the frontend server pass on the visitor's address for per-IP rate limits), `REDIS_URL`, `ATTENDANCE_QR_SECRET`, `CORS_ORIGINS`, object storage credentials, SMTP credentials (SMS credentials only when SMS is switched on).
+- Communication (Phase 6):
+  - Email: `SMTP_SERVER`, `SMTP_PORT` (default 587; 465 uses SSL), `SENDER_EMAIL`, `SENDER_PASSWORD`, `SMTP_USE_TLS` (default true: STARTTLS), `EMAIL_FROM_NAME` (optional display name). While any of the first three (server, sender, password) is empty, email is off: alert emails are logged as `skipped` and password emails aren't sent.
+  - `APP_BASE_URL`: the app's public address for links in alert emails (defaults to `FRONTEND_URL`, then the first `CORS_ORIGINS` entry).
+  - Files: `FILE_STORAGE` (`local`, the default, or `s3`); `FILE_STORAGE_DIR` for `local` (default `storage`, relative to the backend folder; development only, since a deploy wipes it); for `s3`: `S3_BUCKET`, `S3_ENDPOINT_URL` (any S3-compatible service, e.g. a Railway bucket; empty for AWS), `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`. The `s3` backend needs the `boto3` package.
 
 ## 7. Data integrity
 
@@ -80,7 +84,7 @@ These are hard rules. Every pull request is reviewed against them, and the isola
 | Files (excuse documents, photos, logos, resources) | S3-compatible object storage, keys prefixed by school id, signed URLs that expire. Move excuse documents out of Postgres. |
 | Parent alerts | **Decided:** every alert goes to the in-app inbox; a copy goes by email when the family has an address, sent over SMTP with a free tier (for example Brevo's free daily allowance or the school's own mail account), so it costs nothing at school volumes. All channels sit behind one `MessageSender` interface with a delivery log. **SMS is on hold:** the interface has an SMS sender stub behind a setting, ready for a school's Android phone running the open-source textbee gateway (cost: the SIM bundle) or a paid provider (Africa's Talking, Twilio) sold to schools as credits. Remove `pywhatkit`, which drives WhatsApp Web and can't run on a server. WhatsApp Cloud API is free only for replies within 24 hours of a parent's message, so it isn't used for alerts. |
 | Email | SMTP from environment variables; optional, since many families lack email. |
-| Scheduled jobs | Railway cron: `python -m scripts.close_attendance_days` every 30 minutes; later, fee reminders and report generation. |
+| Scheduled jobs | Railway cron: `python -m scripts.close_attendance_days` every 10 minutes (marks absences after each school's cut-off and writes the parents' alerts) and `python -m scripts.send_notifications` every 2 minutes (sends queued alert emails), so an absence alert arrives within 15 minutes of the cut-off; later, fee reminders and report generation. |
 
 ## 9. Testing and CI
 

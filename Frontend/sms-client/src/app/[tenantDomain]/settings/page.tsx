@@ -44,14 +44,14 @@ export default function SettingsPage() {
       href: '/settings/attendance'
     },
     {
-      title: 'Communication Settings',
-      description: 'Configure messaging and notification settings',
-      href: '/settings/communication'
+      title: 'Notification settings',
+      description: 'Which alerts you also get by email',
+      href: '/settings/notifications'
     },
     {
-      title: 'WhatsApp Settings',
-      description: 'Configure WhatsApp notifications and templates',
-      href: '/settings/whatsapp'
+      title: 'Delivery log',
+      description: 'Alert emails sent, waiting and failed',
+      href: '/settings/deliveries'
     }
   ];
 

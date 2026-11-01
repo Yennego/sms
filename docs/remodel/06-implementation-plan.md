@@ -86,6 +86,20 @@ Exit: all payments at the pilot school recorded with receipts for a month; paren
 
 ## Phase 6: Communication (2 weeks)
 
+**Status (Nov 2026): built, not yet tried with a pilot school.** Design and decisions are in `phase6-design.md`, and the migration is `b6f2d9a4e8c1`.
+- **Inbox:** every alert lands in an in-app inbox with a bell. An email copy goes over SMTP (Brevo to start), sent by the `send_notifications` worker with a delivery log and retries. Each user chooses email on or off per event.
+- **Alerts:** absent and late (to parents), published results (to students and parents) and payment received (to parents). They are written in the same transaction as the action and are never sent twice.
+- **Announcements:** one-way. Admins send to everyone, a role, a class or a family; teachers only to their own classes. An announcement can be withdrawn.
+- **Files:** excuse documents moved to a file store (`local` or `s3`).
+- **Gate scanner:** queues scans offline in IndexedDB. The server judges a saved scan by its read time and refuses one from an earlier day (`scan_expired`).
+
+Still open:
+- Run `poetry lock` and install `boto3` before using `FILE_STORAGE=s3`.
+- Clean up unreferenced stored files.
+- SMS stays a stub.
+- Two-way messaging is for a later phase.
+- Admins now have 8 menu areas (Messages added).
+
 - Schema plan step 9: notification preferences, delivery log, files table and object storage (move excuse documents).
 - `MessageSender` interface with in-app and email senders; absence, results and payment alerts; announcements. SMS sender left as a stub behind a setting (on hold).
 - Offline scan queue for gates.
@@ -108,7 +122,9 @@ Exit: a school can be put on a plan, invoiced and suspended for non-payment from
 ## Deployment (Railway)
 
 - Database: after the first `alembic upgrade head` (owner login), run `scripts/create_app_db_role.sql` once and give the API the `sms_app` login.
-- Services: backend (`alembic upgrade head` on release, then uvicorn), frontend (Next.js), Postgres, Redis, cron (`python -m scripts.close_attendance_days` every 30 minutes), object storage bucket.
+- Services: backend (`alembic upgrade head` on release, then uvicorn), frontend (Next.js), Postgres, Redis, cron jobs (`python -m scripts.close_attendance_days` every 10 minutes; `python -m scripts.send_notifications` every 2 minutes), object storage bucket.
+- Email: `SMTP_SERVER`, `SMTP_PORT`, `SENDER_EMAIL`, `SENDER_PASSWORD`, `SMTP_USE_TLS`, `EMAIL_FROM_NAME` (e.g. a Brevo SMTP key); `APP_BASE_URL` set to the frontend URL. Without the SMTP values alerts stay in-app and their emails are logged as skipped.
+- Files: `FILE_STORAGE=s3` with `S3_BUCKET`, `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION` from the bucket, and `boto3` installed (`poetry add boto3`). Set these before running the Phase 6 migration on a database that has excuse documents: it copies their bytes into the configured storage (on `local` they would land on the release container's disk and be lost).
 - New secrets generated for Railway (`SECRET_KEY`, `ATTENDANCE_QR_SECRET`, database and storage credentials); none of the values from the old `.env` files.
 - `PROXY_SHARED_SECRET`: one random value set on both the backend and the frontend service; the host in front of the frontend must overwrite `X-Forwarded-For`.
 - `DEBUG` unset in production; `CORS_ORIGINS` set to the frontend URL only.

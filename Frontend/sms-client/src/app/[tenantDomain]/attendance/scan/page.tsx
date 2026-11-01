@@ -1,10 +1,16 @@
 'use client';
 
+// Gate scanner. Works offline (phase6-design.md section 1): each scan gets its own id and the time
+// the card was read; when the device is offline or a send fails on the network, the scan is saved
+// on the device and sent later, in order (components/attendance/scan-queue.tsx).
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, CameraOff, CheckCircle2, Clock, Keyboard, LogIn, LogOut, ScanLine, XCircle } from 'lucide-react';
+import { useParams } from 'next/navigation';
+import { Camera, CameraOff, CheckCircle2, Clock, CloudUpload, Keyboard, LogIn, LogOut, ScanLine, XCircle } from 'lucide-react';
 import type { Html5Qrcode } from 'html5-qrcode';
 
+import { ScanQueueBanner, isNetworkFailure, useScanQueue } from '@/components/attendance/scan-queue';
 import { useDailyAttendanceService } from '@/services/api/daily-attendance-service';
+import { isoWithOffset, newScanId, type QueuedScan } from '@/services/storage/scan-queue';
 import { ScanMode, ScanRejectReason, ScanResult } from '@/types/daily-attendance';
 import { errorMessageOf } from '@/utils/error-utils';
 
@@ -22,13 +28,24 @@ const REASON_TEXT: Record<ScanRejectReason, string> = {
   inactive_student: 'Student is no longer active (graduated, withdrawn or transferred)',
   not_school_day: 'Today is not a school day',
   scan_closed: 'Scanning has closed for today. See the class sponsor.',
+  scan_expired: 'This saved scan is from an earlier day or over 12 hours old, so it no longer counts. Ask the class sponsor to mark the student.',
   not_enrolled: 'Student is not enrolled in a class today',
   not_your_class: 'You can only scan students in your own class',
   checkout_disabled: 'Check-out scanning is turned off',
   not_checked_in: 'Student has not checked in today',
 };
 
-type Outcome = { result: ScanResult; at: Date } | { error: string; at: Date };
+// A saved (offline) scan reaches the server later: say so when scanning had closed by then
+const SAVED_SCAN_CLOSED = 'This saved scan was sent after scanning had closed for the day. Ask the class sponsor to mark the student.';
+
+type Outcome =
+  /** `saved`: a scan from the offline queue, answered now */
+  | { result: ScanResult; at: Date; saved?: QueuedScan }
+  | { error: string; at: Date }
+  /** Kept on the device, to be sent later */
+  | { queued: string; at: Date };
+
+type Tone = 'ok' | 'warn' | 'error' | 'saved';
 
 function readDevice(): string {
   try { return window.localStorage.getItem(DEVICE_KEY) || ''; } catch { return ''; }
@@ -60,11 +77,17 @@ function beep(kind: 'ok' | 'warn' | 'error') {
 const timeOf = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
-function headline(outcome: Outcome): { tone: 'ok' | 'warn' | 'error'; title: string; detail: string } {
+function headline(outcome: Outcome): { tone: Tone; title: string; detail: string } {
   if ('error' in outcome) return { tone: 'error', title: 'Scan failed', detail: outcome.error };
-  const { result } = outcome;
+  if ('queued' in outcome) {
+    return { tone: 'saved', title: 'Saved on this device', detail: `${outcome.queued}. It is sent when the connection is back.` };
+  }
+  const { result, saved } = outcome;
   if (result.result === 'rejected') {
-    return { tone: 'error', title: 'Not checked in', detail: result.reason ? REASON_TEXT[result.reason] : 'Rejected' };
+    const detail = saved && result.reason === 'scan_closed'
+      ? SAVED_SCAN_CLOSED
+      : result.reason ? REASON_TEXT[result.reason] : 'Rejected';
+    return { tone: 'error', title: 'Not checked in', detail };
   }
   const status = result.status ?? '';
   if (result.result === 'duplicate') {
@@ -73,7 +96,8 @@ function headline(outcome: Outcome): { tone: 'ok' | 'warn' | 'error'; title: str
       : result.check_in_at
         ? `Already checked in at ${timeOf(result.check_in_at)} (${status})`
         : `Already marked ${status}`;
-    return { tone: 'warn', title: 'Already recorded', detail };
+    // A saved scan sent twice (the first answer was lost) comes back as a duplicate: that's fine
+    return { tone: saved ? 'ok' : 'warn', title: 'Already recorded', detail };
   }
   if (result.mode === 'check_out') return { tone: 'ok', title: 'Checked out', detail: `at ${timeOf(result.check_out_at)}` };
   return {
@@ -83,14 +107,16 @@ function headline(outcome: Outcome): { tone: 'ok' | 'warn' | 'error'; title: str
   };
 }
 
-const TONE_STYLES = {
+const TONE_STYLES: Record<Tone, string> = {
   ok: 'bg-emerald-600',
   warn: 'bg-amber-500',
   error: 'bg-rose-600',
+  saved: 'bg-sky-700',
 };
 
 export default function AttendanceScanPage() {
   const { scan, manualCheckIn } = useDailyAttendanceService();
+  const { tenantDomain: school = '' } = useParams<{ tenantDomain: string }>();
 
   const [mode, setMode] = useState<ScanMode>('check_in');
   const [device, setDevice] = useState('');
@@ -116,34 +142,75 @@ export default function AttendanceScanPage() {
   const show = useCallback((outcome: Outcome) => {
     setCurrent(outcome);
     setRecent(prev => [outcome, ...prev].slice(0, 20));
-    beep(headline(outcome).tone);
+    const tone = headline(outcome).tone;
+    beep(tone === 'saved' ? 'ok' : tone);
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => setCurrent(null), RESULT_MS);
   }, []);
+
+  // One scan with its queue fields: a card to /scan, a typed admission number to /scan/manual
+  const sendScan = useCallback((item: QueuedScan) => {
+    const queued = { scanned_at: item.scanned_at, client_scan_id: item.client_scan_id };
+    return item.kind === 'card'
+      ? scan(item.token ?? '', item.mode, item.device_label, queued)
+      : manualCheckIn(item.admission_number ?? '', item.device_label, queued);
+  }, [scan, manualCheckIn]);
+
+  // Saved scans answered later go to the recent list only, so the big panel stays on live scans
+  const onSavedResult = useCallback((item: QueuedScan, result: ScanResult) => {
+    setRecent(prev => [{ result, at: new Date(), saved: item } as Outcome, ...prev].slice(0, 20));
+  }, []);
+
+  const queue = useScanQueue({ school, sendScan, onResult: onSavedResult });
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
 
   // A card token goes to /scan; anything else is treated as an admission number (manual check-in)
   const submit = useCallback(async (raw: string) => {
     const text = raw.trim();
     if (!text || busyRef.current) return;
-    if (!text.startsWith(TOKEN_PREFIX) && modeRef.current === 'check_out') {
+    const isCard = text.startsWith(TOKEN_PREFIX);
+    if (!isCard && modeRef.current === 'check_out') {
       show({ error: 'Admission numbers can only be used to check in. Scan the card to check out.', at: new Date() });
       return;
     }
+    // Set when the card is read: the time decides on time or late, and the id makes a resend harmless
+    const item: QueuedScan = {
+      client_scan_id: newScanId(),
+      school,
+      kind: isCard ? 'card' : 'manual',
+      token: isCard ? text : undefined,
+      admission_number: isCard ? undefined : text,
+      mode: isCard ? modeRef.current : 'check_in',
+      device_label: deviceRef.current || undefined,
+      scanned_at: isoWithOffset(),
+    };
+    const label = isCard ? 'Card read' : `Admission no. ${text}`;
+    const save = async () => {
+      await queueRef.current.add(item);
+      show({ queued: label, at: new Date() });
+    };
     busyRef.current = true;
     setBusy(true);
     try {
-      const result = text.startsWith(TOKEN_PREFIX)
-        ? await scan(text, modeRef.current, deviceRef.current)
-        : await manualCheckIn(text, deviceRef.current);
-      show({ result, at: new Date() });
-    } catch (err) {
-      show({ error: errorMessageOf(err, 'Could not reach the server'), at: new Date() });
+      // Offline, or older scans still waiting: save it behind them so they are sent in order
+      if (!navigator.onLine || queueRef.current.waiting.length > 0) {
+        await save();
+        if (navigator.onLine) void queueRef.current.send();
+        return;
+      }
+      try {
+        show({ result: await sendScan(item), at: new Date() });
+      } catch (err) {
+        if (isNetworkFailure(err)) await save();
+        else show({ error: errorMessageOf(err, 'The server refused this scan'), at: new Date() });
+      }
     } finally {
       busyRef.current = false;
       setBusy(false);
       inputRef.current?.focus();
     }
-  }, [scan, manualCheckIn, show]);
+  }, [school, sendScan, show]);
 
   const onCameraRead = useCallback((text: string) => {
     const now = Date.now();
@@ -220,6 +287,8 @@ export default function AttendanceScanPage() {
             ))}
           </div>
         </div>
+
+        <ScanQueueBanner queue={queue} />
 
         {/* Result */}
         <div className={`rounded-3xl p-8 min-h-[180px] flex items-center gap-6 text-white transition-colors ${view ? TONE_STYLES[view.tone] : 'bg-slate-800'}`}>
@@ -302,14 +371,18 @@ export default function AttendanceScanPage() {
               {recent.map((outcome, i) => {
                 const h = headline(outcome);
                 const s = 'result' in outcome ? outcome.result.student : null;
+                const saved = 'result' in outcome ? outcome.saved : undefined;
                 return (
                   <li key={i} className="flex items-center justify-between gap-4 px-5 py-2.5 text-sm">
                     <div className="flex items-center gap-3 min-w-0">
                       <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${TONE_STYLES[h.tone]}`} />
+                      {saved && <CloudUpload className="h-4 w-4 shrink-0 text-slate-400" aria-label="Saved scan" />}
                       <span className="font-semibold text-slate-800 truncate">{s?.name ?? h.title}</span>
-                      <span className="text-slate-500 truncate">{s ? `${h.title} · ${h.detail}` : h.detail}</span>
+                      <span className="text-slate-500 truncate" title={h.detail}>{s ? `${h.title} · ${h.detail}` : h.detail}</span>
                     </div>
-                    <span className="text-xs text-slate-400 shrink-0">{outcome.at.toLocaleTimeString()}</span>
+                    <span className="text-xs text-slate-400 shrink-0">
+                      {saved ? `Scanned ${timeOf(saved.scanned_at)}` : outcome.at.toLocaleTimeString()}
+                    </span>
                   </li>
                 );
               })}
