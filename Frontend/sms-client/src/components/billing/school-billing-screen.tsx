@@ -23,7 +23,7 @@ import { Amounts, LoadError } from '@/components/fees/shared';
 import { useTenant } from '@/hooks/use-tenant';
 import { useSchoolBillingService, type PlatformInvoice } from '@/services/api/billing-service';
 import { STATUS_HINTS } from './format';
-import { useBillingStatus, useSchoolInvoice, useSchoolInvoices } from './queries';
+import { useBillingStatus, useSchoolInvoice, useSchoolInvoices, useSchoolPaymentDetails } from './queries';
 import { BillingStatusBadge, InvoiceLines, InvoiceStatusBadge, invoicePeriod, PaymentRow } from './shared';
 
 function useDownloadExport() {
@@ -54,13 +54,19 @@ function useDownloadExport() {
 }
 
 function HowToPay() {
+  const details = useSchoolPaymentDetails();
+  const instructions = details.data?.instructions;
   return (
     <section className="flex flex-col gap-2 rounded-xl border bg-card p-4 text-card-foreground" aria-labelledby="how-to-pay">
       <h2 id="how-to-pay" className="flex items-center gap-2 font-semibold">
         <Landmark className="size-4" aria-hidden="true" />
         How to pay
       </h2>
-      <p className="text-sm">Contact the platform to pay.</p>
+      {instructions ? (
+        <p className="whitespace-pre-line break-words text-sm">{instructions}</p>
+      ) : details.isLoading ? null : (
+        <p className="text-sm">Contact the platform administrator for how to pay.</p>
+      )}
       <p className="text-sm text-muted-foreground">
         Give the invoice number when you pay. Pay in USD or in LRD: the first payment on an invoice fixes its
         currency. Your receipt shows here once the payment is recorded, and access comes back at once.

@@ -82,6 +82,8 @@ Exit: one full period of marks entered, published and printed at the pilot schoo
 - Record payment and receipt, arrears, collection report.
 - Parent portal: child switcher, attendance, published results, fees and receipts.
 
+New admissions: a student placed in a class after the term's invoices were issued is billed automatically for that term (and any later term already invoiced), from their grade's fees; past terms never.
+
 Exit: all payments at the pilot school recorded with receipts for a month; parents can see balances and results.
 
 ## Phase 6: Communication (2 weeks)
@@ -115,12 +117,13 @@ Exit: absence alerts in parents' in-app inbox (and email where set) within 15 mi
 - **Non-payment:** reminders on the due date and 7 and 14 days after; read-only at 30 days overdue and suspended at 60. The operator can set a grace date or mark a school dormant, and paying restores access. A school admin can export the school's data at any time.
 - **Screens:** the platform Billing area (overview, schools, invoices, price list, printable invoices and receipts); the school's Settings → Billing page; a banner in the app shell; and clear messages when a request or sign-in is refused for billing.
 - **Replaced:** the old `tenants.plan_type`/`plan_amount`/`subscription_status` columns.
+- **How to pay:** the operator writes the payment details once (Price list page); school admins see them on Billing, or "contact the platform administrator" while empty (migration `e5a1c8d3b7f4`).
+- **Platform password reset:** the operator resets any school user's password the same safe way as the school office (new password shown once, sessions ended); passwords can no longer be set through the general user update.
 - **Fix:** session refresh had always failed (a shadowed import in `/auth/refresh`).
 
 Still open:
 - Enter a price list. Nothing is invoiced without one; all zeros works for the pilot.
-- Store the platform's bank and mobile money details for the "How to pay" panel.
-- Online payment provider.
+- Online payment provider (interface and webhook are ready; no provider connected).
 - Small API gaps listed in `phase7-design.md` §8 (school name on a platform invoice, payments on the school invoice list).
 
 - Schema plan step 10: plans priced per user, monthly usage counts, subscriptions, invoices, features.

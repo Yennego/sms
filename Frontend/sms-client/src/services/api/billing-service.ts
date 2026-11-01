@@ -267,6 +267,12 @@ const PLATFORM = '/super-admin/billing';
 
 // ---- Services ------------------------------------------------------------------------------------
 
+/** How schools pay the platform: the operator's text, null while none is written. */
+export interface PaymentDetails {
+  instructions: string | null;
+  updated_at: string | null;
+}
+
 /** The signed-in school's billing (/api/v1/billing). */
 export function useSchoolBillingService() {
   const { apiClient } = useApiClientWithLoading();
@@ -280,6 +286,7 @@ export function useSchoolBillingService() {
         (await ready()).get<PlatformInvoiceDetail>(`/billing/invoices/${id(invoiceId)}`),
       getReceipt: async (paymentId: string) =>
         (await ready()).get<PlatformReceipt>(`/billing/payments/${id(paymentId)}/receipt`),
+      getPaymentDetails: async () => (await ready()).get<PaymentDetails>('/billing/payment-details'),
       /** A zip of CSVs (students, guardians, enrollments, results, fee payments). */
       downloadExport: async () => (await ready()).get<Blob>('/billing/export', { responseType: 'blob' }),
     }),
@@ -338,6 +345,9 @@ export function usePlatformBillingService() {
 
       // Prices
       listPrices: () => client.get<PriceList[]>(`${PLATFORM}/prices`),
+      getPaymentDetails: () => client.get<PaymentDetails>(`${PLATFORM}/payment-details`),
+      setPaymentDetails: (instructions: string) =>
+        client.put<PaymentDetails>(`${PLATFORM}/payment-details`, { instructions }),
       /** 409 when a list already starts on that date. */
       addPrice: (input: PriceListInput) => client.post<PriceList>(`${PLATFORM}/prices`, input),
     }),

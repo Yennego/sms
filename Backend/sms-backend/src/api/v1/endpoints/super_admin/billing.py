@@ -18,7 +18,7 @@ from src.core.security.auth import get_current_active_user
 from src.core.security.permissions import require_super_admin
 from src.db.models.billing import PlatformPayment
 from src.db.session import get_super_admin_db
-from src.services.billing.platform_billing import MAX_PAGE_SIZE, BillingService
+from src.services.billing.platform_billing import MAX_PAGE_SIZE, BillingService, payment_details, set_payment_details
 from src.services.billing.providers import get_provider
 
 router = APIRouter()
@@ -57,6 +57,10 @@ class PaymentIn(BaseModel):
     received_at: Optional[datetime] = None
 
 
+class PaymentDetailsIn(BaseModel):
+    instructions: Optional[str] = None
+
+
 class SubscriptionIn(BaseModel):
     grace_until: Optional[date] = None
     dormant: Optional[bool] = None
@@ -70,6 +74,18 @@ def list_prices(service: BillingService = Depends(_service)) -> Any:
 @operator.post("/prices")
 def add_price(body: PriceIn, service: BillingService = Depends(_service)) -> Any:
     return service.add_price(body.model_dump())
+
+
+@operator.get("/payment-details")
+def get_payment_details(db: Session = Depends(get_super_admin_db)) -> Any:
+    """How schools pay the platform (shown on each school's Billing page)."""
+    return payment_details(db)
+
+
+@operator.put("/payment-details")
+def put_payment_details(body: PaymentDetailsIn, db: Session = Depends(get_super_admin_db),
+                        user=Depends(get_current_active_user)) -> Any:
+    return set_payment_details(db, body.instructions, user)
 
 
 @operator.get("/schools")

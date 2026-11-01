@@ -8,7 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Input } from '@/components/ui/input';
 import ConfirmationModal from '@/components/common/ConfirmationModal';
 import UserEditModal from '@/components/common/UserEditModal';
-import { PasswordResetDialog } from '@/components/common/PasswordResetDialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { NewPasswordDialog } from '@/components/staff/new-password-dialog';
 import { Edit, UserCheck, UserX, RefreshCw, KeyRound, UserPlus, Search, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { UserUpdate, UserCreateCrossTenant } from '@/services/api/super-admin-service';
 import UserCreateModal from '@/components/common/UserCreateModal';
@@ -88,6 +89,8 @@ export default function UserManagementPage() {
   const [modalAction, setModalAction] = useState<'activate' | 'deactivate' | 'edit' | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [resettingUser, setResettingUser] = useState<UserWithRoles | null>(null);
+  const [issued, setIssued] = useState<{ name: string; username: string | null; email: string | null; password: string } | null>(null);
+  const superAdmin = useSuperAdminService();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   // TanStack Query Hooks
@@ -211,27 +214,22 @@ export default function UserManagementPage() {
     }
   };
 
-  const handlePasswordResetSubmit = async (userId: string, newPassword?: string, newEmail?: string) => {
+  // A new password is issued by the server and shown once; the operator never chooses it
+  const handlePasswordReset = async () => {
     if (!resettingUser) return;
-    setIsManualLoading(true);
     try {
-      const updatePayload: UserUpdate = {};
-      if (newPassword) updatePayload.password = newPassword;
-      if (newEmail) updatePayload.email = newEmail;
-
-      await updateUser.mutateAsync({
-        userId,
-        userData: updatePayload,
-        tenantId: resettingUser.tenant_id
+      const result = await superAdmin.resetUserPassword(resettingUser.id);
+      setIssued({
+        name: `${resettingUser.first_name} ${resettingUser.last_name}`,
+        username: result.username,
+        email: result.email,
+        password: result.generated_password,
       });
-      toast.success('Password reset successfully');
-      setResettingUser(null);
       handleRefresh();
     } catch (error) {
-      console.error('Failed to reset password:', error);
-      toast.error('Failed to reset password');
-    } finally {
-      setIsManualLoading(false);
+      const message = error instanceof Error && error.message ? error.message : "The password wasn't reset.";
+      toast.error(`${message} Try again.`);
+      throw error;
     }
   };
 
@@ -505,17 +503,25 @@ export default function UserManagementPage() {
       )}
 
       {/* Password Reset Dialog */}
-      {resettingUser && (
-        <PasswordResetDialog
-          isOpen={!!resettingUser}
-          onClose={() => setResettingUser(null)}
-          userId={resettingUser.id}
-          userName={`${resettingUser.first_name} ${resettingUser.last_name}`}
-          userEmail={resettingUser.email}
-          userType="User"
-          onReset={handlePasswordResetSubmit}
-        />
-      )}
+      <ConfirmDialog
+        open={Boolean(resettingUser)}
+        onOpenChange={(open) => {
+          if (!open) setResettingUser(null);
+        }}
+        title={`Reset the password for ${resettingUser ? `${resettingUser.first_name} ${resettingUser.last_name}` : ''}?`}
+        description="Their current password stops working now and they are signed out everywhere. You get a new password to hand over, and they choose their own the next time they sign in."
+        confirmLabel="Reset password"
+        destructive
+        onConfirm={handlePasswordReset}
+      />
+      <NewPasswordDialog
+        open={Boolean(issued)}
+        onClose={() => setIssued(null)}
+        name={issued?.name ?? ''}
+        username={issued?.username}
+        email={issued?.email}
+        password={issued?.password ?? null}
+      />
 
       {/* Create User Modal */}
       <UserCreateModal

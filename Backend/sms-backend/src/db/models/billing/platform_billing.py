@@ -207,3 +207,17 @@ class UserActivityMonth(Base):
     __table_args__ = (
         Index("ix_user_activity_months_month", "tenant_id", "month"),
     )
+
+
+class PlatformPaymentDetails(Base):
+    """How schools pay the platform (bank, mobile money numbers...), as the operator writes it.
+    One row (id 1); schools see it on their Billing page, or "contact the platform" while empty."""
+
+    __tablename__ = "platform_payment_details"
+
+    id = Column(Integer, primary_key=True)
+    instructions = Column(Text, nullable=True)
+    updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_now)
+
+    __table_args__ = (CheckConstraint("id = 1", name="ck_platform_payment_details_single_row"),)

@@ -1,6 +1,6 @@
 from .platform_billing import (
     PlatformPrice, PlatformCounter, SchoolSubscription, PlatformInvoice, PlatformInvoiceLine, PlatformPayment,
-    PlatformReminder, UserActivityMonth,
+    PlatformReminder, UserActivityMonth, PlatformPaymentDetails,
 )
 
 __all__ = [
@@ -12,4 +12,5 @@ __all__ = [
     "PlatformPayment",
     "PlatformReminder",
     "UserActivityMonth",
+    "PlatformPaymentDetails",
 ]

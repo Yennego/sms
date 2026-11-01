@@ -15,7 +15,7 @@ from src.core.security.auth import get_current_active_user
 from src.core.security.permissions import has_role
 from src.db.session import get_db
 from src.services.billing.export import export_filename, school_export
-from src.services.billing.platform_billing import BillingService
+from src.services.billing.platform_billing import BillingService, payment_details
 
 router = APIRouter()
 ADMIN = has_role("admin")
@@ -52,6 +52,13 @@ def invoice(invoice_id: UUID, _=Depends(ADMIN), tenant_id=Depends(get_tenant_id_
 def receipt(payment_id: UUID, _=Depends(ADMIN), tenant_id=Depends(get_tenant_id_from_request),
             service: BillingService = Depends(_service)) -> Any:
     return service.receipt(payment_id, tenant_id)
+
+
+@router.get("/payment-details", dependencies=[Depends(_school)])
+def how_to_pay(_=Depends(ADMIN), db: Session = Depends(get_db)) -> Any:
+    """The platform's payment details for the "How to pay" panel; instructions is null while the
+    operator hasn't written any (the page then says to contact the platform administrator)."""
+    return payment_details(db)
 
 
 @router.get("/export", dependencies=[Depends(_school)])

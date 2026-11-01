@@ -35,6 +35,8 @@ export const billingKeys = {
   platformInvoice: (id: string) => [...billingKeys.platform, 'invoice', id] as const,
   platformReceipt: (id: string) => [...billingKeys.platform, 'receipt', id] as const,
   prices: () => [...billingKeys.platform, 'prices'] as const,
+  paymentDetails: () => [...billingKeys.platform, 'payment-details'] as const,
+  schoolPaymentDetails: (school: string | null) => [...billingKeys.school(school), 'payment-details'] as const,
 };
 
 // ---- The school's own view -----------------------------------------------------------------------
@@ -73,6 +75,17 @@ export function useSchoolInvoice(invoiceId: string | undefined) {
     queryKey: billingKeys.invoice(school, invoiceId ?? ''),
     queryFn: () => service.getInvoice(invoiceId!),
     enabled: Boolean(school && invoiceId),
+    retry: noRetryOnClientError,
+  });
+}
+
+export function useSchoolPaymentDetails(enabled = true) {
+  const service = useSchoolBillingService();
+  const school = useTenant().tenantKey;
+  return useQuery({
+    queryKey: billingKeys.schoolPaymentDetails(school),
+    queryFn: () => service.getPaymentDetails(),
+    enabled: Boolean(school) && enabled,
     retry: noRetryOnClientError,
   });
 }
@@ -153,6 +166,17 @@ export function usePlatformReceipt(paymentId: string | undefined) {
 export function usePriceLists() {
   const service = usePlatformBillingService();
   return useQuery({ queryKey: billingKeys.prices(), queryFn: () => service.listPrices(), retry: noRetryOnClientError });
+}
+
+export function usePaymentDetails() {
+  const service = usePlatformBillingService();
+  return useQuery({ queryKey: billingKeys.paymentDetails(), queryFn: () => service.getPaymentDetails(), retry: noRetryOnClientError });
+}
+
+export function useSetPaymentDetails() {
+  const service = usePlatformBillingService();
+  const invalidate = useInvalidatePlatform();
+  return useMutation({ mutationFn: (instructions: string) => service.setPaymentDetails(instructions), onSuccess: invalidate });
 }
 
 export function useAddPriceList() {

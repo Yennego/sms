@@ -224,6 +224,10 @@ class ClassEnrollmentService:
         if enroll.is_active:
             self._deactivate_other_years(obj_in.student_id, cls.academic_year_id)
         enroll = self._flush(enroll)
+        if enroll.is_active:
+            # Billing already started this term: bill them like their classmates
+            from src.services.finance.fee_service import FeeService
+            FeeService(self.db, self.tenant_id, None).bill_new_enrollment([enroll.student_id], cls.academic_year_id)
         await self._invalidate(enroll)
         return to_class_enrollment(enroll)
 

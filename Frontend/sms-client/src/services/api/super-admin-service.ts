@@ -444,6 +444,11 @@ export function useSuperAdminService() {
       return apiClient.put<UserWithRoles>(url, userData);
     },
 
+    /** Issues a new password to hand over (never chosen here); the user picks their own at next sign-in. */
+    resetUserPassword: async (userId: string): Promise<{ generated_password: string; username: string | null; email: string | null }> => {
+      return apiClient.post(`/super-admin/users/${userId}/reset-password`, {});
+    },
+
     // Activate tenant
     activateTenant: async (tenantId: string): Promise<void> => {
       return apiClient.post<void>(`/super-admin/tenants/${tenantId}/activate`, {});

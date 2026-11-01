@@ -786,7 +786,11 @@ def update_user_cross_tenant(
     user_id: UUID,
     user_in: UserUpdate
 ) -> Any:
-    """Update a user across any tenant (super-admin only)."""
+    """Update a user across any tenant (super-admin only). Passwords are not changed here: use
+    POST /users/{user_id}/reset-password."""
+    if user_in.password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Passwords aren't set here. Use Reset password, which issues a new one.")
     # Global user lookup
     user = user_crud.get_by_id_global(db, id=user_id)
     if not user:
@@ -798,6 +802,47 @@ def update_user_cross_tenant(
     # Update the user using their actual tenant_id
     updated_user = user_crud.update(db, tenant_id=user.tenant_id, db_obj=user, obj_in=user_in)
     return updated_user
+
+
+@router.post("/users/{user_id}/reset-password")
+async def reset_user_password_cross_tenant(
+    *,
+    db: Session = Depends(get_super_admin_db),
+    current_user: User = Depends(require_super_admin()),
+    user_id: UUID,
+) -> Any:
+    """Reset any school user's password (super-admin only), e.g. a school admin who is locked out.
+
+    Same rules as the school office reset (POST /auth/admin/reset-password/{id}): a new password
+    is generated and returned once to hand over, never emailed and never chosen by the operator;
+    the user must choose their own at next sign-in, every session ends and any lockout is lifted.
+    """
+    from src.api.v1.endpoints.auth.auth import _clear_login_failures
+    from src.services.auth.token_blacklist import TokenBlacklistService
+
+    if current_user.id == user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Use change password for your own account")
+    user = user_crud.get_by_id_global(db, id=user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    new_password = generate_default_password()
+    user.password_hash = get_password_hash(new_password)
+    user.is_first_login = True
+    db.add(user)
+    db.flush()
+
+    await TokenBlacklistService().revoke_user_sessions(user.id)
+    for name in {user.email, getattr(user, "username", None)} - {None, ""}:
+        await _clear_login_failures(name)
+
+    return {
+        "message": "Password reset successful",
+        "generated_password": new_password,
+        "username": getattr(user, "username", None),
+        "email": user.email,
+        "tenant_id": user.tenant_id,
+    }
 
 # Add these endpoints after the existing endpoints (around line 640)
 

@@ -187,6 +187,9 @@ class AdmissionService:
         )
         self.db.add(enrollment)
         self.db.flush()  # assigns usernames and ids
+        # Billing already started this term: bill them like their classmates
+        from src.services.finance.fee_service import FeeService
+        FeeService(self.db, self.tenant_id, None).bill_new_enrollment([student.id], year.id)
 
         credentials.append(Credentials("student", _full_name(student), student.username, password))
         if guardian_created:

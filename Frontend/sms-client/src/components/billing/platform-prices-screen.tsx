@@ -17,6 +17,7 @@ import { DataTable } from '@/components/ui/data-table';
 import { EmptyState } from '@/components/ui/empty-state';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { PageShell } from '@/components/ui/page-shell';
 import { Sheet } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -26,7 +27,7 @@ import { errorMessage, formatDate } from '@/components/students/format';
 import { formatMoney, todayIso } from '@/components/fees/money';
 import { inputClassName, LoadError } from '@/components/fees/shared';
 import type { PriceList, PriceListInput } from '@/services/api/billing-service';
-import { useAddPriceList, usePriceLists } from './queries';
+import { useAddPriceList, usePaymentDetails, usePriceLists, useSetPaymentDetails } from './queries';
 
 const AMOUNT_RE = /^\d{1,10}(\.\d{1,2})?$/;
 const amount = z.string().trim().min(1, 'Enter an amount (0 for none)').regex(AMOUNT_RE, 'Enter an amount like 2 or 2.50');
@@ -210,6 +211,63 @@ const columns: ColumnDef<PriceList>[] = [
   },
 ];
 
+// How schools pay (bank, mobile money): shown on each school admin's Billing page; while empty,
+// schools are told to contact the platform administrator
+function PaymentDetailsCard() {
+  const q = usePaymentDetails();
+  const save = useSetPaymentDetails();
+  const [text, setText] = React.useState<string | null>(null);
+  const saved = q.data?.instructions ?? '';
+  const value = text ?? saved;
+  const fieldId = React.useId();
+
+  const handleSave = async () => {
+    try {
+      await save.mutateAsync(value);
+      setText(null);
+      notify.success(value.trim() ? 'Payment details saved. Schools see them on their Billing page.' : 'Payment details removed.');
+    } catch (error) {
+      notify.error(`${errorMessage(error, "The payment details weren't saved.")} Try again.`);
+    }
+  };
+
+  return (
+    <section className="flex flex-col gap-3 rounded-xl border bg-card p-4 text-card-foreground" aria-labelledby="pay-details">
+      <h2 id="pay-details" className="font-semibold">
+        How schools pay
+      </h2>
+      <p className="text-sm text-muted-foreground">
+        Bank account and mobile money numbers, as school admins should see them. While this is empty, schools are
+        told to contact the platform administrator.
+      </p>
+      {q.isError ? (
+        <LoadError error={q.error} what="the payment details" onRetry={() => q.refetch()} />
+      ) : (
+        <>
+          <label htmlFor={fieldId} className="sr-only">
+            Payment details
+          </label>
+          <Textarea
+            id={fieldId}
+            rows={5}
+            maxLength={2000}
+            value={value}
+            disabled={q.isLoading}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={'Bank: name, account number, account name\nMobile money: number and name'}
+          />
+          <div className="flex justify-end">
+            <Button onClick={handleSave} disabled={q.isLoading || save.isPending || value === saved}>
+              {save.isPending ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+              Save payment details
+            </Button>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 export function PlatformPricesScreen() {
   const q = usePriceLists();
   const prices = q.data ?? [];
@@ -273,6 +331,8 @@ export function PlatformPricesScreen() {
           </section>
         </>
       )}
+
+      <PaymentDetailsCard />
 
       <AddPriceSheet open={adding} onOpenChange={setAdding} current={current} />
     </PageShell>

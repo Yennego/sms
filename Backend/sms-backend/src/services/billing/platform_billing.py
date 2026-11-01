@@ -958,3 +958,33 @@ def status_message(banner: str, amount_due: Dict[str, Decimal], oldest_due: Opti
     if banner == "due_soon":
         return (f"Your school's platform invoice of {amount} is due on {_day(oldest_due)}." if admin else None)
     return None
+
+
+# --- how to pay ------------------------------------------------------------------------------------
+
+PAYMENT_DETAILS_MAX = 2000
+
+
+def payment_details(db: Session) -> Dict[str, Any]:
+    """What schools see under "How to pay": the operator's text, or null while none is set."""
+    from src.db.models.billing import PlatformPaymentDetails
+    row = db.query(PlatformPaymentDetails).filter(PlatformPaymentDetails.id == 1).first()
+    text_ = (row.instructions or "").strip() if row else ""
+    return {"instructions": text_ or None, "updated_at": row.updated_at if row and text_ else None}
+
+
+def set_payment_details(db: Session, instructions: Optional[str], user) -> Dict[str, Any]:
+    from src.db.models.billing import PlatformPaymentDetails
+    text_ = (instructions or "").strip()
+    if len(text_) > PAYMENT_DETAILS_MAX:
+        raise HTTPException(status_code=http.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail=f"Keep the payment details under {PAYMENT_DETAILS_MAX} characters")
+    row = db.query(PlatformPaymentDetails).filter(PlatformPaymentDetails.id == 1).first()
+    if row is None:
+        row = PlatformPaymentDetails(id=1)
+        db.add(row)
+    row.instructions = text_ or None
+    row.updated_by = getattr(user, "id", None)
+    row.updated_at = datetime.now(UTC)
+    db.flush()
+    return payment_details(db)

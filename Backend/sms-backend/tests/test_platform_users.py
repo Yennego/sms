@@ -48,3 +48,34 @@ def test_search_filters_and_sorting(env):
 def test_only_super_admins_list_users(env):
     client, ids = env
     assert client.get(URL, headers=headers(ids, "admin_a")).status_code == 403
+
+
+def test_platform_reset_issues_a_password_and_ends_sessions(env, monkeypatch):
+    """The operator resets a school user's password the same safe way as the school office: a new
+    password shown once, never chosen by the operator, sessions ended. Passwords can't be set
+    through the general update."""
+    from src.services.auth.token_blacklist import TokenBlacklistService
+
+    client, ids = env
+    main.app.dependency_overrides[get_super_admin_db] = main.app.dependency_overrides[get_db]
+    revoked = []
+
+    async def fake_revoke(self, user_id):
+        revoked.append(str(user_id))
+        return True
+    monkeypatch.setattr(TokenBlacklistService, "revoke_user_sessions", fake_revoke)
+
+    h = headers(ids, "super")
+    r = client.post(f"{URL}/{ids['admin_b']}/reset-password", headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["generated_password"] and r.json()["tenant_id"] == str(ids["tenant_b"])
+    assert revoked == [str(ids["admin_b"])]
+    gen = main.app.dependency_overrides[get_db]()
+    db = next(gen)
+    assert db.query(Admin).filter(Admin.id == ids["admin_b"]).one().is_first_login is True
+    next(gen, None)
+
+    assert client.post(f"{URL}/{ids['super']}/reset-password", headers=h).status_code == 400  # own account
+    assert client.put(f"{URL}/{ids['admin_b']}", json={"password": "Chosen-by-operator-1"}, headers=h).status_code == 400
+    # schools can't use the platform route
+    assert client.post(f"{URL}/{ids['admin_b']}/reset-password", headers=headers(ids, "admin_a")).status_code == 403

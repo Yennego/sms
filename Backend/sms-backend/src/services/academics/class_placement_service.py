@@ -182,6 +182,7 @@ class ClassPlacementService:
                                 detail={"message": "No one was placed. Fix these students first.", "problems": problems})
 
         result = {"placed": 0, "moved": 0, "unchanged": 0}
+        newly_placed = []  # not in a class this year before: billed like their classmates
         for sid in ids:
             enrollment = enrollments.get(sid)
             if enrollment is None:
@@ -191,6 +192,7 @@ class ClassPlacementService:
                     status="active", is_active=True, enrollment_date=date.today(), semester=1,
                 ))
                 result["placed"] += 1
+                newly_placed.append(sid)
             elif enrollment.status == "active" and enrollment.class_id == klass.id:
                 result["unchanged"] += 1
             else:
@@ -201,12 +203,16 @@ class ClassPlacementService:
                 enrollment.status, enrollment.is_active = "active", True
                 enrollment.withdrawal_date = enrollment.withdrawal_reason = None
                 result["moved" if was_active else "placed"] += 1
+                if not was_active:
+                    newly_placed.append(sid)
             # One active enrollment per student: earlier years' stay as history
             self.db.query(Enrollment).filter(
                 Enrollment.tenant_id == self.tenant_id, Enrollment.student_id == sid,
                 Enrollment.academic_year_id != klass.academic_year_id, Enrollment.is_active == True,  # noqa: E712
             ).update({Enrollment.is_active: False}, synchronize_session="fetch")
         self.db.flush()
+        from src.services.finance.fee_service import FeeService
+        FeeService(self.db, self.tenant_id, None).bill_new_enrollment(newly_placed, klass.academic_year_id)
 
         enrolled = self.db.query(func.count(Enrollment.id)).filter(
             Enrollment.tenant_id == self.tenant_id, Enrollment.class_id == klass.id, Enrollment.status == "active",

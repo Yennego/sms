@@ -555,3 +555,22 @@ def test_platform_dashboards_read_billing(billing_env, clock):
     assert {r["billing_status"] for r in recent} == {"active", "trial"} and "plan_type" not in recent[0]
     assert client.get("/api/v1/super-admin/analytics/growth-forecast", headers=h).status_code == 200
     assert client.get("/api/v1/super-admin/analytics/churn-risk", headers=h).status_code == 200
+
+
+def test_payment_details_written_by_the_operator_shown_to_school_admins(env):
+    """How to pay: empty until the operator writes it; school admins read it, others can't."""
+    from src.db.session import get_super_admin_db
+    client, ids = env
+    main.app.dependency_overrides[get_super_admin_db] = main.app.dependency_overrides[get_db]
+    school = "/api/v1/billing/payment-details"
+    platform = "/api/v1/super-admin/billing/payment-details"
+    assert client.get(school, headers=headers(ids, "admin_a")).json()["instructions"] is None
+    text = "Bank: LBDI 001-234-567 (Top Foundation SaaS)\nMTN MoMo: 0886 000 000"
+    r = client.put(platform, json={"instructions": f"  {text}  "}, headers=headers(ids, "super"))
+    assert r.status_code == 200 and r.json()["instructions"] == text
+    assert client.get(school, headers=headers(ids, "admin_b")).json()["instructions"] == text
+    assert client.get(school, headers=headers(ids, "student_a")).status_code == 403
+    assert client.put(platform, json={"instructions": "x"}, headers=headers(ids, "admin_a")).status_code == 403
+    assert client.put(platform, json={"instructions": "x" * 2001}, headers=headers(ids, "super")).status_code == 422
+    client.put(platform, json={"instructions": "  "}, headers=headers(ids, "super"))
+    assert client.get(school, headers=headers(ids, "admin_a")).json()["instructions"] is None

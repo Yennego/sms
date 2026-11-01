@@ -11,6 +11,7 @@ Rules:
 - "same day" uses the school's time zone (attendance settings; Africa/Monrovia by default);
 - changes are flushed only: the request commits once.
 """
+import logging
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, UTC
 from decimal import Decimal, InvalidOperation
@@ -40,6 +41,8 @@ from src.db.models.people.student import Student
 from src.services.finance import ledger as L
 from src.services.finance.ledger import CURRENCIES, ZERO, money, money_map, q
 from src.services.notification import alerts
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEZONE = "Africa/Monrovia"
 MAX_PAGE_SIZE = 100
@@ -574,7 +577,8 @@ class FeeService:
 
     # --- invoices -------------------------------------------------------------------------------
 
-    def issue_invoices(self, academic_year_id, semester_id, grade_id=None, class_id=None) -> Dict[str, Any]:
+    def issue_invoices(self, academic_year_id, semester_id, grade_id=None, class_id=None,
+                       student_ids=None) -> Dict[str, Any]:
         year = self.year(academic_year_id)
         semester = self.semester_in_year(semester_id, year)
         if grade_id:
@@ -599,6 +603,8 @@ class FeeService:
             enr_q = enr_q.filter(Enrollment.grade_id == _uuid(grade_id))
         if class_id:
             enr_q = enr_q.filter(Enrollment.class_id == _uuid(class_id))
+        if student_ids is not None:
+            enr_q = enr_q.filter(Enrollment.student_id.in_([_uuid(i) for i in student_ids] or [None]))
         enrollments = enr_q.all()
         student_ids = [e.student_id for e in enrollments]
 
@@ -660,6 +666,37 @@ class FeeService:
                                                f"has no {account.currency} amount"})
         self.db.flush()
         return result
+
+    def bill_new_enrollment(self, student_ids, academic_year_id) -> int:
+        """Bill students placed in a class after the school started billing (admission, placement,
+        import): each semester of the year that already has invoices issued and hasn't ended gets
+        the same invoice as their classmates, from their grade's schedule. Past semesters are never
+        billed. Does nothing while the school's finance switch is off. Returns invoices created.
+        Never raises: billing must not stop an admission; problems are logged."""
+        from src.services.tenant.features import feature_enabled
+        ids = [i for i in (student_ids or []) if i]
+        if not ids or not feature_enabled(self.db, self.tenant_id, "enable_finance"):
+            return 0
+        today = self.today()
+        billed_semesters = (self.db.query(Semester)
+                            .join(Invoice, and_(Invoice.semester_id == Semester.id, Invoice.tenant_id == Semester.tenant_id))
+                            .filter(Semester.tenant_id == self.tenant_id, Semester.academic_year_id == _uuid(academic_year_id),
+                                    Semester.end_date >= today)
+                            .distinct().all())
+        created = 0
+        savepoints = self.db.get_bind().dialect.name == "postgresql"  # as in notify(): SQLite tests run without
+        for semester in sorted(billed_semesters, key=lambda x: x.start_date):
+            try:
+                if savepoints:
+                    with self.db.begin_nested():
+                        created += self.issue_invoices(academic_year_id, semester.id, student_ids=ids)["invoices_created"]
+                else:
+                    created += self.issue_invoices(academic_year_id, semester.id, student_ids=ids)["invoices_created"]
+            except HTTPException as exc:  # e.g. no schedule for that semester any more
+                logger.info("auto-billing skipped for semester %s: %s", semester.id, exc.detail)
+            except Exception:
+                logger.exception("auto-billing failed for semester %s", semester.id)
+        return created
 
     def void_invoice(self, invoice_id, reason: str) -> Dict[str, Any]:
         invoice = self._get(Invoice, invoice_id, "Invoice")

@@ -2,6 +2,7 @@
 voids, the family view, the report-card hold, the accounts list and the reports."""
 from datetime import date, datetime, UTC
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 from sqlalchemy.dialects import postgresql
@@ -574,4 +575,51 @@ def test_parent_links_carry_the_students_school(env):
     gen, db = _db()
     row = db.execute(parent_student.select().where(parent_student.c.parent_id == ids["parent"])).one()
     assert str(row.student_id) == s["pupils"][0] and row.tenant_id == ids["tenant_a"]
+    next(gen, None)
+
+
+def test_new_students_are_billed_like_their_classmates(env, clock):
+    """A student placed in a class after the term's invoices were issued gets the same invoice
+    (from their grade's schedule); no invoice while billing hasn't started or once the term ended."""
+    from src.services.academics.class_placement_service import ClassPlacementService
+
+    client, ids = env
+    s = _seed(ids)
+    gen, db = _db()
+    late = Student(tenant_id=ids["tenant_a"], email="late@school-a.org", password_hash="x", first_name="Late",
+                   last_name="Comer", admission_number="P9", is_first_login=False)
+    early = Student(tenant_id=ids["tenant_a"], email="early@school-a.org", password_hash="x", first_name="Early",
+                    last_name="Bird", admission_number="P8", is_first_login=False)
+    db.add_all([late, early])
+    db.flush()
+    # billing hasn't started: placing a student issues nothing
+    ClassPlacementService(db, ids["tenant_a"]).place(UUID(s["c1"]), [early.id])
+    assert db.query(StudentFeeAccount).filter(StudentFeeAccount.student_id == early.id).count() == 0
+    db.commit()
+    late_uuid = late.id
+    late_id = str(late_uuid)
+    next(gen, None)
+
+    _setup(client, ids, s)  # semester 1 invoices issued (early is billed with everyone)
+    gen, db = _db()
+    ClassPlacementService(db, ids["tenant_a"]).place(UUID(s["c1"]), [late_uuid])
+    db.commit()
+    next(gen, None)
+    st = client.get(f"{F}/accounts/{late_id}", headers=headers(ids, "admin_a")).json()
+    assert st["owed"] == {"USD": "150.00", "LRD": "27000.00"}  # tuition + Grade 1 lab, like pupil 0
+    assert [i["semester_id"] for i in st["invoices"]] == [s["sem1"]]
+
+    # finance off: nothing is billed
+    gen, db = _db()
+    row = db.query(TenantSettings).filter(TenantSettings.tenant_id == ids["tenant_a"]).one()
+    row.settings = {**row.settings, "features": {"enable_finance": False}}
+    db.flush()
+    assert FeeService(db, ids["tenant_a"], None).bill_new_enrollment([late_uuid], s["year"]) == 0
+    db.rollback()
+    next(gen, None)
+
+    # once semester 1 has ended it is never billed to newcomers
+    clock(2027, 2, 10, 9)
+    gen, db = _db()
+    assert FeeService(db, ids["tenant_a"], None).bill_new_enrollment([late_uuid], s["year"]) == 0
     next(gen, None)
