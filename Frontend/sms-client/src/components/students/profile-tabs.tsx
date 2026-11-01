@@ -6,7 +6,7 @@ import * as React from "react"
 import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { BookOpen, CalendarCheck, IdCard, KeyRound, Loader2, Phone, Printer, RefreshCw, Users } from "lucide-react"
+import { BookOpen, CalendarCheck, IdCard, KeyRound, Loader2, Phone, Printer, RefreshCw, UserMinus, UserPlus, Users } from "lucide-react"
 
 import { IdCardPrintRoot, IdCardStyles, IdCardView, useIdCardPrint } from "@/components/attendance/id-card"
 import { Button } from "@/components/ui/button"
@@ -19,7 +19,10 @@ import { notify } from "@/components/ui/toaster"
 import { useTenant } from "@/hooks/use-tenant"
 import { useIdCardService } from "@/services/api/id-card-service"
 import type { GuardianRecord, StudentEnrollment, StudentRecord } from "@/services/api/student-records-service"
+import type { AdmissionCredential } from "@/services/api/admissions-service"
 import type { DailyStatus } from "@/types/daily-attendance"
+import { AddGuardianSheet } from "./add-guardian-sheet"
+import { CredentialsDialog } from "./credentials"
 import {
   capitalize,
   enrollmentClassName,
@@ -36,6 +39,7 @@ import {
   useSchoolKey,
   useStudentAttendance,
   useStudentEnrollments,
+  useGuardianLinks,
   useStudentGuardians,
 } from "./queries"
 import { ResultsView } from "@/components/results/results-view"
@@ -303,78 +307,141 @@ export function FeesTab({ school, studentId }: { school: string; studentId: stri
 
 export function GuardiansTab({
   studentId,
-  school,
+  studentName,
   onResetPassword,
 }: {
   studentId: string
-  school: string
+  studentName: string
   onResetPassword: (user: { id: string; name: string; username: string }) => void
 }) {
   const q = useStudentGuardians(studentId)
+  const { remove } = useGuardianLinks(studentId)
+  const [adding, setAdding] = React.useState(false)
+  const [removing, setRemoving] = React.useState<{ id: string; name: string } | null>(null)
+  const [issued, setIssued] = React.useState<AdmissionCredential[]>([])
+
+  const handleRemove = async () => {
+    if (!removing) return
+    try {
+      await remove.mutateAsync(removing.id)
+      notify.success(`${removing.name} is no longer linked to ${studentName}`)
+    } catch (error) {
+      notify.error(`${errorMessage(error, "The guardian wasn't removed.")} Try again.`)
+      throw error
+    }
+  }
+
+  const addButton = (
+    <Button type="button" variant="outline" className="min-h-11 md:min-h-9" onClick={() => setAdding(true)}>
+      <UserPlus aria-hidden="true" />
+      Add a guardian
+    </Button>
+  )
+
+  const dialogs = (
+    <>
+      <AddGuardianSheet
+        open={adding}
+        onOpenChange={setAdding}
+        studentId={studentId}
+        studentName={studentName}
+        onCreated={setIssued}
+      />
+      <ConfirmDialog
+        open={Boolean(removing)}
+        onOpenChange={(open) => {
+          if (!open) setRemoving(null)
+        }}
+        title={`Remove ${removing?.name ?? ""} as a guardian?`}
+        description={`They stop seeing ${studentName}'s attendance, results and fees. Their account stays, with any other children they follow, and you can link them again later.`}
+        confirmLabel="Remove guardian"
+        destructive
+        onConfirm={handleRemove}
+      />
+      <CredentialsDialog
+        open={issued.length > 0}
+        onOpenChange={(open) => {
+          if (!open) setIssued([])
+        }}
+        title="New guardian's sign-in"
+        printTitle={`Guardian sign-in: ${issued[0]?.name ?? ""}`}
+        credentials={issued}
+        description="This password is shown only once. Copy or print it now and hand it over. They choose a new password the first time they sign in."
+      />
+    </>
+  )
+
   if (q.isError) return <LoadError error={q.error} onRetry={() => q.refetch()} what="guardians" />
   if (q.isLoading) return <ListSkeleton />
   const guardians = q.data ?? []
   if (guardians.length === 0) {
     return (
-      <EmptyState
-        icon={Users}
-        title="No guardian linked"
-        description="Add a guardian so a parent can sign in and follow this student."
-        action={
-          <Button asChild variant="outline">
-            <Link href={`/${school}/students/new`}>Admit with a guardian</Link>
-          </Button>
-        }
-      />
+      <>
+        <EmptyState
+          icon={Users}
+          title="No guardian linked"
+          description="Add a guardian so a parent can sign in and follow this student."
+          action={addButton}
+        />
+        {dialogs}
+      </>
     )
   }
   return (
-    <ul className="grid gap-4 md:grid-cols-2">
-      {guardians.map((g: GuardianRecord) => {
-        const name = fullName(g)
-        const phone = g.phone_number || g.whatsapp_number
-        return (
-          <li key={g.id} className="flex flex-col gap-3 rounded-xl border p-4">
-            <div>
-              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                {capitalize(g.relationship_type || "guardian")}
-              </p>
-              <p className="text-base font-semibold break-words">{name}</p>
-            </div>
-            <dl className="grid gap-2 text-sm">
+    <div className="flex flex-col gap-4">
+      <div className="flex justify-end">{addButton}</div>
+      <ul className="grid gap-4 md:grid-cols-2">
+        {guardians.map((g: GuardianRecord) => {
+          const name = fullName(g)
+          const phone = g.phone_number || g.whatsapp_number
+          return (
+            <li key={g.id} className="flex flex-col gap-3 rounded-xl border p-4">
               <div>
-                <dt className="text-muted-foreground">Username</dt>
-                <dd className="break-all">{g.username || "None"}</dd>
+                <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                  {capitalize(g.relationship_type || "guardian")}
+                </p>
+                <p className="text-base font-semibold break-words">{name}</p>
               </div>
-              {g.email ? (
+              <dl className="grid gap-2 text-sm">
                 <div>
-                  <dt className="text-muted-foreground">Email</dt>
-                  <dd className="break-all">{g.email}</dd>
+                  <dt className="text-muted-foreground">Username</dt>
+                  <dd className="break-all">{g.username || "None"}</dd>
                 </div>
-              ) : null}
-            </dl>
-            <div className="flex flex-col gap-2 sm:flex-row [&>*]:min-h-11 md:[&>*]:min-h-9">
-              {phone ? (
-                <Button asChild variant="outline">
-                  <a href={`tel:${phone.replace(/\s+/g, "")}`}>
-                    <Phone aria-hidden="true" />
-                    Call {phone}
-                  </a>
+                {g.email ? (
+                  <div>
+                    <dt className="text-muted-foreground">Email</dt>
+                    <dd className="break-all">{g.email}</dd>
+                  </div>
+                ) : null}
+              </dl>
+              <div className="flex flex-col gap-2 sm:flex-row [&>*]:min-h-11 md:[&>*]:min-h-9">
+                {phone ? (
+                  <Button asChild variant="outline">
+                    <a href={`tel:${phone.replace(/\s+/g, "")}`}>
+                      <Phone aria-hidden="true" />
+                      Call {phone}
+                    </a>
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => onResetPassword({ id: g.id, name, username: g.username || g.email || "" })}
+                >
+                  <KeyRound aria-hidden="true" />
+                  Reset password
                 </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onResetPassword({ id: g.id, name, username: g.username || g.email || "" })}
-              >
-                <KeyRound aria-hidden="true" />
-                Reset password
-              </Button>
-            </div>
-          </li>
-        )
-      })}
-    </ul>
+                <Button type="button" variant="outline" onClick={() => setRemoving({ id: g.id, name })}>
+                  <UserMinus aria-hidden="true" />
+                  Remove
+                </Button>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+      {dialogs}
+    </div>
   )
 }
 

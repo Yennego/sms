@@ -52,6 +52,12 @@ export interface AdmissionResponse {
   credentials: AdmissionCredential[];
 }
 
+export interface AddGuardianResponse {
+  guardian: { id: string; name: string; username: string; created: boolean };
+  /** The new guardian's sign-in, once; empty when an existing guardian was linked. */
+  credentials: AdmissionCredential[];
+}
+
 export interface GuardianSearchResult {
   id: string;
   name: string;
@@ -135,6 +141,19 @@ export function useAdmissionsService() {
           class_id: request.class_id,
         };
         return client.post<AdmissionResponse>('/people/admissions', body);
+      },
+
+      /** Link a guardian to a student already admitted: an existing one, or a new one with a sign-in. */
+      addGuardian: async (studentId: string, guardian: NewGuardianInput | ExistingGuardianInput): Promise<AddGuardianResponse> => {
+        const client = await waitForApiClientReady();
+        const body = 'first_name' in guardian ? { ...emptyToNull<NewGuardianInput>(guardian), existing_id: null } : guardian;
+        return client.post<AddGuardianResponse>(`/people/students/${studentId}/guardians`, body);
+      },
+
+      /** Unlink a guardian from a student; the guardian's account is kept. */
+      removeGuardian: async (studentId: string, guardianId: string): Promise<void> => {
+        const client = await waitForApiClientReady();
+        await client.delete(`/people/students/${studentId}/guardians/${guardianId}`);
       },
 
       searchGuardians: async (q: string): Promise<GuardianSearchResult[]> => {

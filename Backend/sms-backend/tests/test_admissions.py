@@ -127,3 +127,52 @@ def test_import_checks_rows_then_saves_all_or_nothing(env):
     gen, db = _db()
     assert db.query(Parent).filter(Parent.last_name == "Dahn").count() == 1  # one guardian for both children
     assert {c["who"] for c in done["credentials"]} == {"student", "guardian"} and len(done["credentials"]) == 3
+
+
+def test_guardians_added_to_and_removed_from_an_existing_student(env):
+    """A student already admitted gets a guardian later: one who already has children here
+    (found by search), or a new one with a sign-in to hand over. Unlinking keeps the account."""
+    client, ids = env
+    s = _seed(ids)
+    h = headers(ids, "admin_a")
+    first = client.post("/api/v1/people/admissions", headers=h, json={
+        "student": {"first_name": "Esi", "last_name": "Dahn"},
+        "guardian": {"first_name": "Kofi", "last_name": "Dahn", "phone_number": "0770000001"},
+        "class_id": str(s["class"]),
+    }).json()
+    later = client.post("/api/v1/people/admissions", headers=h, json={
+        "student": {"first_name": "Ama", "last_name": "Dahn"}, "class_id": str(s["class"]),
+    }).json()
+    sid, kofi = later["student"]["id"], first["guardian"]["id"]
+    url = f"/api/v1/people/students/{sid}/guardians"
+
+    # an existing guardian (a sibling's father)
+    r = client.post(url, headers=h, json={"existing_id": kofi})
+    assert r.status_code == 201, r.text
+    assert r.json()["guardian"]["created"] is False and r.json()["credentials"] == []
+    assert client.post(url, headers=h, json={"existing_id": kofi}).status_code == 409  # already linked
+
+    # a new guardian: sign-in details once
+    r = client.post(url, headers=h, json={"first_name": "Abena", "last_name": "Dahn", "relationship_type": "mother"})
+    assert r.status_code == 201, r.text
+    assert r.json()["guardian"]["created"] and [c["who"] for c in r.json()["credentials"]] == ["guardian"]
+    assert r.json()["credentials"][0]["password"]
+    assert client.post(url, headers=h, json={"first_name": "No"}).status_code == 422  # a new one needs both names
+
+    gen, db = _db()
+    assert sorted(p.first_name for p in db.get(Student, UUID(sid)).parents) == ["Abena", "Kofi"]
+    next(gen, None)
+
+    # unlink: the link goes, the account stays
+    assert client.delete(f"{url}/{kofi}", headers=h).status_code == 204
+    assert client.delete(f"{url}/{kofi}", headers=h).status_code == 404
+    gen, db = _db()
+    assert [p.first_name for p in db.get(Student, UUID(sid)).parents] == ["Abena"]
+    assert db.get(Parent, UUID(kofi)) is not None
+    next(gen, None)
+
+    # one school only, and only for staff who manage students
+    assert client.post(url, headers=headers(ids, "admin_b"), json={"existing_id": kofi}).status_code == 404
+    assert client.post(f"/api/v1/people/students/{ids['student_a']}/guardians", headers=headers(ids, "admin_b"),
+                       json={"first_name": "X", "last_name": "Y"}).status_code == 404
+    assert client.post(url, headers=headers(ids, "student_a"), json={"existing_id": kofi}).status_code == 403

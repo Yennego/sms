@@ -4,7 +4,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { useTenant } from '@/hooks/use-tenant';
 import { useStudentRecordsService, type StudentRecordUpdate } from '@/services/api/student-records-service';
-import { useAdmissionsService, type AdmissionRequest, type AdmissionRow } from '@/services/api/admissions-service';
+import {
+  useAdmissionsService,
+  type AdmissionRequest,
+  type AdmissionRow,
+  type ExistingGuardianInput,
+  type NewGuardianInput,
+} from '@/services/api/admissions-service';
 import { classPlacementKeys } from '@/components/class-placement/queries';
 
 export const studentAreaKeys = {
@@ -124,6 +130,21 @@ export function useSetStudentStatus(id: string) {
       qc.invalidateQueries({ queryKey: ['students', school] });
     },
   });
+}
+
+/** Link or unlink a guardian; refreshes the student's guardians. */
+export function useGuardianLinks(studentId: string) {
+  const service = useAdmissionsService();
+  const school = useSchoolKey();
+  const qc = useQueryClient();
+  const refresh = () => qc.invalidateQueries({ queryKey: studentAreaKeys.guardians(school, studentId) });
+  return {
+    add: useMutation({
+      mutationFn: (guardian: NewGuardianInput | ExistingGuardianInput) => service.addGuardian(studentId, guardian),
+      onSuccess: refresh,
+    }),
+    remove: useMutation({ mutationFn: (guardianId: string) => service.removeGuardian(studentId, guardianId), onSuccess: refresh }),
+  }
 }
 
 export function useResetPassword() {
