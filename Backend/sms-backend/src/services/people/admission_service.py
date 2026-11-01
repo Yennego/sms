@@ -125,6 +125,59 @@ class AdmissionService:
         if self._taken(User.username, username):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"The {who}'s username is already used in this school.")
 
+    def _guardian_for(self, guardian_in: Dict[str, Any]) -> Tuple[Parent, bool, Optional[str]]:
+        """An existing guardian of this school (existing_id), or a new one with a parent sign-in.
+        Returns (guardian, created, password to hand over when created)."""
+        existing_id = guardian_in.get("existing_id")
+        if existing_id:
+            guardian = self.db.query(Parent).filter(Parent.id == existing_id, Parent.tenant_id == self.tenant_id).first()
+            if not guardian:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Guardian not found")
+            return guardian, False, None
+        g_email, g_username = _blank(guardian_in.get("email")), _blank(guardian_in.get("username"))
+        self._check_identifiers(g_email, g_username, "guardian")
+        password, g_hash = self._new_password()
+        guardian = Parent(
+            tenant_id=self.tenant_id,
+            first_name=guardian_in["first_name"].strip(), last_name=guardian_in["last_name"].strip(),
+            email=g_email, username=g_username, phone_number=_blank(guardian_in.get("phone_number")),
+            relationship_type=_blank(guardian_in.get("relationship_type")) or "guardian",
+            password_hash=g_hash, is_first_login=True, is_active=True,
+        )
+        if self._role("parent"):
+            guardian.roles.append(self._role("parent"))
+        self.db.add(guardian)
+        return guardian, True, password
+
+    def _student(self, student_id: UUID) -> Student:
+        student = self.db.query(Student).filter(Student.id == student_id, Student.tenant_id == self.tenant_id).first()
+        if not student:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found")
+        return student
+
+    def add_guardian(self, student_id: UUID, guardian_in: Dict[str, Any]) -> Tuple[Parent, bool, List[Credentials]]:
+        """Link a guardian to a student already in the school: an existing guardian (a parent with
+        children here already) or a new one, who gets a parent sign-in to hand over."""
+        student = self._student(student_id)
+        guardian, created, password = self._guardian_for(guardian_in)
+        if not created and any(s.id == student.id for s in guardian.students):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                detail=f"{_full_name(guardian)} is already a guardian of {_full_name(student)}.")
+        guardian.students.append(student)
+        self.db.flush()  # assigns the new guardian's username
+        credentials = [Credentials("guardian", _full_name(guardian), guardian.username, password)] if created else []
+        return guardian, created, credentials
+
+    def remove_guardian(self, student_id: UUID, guardian_id: UUID) -> None:
+        """Unlink a guardian from a student. The guardian's account stays (it may have other
+        children here, and the school can deactivate it separately)."""
+        student = self._student(student_id)
+        guardian = self.db.query(Parent).filter(Parent.id == guardian_id, Parent.tenant_id == self.tenant_id).first()
+        if not guardian or not any(s.id == student.id for s in guardian.students):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This guardian isn't linked to the student")
+        guardian.students.remove(student)
+        self.db.flush()
+
     def admit(self, student_in: Dict[str, Any], guardian_in: Optional[Dict[str, Any]], class_id: UUID) -> AdmissionResult:
         year = self.current_year()
         klass = self.class_for_admission(class_id)
@@ -156,28 +209,7 @@ class AdmissionService:
 
         guardian, guardian_created, guardian_password = None, False, None
         if guardian_in:
-            existing_id = guardian_in.get("existing_id")
-            if existing_id:
-                guardian = self.db.query(Parent).filter(
-                    Parent.id == existing_id, Parent.tenant_id == self.tenant_id
-                ).first()
-                if not guardian:
-                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Guardian not found")
-            else:
-                g_email, g_username = _blank(guardian_in.get("email")), _blank(guardian_in.get("username"))
-                self._check_identifiers(g_email, g_username, "guardian")
-                guardian_password, g_hash = self._new_password()
-                guardian = Parent(
-                    tenant_id=self.tenant_id,
-                    first_name=guardian_in["first_name"].strip(), last_name=guardian_in["last_name"].strip(),
-                    email=g_email, username=g_username, phone_number=_blank(guardian_in.get("phone_number")),
-                    relationship_type=_blank(guardian_in.get("relationship_type")) or "guardian",
-                    password_hash=g_hash, is_first_login=True, is_active=True,
-                )
-                if self._role("parent"):
-                    guardian.roles.append(self._role("parent"))
-                self.db.add(guardian)
-                guardian_created = True
+            guardian, guardian_created, guardian_password = self._guardian_for(guardian_in)
             guardian.students.append(student)
 
         enrollment = Enrollment(

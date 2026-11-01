@@ -340,7 +340,7 @@ export function AdmissionForm({ school }: { school: string }) {
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">
-                You can link a guardian later from the student&apos;s profile.
+                You can add a guardian later from the student&apos;s profile (Guardians tab).
               </p>
             )}
           </div>

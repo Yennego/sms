@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from src.core.auth.dependencies import has_permission
@@ -52,12 +52,12 @@ class GuardianIn(BaseModel):
 
     _clean_username = field_validator("username")(lambda cls, v: _username(v))
 
-    @field_validator("last_name")
-    @classmethod
-    def names_for_new_guardian(cls, v, info):
-        if not info.data.get("existing_id") and not (info.data.get("first_name") and v):
+    # A model validator, so it also runs when a name is left out (a field validator wouldn't)
+    @model_validator(mode="after")
+    def names_for_new_guardian(self):
+        if not self.existing_id and not ((self.first_name or "").strip() and (self.last_name or "").strip()):
             raise ValueError("A new guardian needs a first and last name")
-        return v
+        return self
 
 
 class AdmissionIn(BaseModel):
@@ -89,6 +89,31 @@ def admit_student(
                        "academic_year_id": r.enrollment.academic_year_id},
         "credentials": [c.__dict__ for c in r.credentials],
     }
+
+
+@router.post("/students/{student_id}/guardians", status_code=status.HTTP_201_CREATED)
+def add_guardian(
+    student_id: UUID, body: GuardianIn,
+    _=Depends(has_permission("manage_students")), service: AdmissionService = Depends(_service),
+) -> Any:
+    """Link a guardian to a student already admitted: an existing guardian (existing_id) or a new
+    one. A new guardian's sign-in details are returned once, to hand over."""
+    guardian_in = {"existing_id": body.existing_id} if body.existing_id else body.model_dump()
+    guardian, created, credentials = service.add_guardian(student_id, guardian_in)
+    return {
+        "guardian": {"id": guardian.id, "name": f"{guardian.first_name} {guardian.last_name}",
+                     "username": guardian.username, "created": created},
+        "credentials": [c.__dict__ for c in credentials],
+    }
+
+
+@router.delete("/students/{student_id}/guardians/{guardian_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_guardian(
+    student_id: UUID, guardian_id: UUID,
+    _=Depends(has_permission("manage_students")), service: AdmissionService = Depends(_service),
+) -> None:
+    """Unlink a guardian from a student; the guardian's account is kept."""
+    service.remove_guardian(student_id, guardian_id)
 
 
 @router.get("/guardians/search")
