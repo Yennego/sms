@@ -201,7 +201,7 @@ export function StudentProfile({ school, studentId, tab }: { school: string; stu
       {tab === "guardians" ? (
         <GuardiansTab
           studentId={studentId}
-          school={school}
+          studentName={name}
           onResetPassword={(user) => setResetTarget({ ...user, who: "guardian" })}
         />
       ) : null}
