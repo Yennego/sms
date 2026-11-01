@@ -2,7 +2,7 @@ from typing import Any, List, Optional
 from uuid import UUID
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Body, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request, Body, File, UploadFile
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
@@ -114,6 +114,51 @@ def get_active_users(
     if is_super_admin(current_user):
         return users
     return [u for u in users if not is_super_admin(u)]
+
+@router.get("/users/directory")
+def user_directory(
+    *, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request),
+    q: Optional[str] = None, role: Optional[str] = None, status_filter: str = Query("all", alias="status"),
+    page: int = 1, page_size: int = 25,
+    current_user: User = Depends(has_permission("view_users"))
+) -> Any:
+    """Everyone in your school, paged, for the Users page: search by name, username, email or
+    phone; filter by role name and active/inactive. Platform accounts are never listed."""
+    from sqlalchemy import func, or_
+    from src.db.models.auth import User as UserModel
+    from src.db.models.auth.user_role import UserRole as RoleModel
+
+    if status_filter not in ("all", "active", "inactive"):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="status must be all, active or inactive")
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 100)
+    query = db.query(UserModel).filter(
+        UserModel.tenant_id == tenant_id,
+        ~UserModel.roles.any(RoleModel.name.in_(["super-admin", "superadmin"])),
+    )
+    if q and q.strip():
+        term = f"%{q.strip().lower()}%"
+        query = query.filter(or_(
+            func.lower(func.concat(UserModel.first_name, " ", UserModel.last_name)).like(term),
+            func.lower(UserModel.username).like(term),
+            func.lower(func.coalesce(UserModel.email, "")).like(term),
+            func.coalesce(UserModel.phone_number, "").like(term),
+        ))
+    if role:
+        query = query.filter(UserModel.roles.any(RoleModel.name == role))
+    if status_filter != "all":
+        query = query.filter(UserModel.is_active == (status_filter == "active"))
+    total = query.with_entities(func.count(UserModel.id)).scalar() or 0
+    rows = (query.order_by(func.lower(UserModel.first_name), func.lower(UserModel.last_name), UserModel.id)
+            .offset((page - 1) * page_size).limit(page_size).all())
+    items = [{
+        "id": u.id, "name": f"{u.first_name or ''} {u.last_name or ''}".strip(), "username": u.username,
+        "email": u.email, "phone_number": u.phone_number, "roles": sorted(r.name for r in u.roles),
+        "is_active": u.is_active, "must_change_password": bool(u.is_first_login), "last_login": u.last_login,
+    } for u in rows]
+    return {"items": items, "total": total, "page": page, "page_size": page_size,
+            "pages": (total + page_size - 1) // page_size}
+
 
 @router.get("/users/{user_id}", response_model=User)
 def get_user(
@@ -700,20 +745,28 @@ def change_password(
     }
 
 
-class AdminPasswordReset(BaseModel):
-    user_id: UUID
+# Accounts with one of these roles can only be reset by someone who has one too
+SCHOOL_ADMIN_ROLE_NAMES = ("admin", "tenant-admin")
+
+
+def _is_school_admin(user: User) -> bool:
+    return any(role.name in SCHOOL_ADMIN_ROLE_NAMES for role in user.roles)
+
 
 @router.post("/admin/reset-password/{user_id}")
-def admin_reset_password(
+async def admin_reset_password(
     user_id: UUID,
     db: Session = Depends(get_db),
     tenant_id: UUID = Depends(get_tenant_id_from_request),
     current_user: User = Depends(has_permission("manage_users"))
 ) -> Any:
-    """Reset the password of a user in your own school.
+    """Reset the password of anyone in your own school (student, parent, teacher, staff).
 
-    The new password is returned once so the admin can hand it over (many families have
-    no email); the user must change it at next login (is_first_login).
+    The new password is returned once so the admin can hand it over in person (many families
+    have no email); it is never emailed. The user must choose their own at next sign-in
+    (is_first_login), every session they had ends, and any sign-in lockout is lifted.
+    Another school's account, or a platform account, is 404. A school admin's account can only
+    be reset by a school admin.
     """
     if current_user.id == user_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Use change password for your own account")
@@ -721,26 +774,28 @@ def admin_reset_password(
     if user and is_super_admin(user) and not is_super_admin(current_user):
         user = None
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-    
-    # Generate new password
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if _is_school_admin(user) and not (_is_school_admin(current_user) or is_super_admin(current_user)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Only a school admin can reset an admin's password")
+
     new_password = generate_default_password()
-    
-    # Update user
     user.password_hash = get_password_hash(new_password)
     user.is_first_login = True
-    
     db.add(user)
-    db.commit()
-    
-    # Send email notification (accounts may have no email: the admin hands the password over)
-    if user.email:
-        EmailService().send_password_notification(user.email, new_password)
-    
-    return {"message": "Password reset successful", "generated_password": new_password}
+    db.flush()
+
+    await TokenBlacklistService().revoke_user_sessions(user.id)
+    for name in {user.email, getattr(user, "username", None)} - {None, ""}:
+        await _clear_login_failures(name)
+
+    return {
+        "message": "Password reset successful",
+        "generated_password": new_password,
+        "username": getattr(user, "username", None),
+        "email": user.email,
+    }
+
 
 @router.put("/roles/{role_id}/permissions", response_model=UserRole)
 def set_role_permissions(

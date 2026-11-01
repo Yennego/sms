@@ -91,12 +91,12 @@ Exit: all payments at the pilot school recorded with receipts for a month; paren
 - **Alerts:** absent and late (to parents), published results (to students and parents) and payment received (to parents). They are written in the same transaction as the action and are never sent twice.
 - **Announcements:** one-way. Admins send to everyone, a role, a class or a family; teachers only to their own classes. An announcement can be withdrawn.
 - **Files:** excuse documents moved to a file store (`local` or `s3`).
+- **Office password reset:** the school's Users page (Settings → Users) lists everyone at the school, searched and paged on the server, with "Reset password" for students, parents, teachers and staff. The new password is shown once to hand over and is never emailed; the user is signed out everywhere and must choose their own. Only a school admin can reset an admin's password.
 - **Gate scanner:** queues scans offline in IndexedDB. The server judges a saved scan by its read time and refuses one from an earlier day (`scan_expired`).
 
 Still open:
 - Run `poetry lock` and install `boto3` before using `FILE_STORAGE=s3`.
-- Clean up unreferenced stored files.
-- SMS stays a stub.
+- SMS stays a stub (code kept for later).
 - Two-way messaging is for a later phase.
 - Admins now have 8 menu areas (Messages added).
 
@@ -122,7 +122,7 @@ Exit: a school can be put on a plan, invoiced and suspended for non-payment from
 ## Deployment (Railway)
 
 - Database: after the first `alembic upgrade head` (owner login), run `scripts/create_app_db_role.sql` once and give the API the `sms_app` login.
-- Services: backend (`alembic upgrade head` on release, then uvicorn), frontend (Next.js), Postgres, Redis, cron jobs (`python -m scripts.close_attendance_days` every 10 minutes; `python -m scripts.send_notifications` every 2 minutes), object storage bucket.
+- Services: backend (`alembic upgrade head` on release, then uvicorn), frontend (Next.js), Postgres, Redis, cron jobs (`python -m scripts.close_attendance_days` every 10 minutes; `python -m scripts.send_notifications` every 2 minutes; `python -m scripts.cleanup_files` daily, which removes stored files nothing refers to once they are a day old), object storage bucket.
 - Email: `SMTP_SERVER`, `SMTP_PORT`, `SENDER_EMAIL`, `SENDER_PASSWORD`, `SMTP_USE_TLS`, `EMAIL_FROM_NAME` (e.g. a Brevo SMTP key); `APP_BASE_URL` set to the frontend URL. Without the SMTP values alerts stay in-app and their emails are logged as skipped.
 - Files: `FILE_STORAGE=s3` with `S3_BUCKET`, `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION` from the bucket, and `boto3` installed (`poetry add boto3`). Set these before running the Phase 6 migration on a database that has excuse documents: it copies their bytes into the configured storage (on `local` they would land on the release container's disk and be lost).
 - New secrets generated for Railway (`SECRET_KEY`, `ATTENDANCE_QR_SECRET`, database and storage credentials); none of the values from the old `.env` files.

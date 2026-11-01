@@ -4,8 +4,9 @@ S3-compatible bucket (FILE_STORAGE=s3) in production. Postgres keeps only the `f
 Keys are "<tenant_id>/<file_id>": opaque, never built from the uploaded file name.
 """
 import os
+from datetime import datetime, UTC
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 from src.core.config import settings
 
@@ -28,6 +29,10 @@ class FileStorage:
         raise NotImplementedError
 
     def delete(self, key: str) -> None:
+        raise NotImplementedError
+
+    def list_keys(self, older_than: datetime) -> Iterator[str]:
+        """Every key last written before `older_than` (for the cleanup of unreferenced files)."""
         raise NotImplementedError
 
 
@@ -60,6 +65,14 @@ class LocalFileStorage(FileStorage):
     def delete(self, key: str) -> None:
         self._path(key).unlink(missing_ok=True)
 
+    def list_keys(self, older_than: datetime) -> Iterator[str]:
+        if not self.root.exists():
+            return
+        cutoff = older_than.timestamp()
+        for path in self.root.rglob("*"):
+            if path.is_file() and path.suffix != ".part" and path.stat().st_mtime < cutoff:
+                yield path.relative_to(self.root).as_posix()
+
 
 class S3FileStorage(FileStorage):
     """Any S3-compatible bucket (AWS, Railway buckets, Cloudflare R2, MinIO). boto3 is imported
@@ -90,6 +103,13 @@ class S3FileStorage(FileStorage):
 
     def delete(self, key: str) -> None:
         self.client.delete_object(Bucket=self.bucket, Key=key)
+
+    def list_keys(self, older_than: datetime) -> Iterator[str]:
+        cutoff = older_than if older_than.tzinfo else older_than.replace(tzinfo=UTC)
+        for page in self.client.get_paginator("list_objects_v2").paginate(Bucket=self.bucket):
+            for obj in page.get("Contents", []):
+                if obj["LastModified"] < cutoff:
+                    yield obj["Key"]
 
 
 _storage: Optional[FileStorage] = None

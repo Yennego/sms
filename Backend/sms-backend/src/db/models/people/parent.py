@@ -85,9 +85,9 @@ class Parent(User):
         self.deactivated_date = date_left
         self.deactivation_reason = reason
 
-    def is_active(self) -> bool:
-        return self.status == "active"
-    
+    # No is_active() here: it would hide the users.is_active column (sign-in checks it), so a
+    # deactivated parent could still sign in. A parent's link status is `status`.
+
     # Relationships
     # students = relationship("Student", secondary=parent_student, backref="parents")
     

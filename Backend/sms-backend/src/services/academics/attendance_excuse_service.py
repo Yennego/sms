@@ -71,7 +71,8 @@ class AttendanceExcuseService(DailyAttendanceService):
 
     def _store_document(self, record: DailyAttendance, doc: ExcuseDocumentIn, user_id: UUID) -> None:
         filename, content_type, data = _prepare_document(doc)
-        # The bytes go to file storage; a replaced document's old file is kept, unreferenced
+        # The bytes go to file storage; a replaced document's old file is removed later by
+        # scripts/cleanup_files.py once nothing refers to it
         stored = files.store_file(self.db, self.tenant_id, data, filename=filename, content_type=content_type,
                                   uploaded_by=user_id)
         row = self.db.query(AttendanceDocument).filter(
