@@ -139,7 +139,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
     # Session endpoints change no school data, so they aren't audit events
     SESSION_PATHS = ("/auth/login", "/auth/token", "/auth/refresh", "/auth/logout", "/auth/me")
     # Image uploads (signatures, school seal): the change is audited, the file never is
-    NO_BODY_PATHS = ("/auth/me/signature", "/tenants/self/profile/seal")
+    NO_BODY_PATHS = ("/auth/me/signature", "/tenants/self/profile/seal", "/tenants/self/profile/logo")
 
     def is_no_body_path(self, request: Request) -> bool:
         path = str(request.url.path).rstrip("/")

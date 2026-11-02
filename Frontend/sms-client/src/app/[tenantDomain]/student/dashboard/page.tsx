@@ -10,6 +10,8 @@ import {
 import Link from 'next/link';
 import { useDashboardService } from '@/services/api/dashboard-service';
 import { useAssignmentService } from '@/services/api/assignment-service';
+import { useSubmissionService } from '@/services/api/submission-service';
+import { useEnrollmentService } from '@/services/api/enrollment-service';
 import { useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -18,6 +20,8 @@ export default function StudentDashboard() {
     const { tenant } = useTenant();
     const dashboardService = useDashboardService();
     const assignmentService = useAssignmentService();
+    const { getMySubmissions } = useSubmissionService();
+    const { getCurrentEnrollment } = useEnrollmentService();
 
     const { data: statsData, isLoading: statsLoading } = useQuery({
         queryKey: ['dashboard-stats', user?.id],
@@ -25,9 +29,30 @@ export default function StudentDashboard() {
         enabled: !!user?.id
     });
 
-    const { data: assignments, isLoading: assignmentsLoading } = useQuery({
-        queryKey: ['upcoming-assignments', user?.id], // Use user.id or another existing property
-        queryFn: () => assignmentService.getAssignments({ is_published: true }),
+    // Published assignments for the student's class that are due from today on and not handed in yet
+    const { data: upcomingDeadlines, isLoading: assignmentsLoading } = useQuery({
+        queryKey: ['upcoming-assignments', user?.id],
+        queryFn: async () => {
+            const enrollment = await getCurrentEnrollment(user?.id as string);
+            if (!enrollment) return [];
+            const [assignments, submissions] = await Promise.all([
+                assignmentService.getAssignments({ is_published: true, grade_id: enrollment.grade_id }),
+                getMySubmissions().catch(() => []),
+            ]);
+            const submitted = new Set(submissions.map(sub => sub.assignment_id));
+            const today = new Date().toISOString().slice(0, 10);
+            return assignments
+                .filter(a => !a.section_id || a.section_id === enrollment.section_id)
+                .filter(a => a.due_date.slice(0, 10) >= today && !submitted.has(a.id))
+                .sort((a, b) => a.due_date.localeCompare(b.due_date))
+                .slice(0, 3)
+                .map(a => ({
+                    id: a.id,
+                    title: a.title,
+                    subject: a.subject_name,
+                    due: new Date(a.due_date).toLocaleDateString(),
+                }));
+        },
         enabled: !!user?.id
     });
 
@@ -40,15 +65,6 @@ export default function StudentDashboard() {
         { label: 'Pending Tasks', value: s?.pending_tasks?.toString() || '0', icon: FileText, color: 'text-rose-600', bg: 'bg-rose-50' },
         { label: 'Attendance', value: `${s?.attendance_percentage || 0}%`, icon: CheckCircle2, color: 'text-blue-600', bg: 'bg-blue-50' },
     ];
-
-    // Filter for upcoming deadlines (due in the future and not yet submitted if logic was in backend)
-    const upcomingDeadlines = assignments?.slice(0, 3).map(a => ({
-        id: a.id,
-        title: a.title,
-        subject: a.subject_name,
-        due: new Date(a.due_date).toLocaleDateString(),
-        status: 'pending' // Simplified for now
-    })) || [];
 
     return (
         <div className="min-h-screen bg-[#f8fafc] p-6 lg:p-10">
@@ -112,35 +128,29 @@ export default function StudentDashboard() {
                                             </div>
                                         </div>
                                     ))
-                                ) : upcomingDeadlines.length > 0 ? (
+                                ) : upcomingDeadlines && upcomingDeadlines.length > 0 ? (
                                     upcomingDeadlines.map((item) => (
-                                        <div key={item.id} className="p-6 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
-                                            <div className="flex items-center gap-4">
-                                                <div className={`p-2 rounded-full ${item.status === 'submitted' ? 'bg-emerald-50' : 'bg-rose-50'}`}>
-                                                    {item.status === 'submitted' ? (
-                                                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                                                    ) : (
-                                                        <AlertCircle className="h-4 w-4 text-rose-600" />
-                                                    )}
+                                        <div key={item.id} className="p-4 sm:p-6 flex items-center justify-between gap-4">
+                                            <div className="flex items-center gap-4 min-w-0">
+                                                <div className="p-2 rounded-full bg-rose-50 shrink-0">
+                                                    <AlertCircle className="h-4 w-4 text-rose-600" />
                                                 </div>
-                                                <div>
-                                                    <div className="font-bold text-slate-900">{item.title}</div>
-                                                    <div className="text-xs text-slate-500">{item.subject} • Due: {item.due}</div>
+                                                <div className="min-w-0">
+                                                    <div className="font-bold text-slate-900 truncate">{item.title}</div>
+                                                    <div className="text-xs text-slate-500">{item.subject ? `${item.subject} • ` : ''}Due {item.due}</div>
                                                 </div>
                                             </div>
-                                            {item.status !== 'submitted' && (
-                                                <Link
-                                                    href="../academics/assignments"
-                                                    className="text-xs font-bold text-indigo-600 hover:underline"
-                                                >
-                                                    Submit Now
-                                                </Link>
-                                            )}
+                                            <Link
+                                                href="../academics/assignments"
+                                                className="text-xs font-bold text-indigo-600 hover:underline shrink-0"
+                                            >
+                                                Submit
+                                            </Link>
                                         </div>
                                     ))
                                 ) : (
-                                    <div className="p-10 text-center text-slate-500 text-sm italic">
-                                        No upcoming assignments found.
+                                    <div className="p-10 text-center text-slate-500 text-sm">
+                                        Nothing due. You&apos;re all caught up.
                                     </div>
                                 )}
                             </div>
@@ -149,15 +159,13 @@ export default function StudentDashboard() {
                         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
                             <h3 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
                                 <Award className="h-5 w-5 text-indigo-600" />
-                                Recent Results
+                                Results
                             </h3>
-                            <div className="space-y-4">
-                                <div className="p-10 text-center text-slate-500 text-sm italic bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                                    No recent graded work available yet.
-                                </div>
-                            </div>
+                            <p className="text-sm text-slate-500">
+                                Your marks, place in class and report card are under Results once the school publishes them.
+                            </p>
                             <Link href="./grades" className="mt-4 block text-center py-2 text-sm font-bold text-indigo-600 hover:text-indigo-700">
-                                View Full Grade History
+                                See my results
                             </Link>
                         </div>
                     </div>

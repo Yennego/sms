@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from uuid import UUID
 
 from src.schemas.academics.promotion import (
@@ -13,6 +13,7 @@ from src.services.academics.promotion_status_service import PromotionStatusServi
 from src.db.session import get_db
 from sqlalchemy.orm import Session
 from src.core.auth.dependencies import has_any_role, has_any_permission
+from src.core.exceptions.business import BusinessRuleViolationError
 
 # Reading promotion rules and decisions is staff-only
 CAN_READ = [Depends(has_any_permission(["promote_students", "view_academic_data", "manage_academic_data"]))]
@@ -138,10 +139,15 @@ async def update_status(
 async def start_transition(
     current_year_id: UUID,
     target_year_name: str,
+    grade_id: Optional[UUID] = None,
     service: PromotionService = Depends(),
     current_user: User = Depends(has_any_role(["admin"]))
 ):
-    return await service.process_year_end_transition(current_year_id, target_year_name)
+    """Year-end transition from one school year into a later one, for one grade level or all."""
+    try:
+        return await service.process_year_end_transition(current_year_id, target_year_name, grade_id)
+    except BusinessRuleViolationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/scaling")
 async def apply_scaling(

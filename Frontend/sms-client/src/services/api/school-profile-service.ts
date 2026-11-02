@@ -1,6 +1,7 @@
 // School profile: /tenants/self/profile (phase4-design.md section 6). What report cards print about
-// the school besides its name and logo (those stay on the school record): address, motto, phone,
-// email, the principal and the title under their signature, and an optional school seal.
+// the school besides its name (that stays on the school record): address, motto, phone, email, the
+// principal and the title under their signature, an optional school seal, and the logo. An uploaded
+// logo is kept on the school record, so the sign-in page, header and receipts show it too.
 // Reading and changing it needs manage_tenant_settings; the server answers 403 otherwise.
 import { useMemo } from 'react';
 
@@ -17,6 +18,10 @@ export interface SchoolProfile {
   principal_title: string;
   /** data URL of the seal, or null. */
   seal: string | null;
+  /** The school's logo address (uploaded here, or a web address from school settings), or null. */
+  logo: string | null;
+  /** Whether the logo is one uploaded here (removing it here clears it). */
+  logo_uploaded: boolean;
   updated_at: string | null;
 }
 
@@ -78,6 +83,8 @@ function normaliseProfile(resp: unknown): SchoolProfile {
     principal_name: str(o.principal_name) ?? (principal ? personName(principal) : null),
     principal_title: str(o.principal_title) ?? 'Principal',
     seal,
+    logo: str(o.logo),
+    logo_uploaded: o.logo_uploaded === true,
     updated_at: str(o.updated_at),
   };
 }
@@ -110,6 +117,17 @@ export function useSchoolProfileService() {
       removeSeal: async (): Promise<void> => {
         const client = await waitForApiClientReady();
         await client.delete<unknown>('/tenants/self/profile/seal');
+      },
+
+      /** PNG or JPEG, at most 1 MB; replaces a logo given as a web address. */
+      saveLogo: async (file: Blob, filename: string): Promise<void> => {
+        const client = await waitForApiClientReady();
+        await client.put<unknown>('/tenants/self/profile/logo', fileForm(file, filename), MULTIPART);
+      },
+
+      removeLogo: async (): Promise<void> => {
+        const client = await waitForApiClientReady();
+        await client.delete<unknown>('/tenants/self/profile/logo');
       },
 
       /**

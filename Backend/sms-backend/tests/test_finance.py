@@ -397,6 +397,34 @@ def test_invoice_void_is_refused_while_payments_are_allocated(env, clock):
     assert r.status_code == 200 and r.json()["invoices"][0]["status"] == "void" and r.json()["owed"] == {"USD": "0.00"}
 
 
+def test_principal_voids_an_older_payment(env, clock):
+    """The academic-admin system role, with what migration a7c3e9f1b2d4 grants it, voids a payment
+    the bursar can no longer void, but records none."""
+    client, ids = env
+    s = _seed(ids)
+    _setup(client, ids, s)
+    gen, db = _db()
+    role = UserRole(name="academic-admin")
+    role.permissions = db.query(Permission).filter(
+        Permission.name.in_(["view_financial_data", "approve_financial_transactions"])).all()
+    principal = Admin(tenant_id=ids["tenant_a"], email="head@school-a.org", password_hash="x",
+                      first_name="Hawa", last_name="Head", is_first_login=False)
+    principal.roles.append(role)
+    db.add_all([role, principal])
+    db.flush()
+    ids["academic_admin"] = principal.id
+    next(gen, None)
+
+    pay = _pay(client, ids, s, amount="30").json()
+    clock(2026, 11, 3, 9, 0)  # two days later: too late for the bursar
+    assert client.post(f"{F}/payments/{pay['id']}/void", json={"reason": "x"},
+                       headers=headers(ids, "cashier")).status_code == 403
+    r = client.post(f"{F}/payments/{pay['id']}/void", json={"reason": "Bounced"}, headers=headers(ids, "academic_admin"))
+    assert r.status_code == 200, r.text
+    assert r.json()["voided_at"] and r.json()["balance_now"] == {"USD": "150.00"}
+    assert _pay(client, ids, s, who="academic_admin").status_code == 403
+
+
 # --- family -------------------------------------------------------------------------------------------
 
 def test_family_sees_only_their_own(env, clock):

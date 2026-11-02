@@ -206,7 +206,7 @@ async def get_current_semester(
         }
     }
 
-@router.put("/academic-years/{academic_year_id}/set-current")
+@router.put("/academic-years/{academic_year_id}/set-current", response_model=AcademicYear)
 async def set_current_academic_year(
     *,
     academic_year_service: AcademicYearService = Depends(),

@@ -116,7 +116,7 @@ export default function AdminUserCreation({
   
       // Validate tenant ID before making the request
       if (!tenant.id) {
-        throw new Error('Tenant ID is required but not provided');
+        throw new Error('Choose a school first');
       }
   
       console.log('Creating admin user with data:', adminUserData);
@@ -316,9 +316,9 @@ export default function AdminUserCreation({
               className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
               disabled={isLoading || isCreating}
             >
-              {isCreating ? 'Creating Tenant & Admin...' : 
+              {isCreating ? 'Creating school and admin...' : 
                isLoading ? 'Creating...' : 
-               tenant ? 'Create Admin User' : 'Create Tenant & Admin'}
+               tenant ? 'Create admin' : 'Create school and admin'}
             </button>
           </div>
         </div>

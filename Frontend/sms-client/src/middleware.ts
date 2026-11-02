@@ -263,7 +263,8 @@ export async function middleware(request: NextRequest) {
   ].some(route => pathname.startsWith(route));
 
   const isTenantPublicRoute = /^\/[^/]+\/(login|session-expired|register|forgot-password|reset-password)$/.test(pathname);
-  const isPublic = isPublicRoute || isTenantPublicRoute;
+  // The bare app address forwards to "Find your school" (src/app/page.tsx)
+  const isPublic = pathname === '/' || isPublicRoute || isTenantPublicRoute;
 
   // API Route Handling: the route handlers and the backend check the session; here we only
   // supply the school when the caller didn't name one (super-admins name it explicitly).

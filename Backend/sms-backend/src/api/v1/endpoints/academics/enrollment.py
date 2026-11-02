@@ -476,8 +476,8 @@ async def promote_enrollment(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enrollment not found")
 
         tenant_id = tenant.id if hasattr(tenant, "id") else tenant
-        service = PromotionService(db=db, tenant_id=tenant_id)
-        result = service.bulk_promote_students(
+        service = PromotionService(tenant=tenant_id, db=db)
+        result = await service.bulk_promote_students(
             student_ids=[enrollment.student_id],
             promotion_type=promotion_type,
             target_academic_year=target_academic_year,

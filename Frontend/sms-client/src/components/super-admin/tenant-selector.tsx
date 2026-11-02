@@ -25,7 +25,7 @@ export function TenantSelector() {
       onChange={(e) => setSelectedTenant(e.target.value || null)}
       className="border rounded px-3 py-2"
     >
-      <option value="">All Tenants</option>
+      <option value="">All schools</option>
       {tenants.map(tenant => (
         <option key={tenant.id} value={tenant.id}>
           {tenant.name}

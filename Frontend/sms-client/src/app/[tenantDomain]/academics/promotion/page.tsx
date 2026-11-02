@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { usePromotionService } from '@/services/api/promotion-service';
+import { usePromotionService, type TransitionResult } from '@/services/api/promotion-service';
 import { useAcademicYear } from '@/contexts/academic-year-context';
 import { useAcademicGradeService } from '@/services/api/academic-grade-service';
 import { useSectionService } from '@/services/api/section-service';
@@ -47,6 +47,8 @@ export default function PromotionDashboard() {
     const [scalingInput, setScalingInput] = useState<Record<string, number>>({});
     const [isTransitionModalOpen, setIsTransitionModalOpen] = useState(false);
     const [expandedRemedial, setExpandedRemedial] = useState<string | null>(null);
+    const [targetYearName, setTargetYearName] = useState('');
+    const [transitionResult, setTransitionResult] = useState<TransitionResult | null>(null);
 
     const promotionService = usePromotionService();
     const gradeService = useAcademicGradeService();
@@ -58,6 +60,19 @@ export default function PromotionDashboard() {
         const today = new Date();
         return ayList.filter(y => y.is_current || new Date(y.start_date) > today || (new Date(y.end_date) >= today));
     }, [ayList]);
+
+    // Students move into a school year that starts after the one being evaluated, never an older one
+    const targetYears = useMemo(() => {
+        const from = ayList.find(y => y.id === selectedYear);
+        if (!from) return [];
+        return ayList
+            .filter(y => y.id !== from.id && new Date(y.start_date) > new Date(from.start_date))
+            .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
+    }, [ayList, selectedYear]);
+
+    useEffect(() => {
+        setTargetYearName(targetYears[0]?.name ?? '');
+    }, [targetYears]);
 
     useEffect(() => {
         loadGrades();
@@ -114,19 +129,19 @@ export default function PromotionDashboard() {
     };
 
     const executeTransition = async () => {
-        if (!selectedYear) return;
+        if (!selectedYear || !selectedGrade || !targetYearName) return;
 
         setIsTransitionModalOpen(false);
         setLoading(true);
-        const targetYear = ayList.find(y => y.id !== selectedYear)?.name || 'Next Academic Year';
 
         try {
-            const res = await promotionService.startTransition(selectedYear, targetYear);
-            toast.success('Year transition executed successfully!');
-            console.log('Transition results:', res);
+            const res = await promotionService.startTransition(selectedYear, targetYearName, selectedGrade);
+            setTransitionResult(res);
+            toast.success(`${res.promoted.length} promoted to ${targetYearName}`);
+            runEvaluation();
         } catch (err) {
             console.error('Transition failed', err);
-            toast.error('Transition failed. Check console for details.');
+            toast.error(err instanceof Error && err.message ? err.message : 'Nothing was changed. Try again.');
         } finally {
             setLoading(false);
         }
@@ -142,7 +157,7 @@ export default function PromotionDashboard() {
                     </div>
                     <Button
                         onClick={() => setIsTransitionModalOpen(true)}
-                        disabled={loading || evaluationResults.length === 0}
+                        disabled={loading || evaluationResults.length === 0 || !targetYearName}
                         className="bg-indigo-600 hover:bg-indigo-700"
                     >
                         <ArrowRight className="w-4 h-4 mr-2" />
@@ -165,6 +180,19 @@ export default function PromotionDashboard() {
                                 <SelectContent>
                                     {filteredYears.map(y => (
                                         <SelectItem key={y.id} value={y.id}>{y.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="flex-1 space-y-2">
+                            <label className="text-sm font-medium">Promote into</label>
+                            <Select value={targetYearName} onValueChange={setTargetYearName} disabled={targetYears.length === 0}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder={selectedYear ? 'Create next school year first' : 'Select year first'} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {targetYears.map(y => (
+                                        <SelectItem key={y.id} value={y.name}>{y.name}</SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
@@ -202,6 +230,21 @@ export default function PromotionDashboard() {
                         </Button>
                     </CardContent>
                 </Card>
+
+                {transitionResult && (
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Transition done</CardTitle>
+                            <CardDescription>
+                                {transitionResult.promoted.length} promoted to {targetYearName}.{' '}
+                                {transitionResult.remedial.length} kept back for remedial.{' '}
+                                {transitionResult.skipped.length} not graded, skipped.
+                                {transitionResult.graduating.length > 0 && ` ${transitionResult.graduating.length} in the final grade: graduate them on the Graduation page.`}
+                                {transitionResult.errors.length > 0 && ` ${transitionResult.errors.length} not moved: ${transitionResult.errors.map(e => e.error).join('; ')}.`}
+                            </CardDescription>
+                        </CardHeader>
+                    </Card>
+                )}
 
                 {evaluationResults.length > 0 && (
                     <Card>
@@ -314,8 +357,9 @@ export default function PromotionDashboard() {
                             <DialogTitle className="text-xl">Execute Academic Transition</DialogTitle>
                         </div>
                         <DialogDescription className="text-base text-gray-600">
-                            Confirming this will process all student promotions and remedial assignments for the current evaluation results.
-                            <span className="block mt-2 font-medium text-indigo-700">This action will modify student levels for the next academic year.</span>
+                            Students in {grades.find(g => g.id === selectedGrade)?.name ?? 'this grade'} who passed move up one grade in {targetYearName}.
+                            Students who failed get remedial sessions and stay. Students not graded are skipped.
+                            <span className="block mt-2 font-medium text-indigo-700">Final-grade students are not moved: graduate them on the Graduation page.</span>
                         </DialogDescription>
                     </DialogHeader>
                     <div className="flex justify-end gap-3 mt-6">

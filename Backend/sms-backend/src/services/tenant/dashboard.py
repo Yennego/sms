@@ -7,6 +7,10 @@ from src.db.models.auth import User
 from src.db.models.tenant import Tenant
 from src.services.base.base import SuperAdminBaseService
 
+import time as _time
+
+_PROCESS_STARTED = _time.time()  # for the platform's System health page
+
 class DashboardMetricsService:
     """
     Service for providing aggregated statistics for the super-admin dashboard.
@@ -154,9 +158,26 @@ class DashboardMetricsService:
             "tenant_metrics": tenant_metrics,
             "user_metrics": user_metrics,
             "revenue_metrics": revenue_metrics,
-            "system_health": {
-                "database_size": "1.2 GB",  # Placeholder
-                "system_uptime": "99.9%",    # Placeholder
-                "api_requests_per_day": 5000  # Placeholder
-            }
+            "system_health": self.get_system_health(),
         }
+
+    def get_system_health(self) -> Dict[str, Any]:
+        """What can actually be measured from here: the database's size, open connections and
+        response time, and how long this API process has been up. Host CPU, memory and disk aren't
+        visible to the app on managed hosting, so they are left out rather than invented."""
+        import time
+        from sqlalchemy import text
+        health: Dict[str, Any] = {"api_uptime_seconds": int(time.time() - _PROCESS_STARTED),
+                                  "database_size_bytes": None, "database_connections": None, "database_ms": None}
+        try:
+            started = time.perf_counter()
+            self.db.execute(text("SELECT 1"))
+            health["database_ms"] = round((time.perf_counter() - started) * 1000, 1)
+            if self.db.get_bind().dialect.name == "postgresql":
+                health["database_size_bytes"] = self.db.execute(
+                    text("SELECT pg_database_size(current_database())")).scalar()
+                health["database_connections"] = self.db.execute(
+                    text("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()")).scalar()
+        except Exception:
+            pass  # a health page must not fail because one figure can't be read
+        return health

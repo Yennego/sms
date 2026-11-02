@@ -63,6 +63,12 @@ const STUDENTS: NavArea = {
 
 const STUDENTS_READ_ONLY: NavArea = { ...STUDENTS, tabs: [tab('Directory', '/students')] };
 
+// The registrar: Enrollments and Graduation are admin and principal pages
+const STUDENTS_REGISTRAR: NavArea = {
+  ...STUDENTS,
+  tabs: STUDENTS.tabs.filter((t) => !['/academics/enrollments', '/academics/graduation'].includes(t.path)),
+};
+
 const STAFF: NavArea = {
   key: 'staff', label: 'Staff', icon: Users,
   tabs: [
@@ -94,9 +100,8 @@ const ATTENDANCE: NavArea = {
     tab('Mark', '/attendance/daily'),
     tab('Scan', '/attendance/scan'),
     tab('Excuses', '/attendance/excuses'),
-    tab('Students', '/attendance/students'),
-    tab('Calendar', '/attendance/calendar'),
-    tab('Reports', '/attendance/reports'),
+    // A student's attendance record opens from Reports and the student profile
+    tab('Reports', '/attendance/reports', undefined, ['/attendance/students']),
     tab('ID cards', '/attendance/id-cards'),
   ],
 };
@@ -112,6 +117,13 @@ const GRADES: NavArea = {
     tab('Remedial', '/academics/remedial'),
   ],
 };
+
+// The principal reviews fees and approves voids, adjustments and holds; recording payments and fee
+// setup stay with the bursar (the fees screens hide those actions without the permissions)
+const FEES_REVIEW = (fees: NavArea): NavArea => ({
+  ...fees,
+  tabs: fees.tabs.filter((t) => !['/finance/expenditure', '/finance/settings'].includes(t.path)),
+});
 
 const FEES: NavArea = {
   key: 'fees', label: 'Fees', icon: Receipt, feature: 'enable_finance',
@@ -161,18 +173,26 @@ const ADMIN: RoleNavigation = {
   settings: SCHOOL_SETTINGS,
 };
 
+// The admin dashboard and the Attendance pages (Today, Mark, Excuses, ID cards) are for school
+// admins (and teachers marking their class), so the principal and registrar don't get them: the
+// dashboard sends them away and the attendance pages refuse them.
 const ROLES: Record<string, RoleNavigation> = {
   admin: ADMIN,
   'tenant-admin': ADMIN,
   'academic-admin': {
-    home: '/admin-dashboard',
+    home: '/academics/grades/publish',
     signs: true,
-    areas: [HOME('/admin-dashboard'), STUDENTS, STAFF, CLASSES, ATTENDANCE, GRADES, MESSAGES],
+    areas: [
+      STUDENTS, STAFF, CLASSES,
+      // Assignments is the teachers' tool
+      { ...GRADES, tabs: GRADES.tabs.filter((t) => t.path !== '/academics/assignments') },
+      FEES_REVIEW(FEES), MESSAGES,
+    ],
   },
   registrar: {
-    home: '/admin-dashboard',
+    home: '/students',
     signs: true,
-    areas: [HOME('/admin-dashboard'), STUDENTS, CLASSES, ATTENDANCE, MESSAGES],
+    areas: [STUDENTS_REGISTRAR, CLASSES, MESSAGES],
   },
   accountant: { home: '/finance', areas: [{ ...FEES, feature: undefined }, STUDENTS_READ_ONLY, MESSAGES] },
   'financial-admin': { home: '/finance', areas: [{ ...FEES, feature: undefined }, STUDENTS_READ_ONLY, MESSAGES] },
@@ -203,7 +223,10 @@ const ROLES: Record<string, RoleNavigation> = {
     areas: [
       HOME('/student/dashboard'),
       { key: 'timetable', label: 'Timetable', icon: CalendarDays, tabs: [tab('Timetable', '/student/timetable')] },
-      { key: 'courses', label: 'Courses', icon: BookOpen, tabs: [tab('My courses', '/student/courses')] },
+      {
+        key: 'courses', label: 'Courses', icon: BookOpen,
+        tabs: [tab('My courses', '/student/courses'), tab('Assignments', '/academics/assignments')],
+      },
       {
         key: 'results', label: 'Results', icon: Award,
         tabs: [tab('My results', '/student/grades')],
@@ -263,12 +286,8 @@ export const PLATFORM_NAVIGATION: RoleNavigation = {
     { key: 'audit', label: 'Audit', icon: History, tabs: [tab('Security and audit', '/platform/security')] },
     {
       key: 'system', label: 'System', icon: Settings,
-      tabs: [
-        tab('Settings', '/platform/settings'),
-        tab('Health', '/platform/health'),
-        tab('Database', '/platform/database'),
-        tab('API docs', '/platform/api-docs'),
-      ],
+      // Settings and Database come back when they have a backend
+      tabs: [tab('Health', '/platform/health'), tab('API docs', '/platform/api-docs')],
     },
   ],
 };

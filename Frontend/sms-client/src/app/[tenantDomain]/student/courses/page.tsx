@@ -3,9 +3,7 @@
 import { useAuth } from '@/hooks/use-auth';
 import { useTenant } from '@/hooks/use-tenant';
 import {
-    BookOpen, Users, Clock, Calendar,
-    MapPin, ChevronRight, Search, GraduationCap,
-    Award, FileText
+    BookOpen, Users, ChevronRight, GraduationCap, FileText
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -51,11 +49,9 @@ export default function StudentCourses() {
                                 coursesWithSubjects.push({
                                     id: sub.id,
                                     name: sub.subject_name || 'Unknown Subject',
-                                    code: sub.id.substring(0, 6).toUpperCase(), // Fallback code
                                     teacher: sub.teacher_name || 'TBA',
                                     grade: `${details.grade_name || ''} ${details.section_name || ''}`,
                                     status: 'Active',
-                                    progress: Math.floor(Math.random() * 40) + 40 // Simulated progress for now as it's not in DB
                                 });
                             });
                         }
@@ -125,43 +121,22 @@ export default function StudentCourses() {
                                         </span>
                                     </div>
 
-                                    <h3 className="text-xl font-bold text-slate-900 mb-2">{course.name}</h3>
-                                    <p className="text-xs font-medium text-slate-400 uppercase tracking-widest mb-6">{course.code}</p>
+                                    <h3 className="text-xl font-bold text-slate-900 mb-6">{course.name}</h3>
 
-                                    <div className="space-y-4">
-                                        <div className="flex items-center gap-3 text-sm text-slate-500">
-                                            <Users className="h-4 w-4 text-slate-400" />
-                                            <span>Instructor: <span className="font-bold text-slate-700">{course.teacher}</span></span>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <div className="flex justify-between text-[11px] font-bold text-slate-500">
-                                                <span>Completion</span>
-                                                <span>{course.progress}%</span>
-                                            </div>
-                                            <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                                                <div
-                                                    className="h-full bg-indigo-500 rounded-full transition-all duration-1000"
-                                                    style={{ width: `${course.progress}%` }}
-                                                />
-                                            </div>
-                                        </div>
+                                    <div className="flex items-center gap-3 text-sm text-slate-500">
+                                        <Users className="h-4 w-4 text-slate-400" />
+                                        <span>Instructor: <span className="font-bold text-slate-700">{course.teacher}</span></span>
                                     </div>
                                 </div>
 
-                                <div className="px-8 py-5 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between">
+                                <div className="px-8 py-5 bg-slate-50/50 border-t border-slate-100">
                                     <Link
-                                        href={`#`}
-                                        className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 group-hover:translate-x-1 transition-transform"
+                                        href="./grades"
+                                        className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
                                     >
-                                        Course Material
+                                        See my results
                                         <ChevronRight className="h-3 w-3" />
                                     </Link>
-                                    <div className="flex gap-4">
-                                        <div className="flex flex-col items-center">
-                                            <span className="text-[10px] text-slate-400 font-bold uppercase">Grades</span>
-                                            <Award className="h-4 w-4 text-slate-400" />
-                                        </div>
-                                    </div>
                                 </div>
                             </div>
                         ))}

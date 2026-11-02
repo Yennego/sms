@@ -1,7 +1,7 @@
 from typing import Any, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, status, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Response, status, Query, UploadFile
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -15,6 +15,7 @@ from src.schemas.tenant import TenantSettings, TenantSettingsCreate, TenantSetti
 from src.schemas.tenant.tenant import TenantPublic, TenantSelfUpdate
 from src.core.security.permissions import has_permission, require_super_admin
 from src.db.models.auth import User
+from src.db.models.tenant.tenant import Tenant as TenantModel
 from src.core.middleware.tenant import get_tenant_id_from_request
 
 router = APIRouter()
@@ -153,6 +154,36 @@ async def put_school_seal(file: UploadFile = File(...), service=Depends(_profile
 @router.delete("/self/profile/seal")
 def delete_school_seal(service=Depends(_profile)) -> Any:
     return service.clear_seal()
+
+
+@router.put("/self/profile/logo")
+async def put_school_logo(file: UploadFile = File(...), service=Depends(_profile)) -> Any:
+    """The school logo (sign-in page, app header, receipts, report cards); PNG or JPEG, at most 1 MB.
+    Replaces a logo given as a web address."""
+    from src.services.academics.report_identity_service import image_error
+    from src.utils.report_images import ImageRejected, read_upload
+    try:
+        raw = await read_upload(file)
+    except ImageRejected as err:
+        raise image_error(err)
+    return await run_in_threadpool(service.set_logo, raw)
+
+
+@router.delete("/self/profile/logo")
+def delete_school_logo(service=Depends(_profile)) -> Any:
+    return service.clear_logo()
+
+
+@router.get("/{tenant_id}/logo")
+def get_school_logo(tenant_id: UUID, db: Session = Depends(get_db)) -> Any:
+    """An uploaded school logo (public, like the school's name on its sign-in page)."""
+    from sqlalchemy.orm import undefer
+    tenant = db.query(TenantModel).options(undefer(TenantModel.logo_image)).filter(TenantModel.id == tenant_id).first()
+    if tenant is None or not tenant.logo_image:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Logo not found")
+    # The address changes with each upload (?v=), so the image can be cached for long
+    return Response(content=tenant.logo_image, media_type="image/png",
+                    headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @router.put("/{tenant_id}", response_model=Tenant)

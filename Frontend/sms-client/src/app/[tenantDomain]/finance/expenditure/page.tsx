@@ -7,9 +7,9 @@ import {
     useSaveExpenditure,
     useDeleteExpenditure
 } from '@/components/fees/queries';
-import { centsToDecimal, formatAmount, toCents } from '@/components/fees/money';
+import { centsToDecimal, formatAmount, formatMoney, toCents } from '@/components/fees/money';
 import { PageShell } from '@/components/ui/page-shell';
-import type { Expenditure } from '@/services/api/fees-service';
+import { CURRENCIES, type Currency, type Expenditure } from '@/services/api/fees-service';
 import { Button } from '@/components/ui/button';
 import {
     Table,
@@ -63,9 +63,12 @@ export default function ExpenditurePage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+    // USD and LRD are never added together, so the chart shows one currency at a time.
+    const [chartCurrency, setChartCurrency] = useState<Currency>('USD');
 
     // Form State
     const [amount, setAmount] = useState('');
+    const [currency, setCurrency] = useState<Currency | ''>('');
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [categoryId, setCategoryId] = useState('');
     const [payee, setPayee] = useState('');
@@ -73,6 +76,7 @@ export default function ExpenditurePage() {
 
     const resetForm = () => {
         setAmount('');
+        setCurrency('');
         setDate(new Date().toISOString().split('T')[0]);
         setCategoryId('');
         setPayee('');
@@ -83,6 +87,7 @@ export default function ExpenditurePage() {
     const handleOpenEdit = (exp: Expenditure) => {
         setEditingId(exp.id);
         setAmount(exp.amount.toString());
+        setCurrency(exp.currency);
         setDate(new Date(exp.date).toISOString().split('T')[0]);
         setCategoryId(exp.expense_category_id);
         setPayee(exp.payee || '');
@@ -92,11 +97,12 @@ export default function ExpenditurePage() {
 
     const handleSave = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!amount || !categoryId || !date) return;
+        if (!amount || !currency || !categoryId || !date) return;
 
         const payload = {
             // Money goes to the server as a decimal string, never a float.
             amount: amount.trim(),
+            currency,
             expense_category_id: categoryId,
             date,
             payee,
@@ -108,7 +114,7 @@ export default function ExpenditurePage() {
                 { id: editingId, input: payload },
                 {
                     onSuccess: () => {
-                        toast.success('Expenditure updated successfully');
+                        toast.success('Expense updated');
                         setIsModalOpen(false);
                         resetForm();
                     }
@@ -117,7 +123,7 @@ export default function ExpenditurePage() {
         } else {
             createExpMutation.mutate({ input: payload }, {
                 onSuccess: () => {
-                    toast.success('Expenditure recorded successfully');
+                    toast.success('Expense recorded');
                     setIsModalOpen(false);
                     resetForm();
                 }
@@ -132,33 +138,38 @@ export default function ExpenditurePage() {
         });
     };
 
-    // Analytics Calculation
+    // Analytics Calculation: every total is per currency (USD and LRD are never added together).
     const stats = useMemo(() => {
-        if (!expenditures) return { total: '0.00', thisMonth: '0.00', trend: [] };
-
+        const list = expenditures ?? [];
         const now = new Date();
         const thisMonthRange = { start: startOfMonth(now), end: endOfMonth(now) };
         // Amounts are decimal strings: add them up in whole cents, not floats.
-        const sum = (list: Expenditure[]) =>
-            centsToDecimal(list.reduce((acc, curr) => acc + (toCents(curr.amount) ?? BigInt(0)), BigInt(0)));
+        const sum = (items: Expenditure[], c: Currency) =>
+            centsToDecimal(
+                items
+                    .filter((exp) => exp.currency === c)
+                    .reduce((acc, curr) => acc + (toCents(curr.amount) ?? BigInt(0)), BigInt(0))
+            );
+        const perCurrency = (items: Expenditure[]) =>
+            Object.fromEntries(CURRENCIES.map((c) => [c, sum(items, c)])) as Record<Currency, string>;
 
-        const total = sum(expenditures);
-        const thisMonth = sum(expenditures.filter(exp => isWithinInterval(new Date(exp.date), thisMonthRange)));
+        const total = perCurrency(list);
+        const thisMonth = perCurrency(list.filter(exp => isWithinInterval(new Date(exp.date), thisMonthRange)));
 
-        // Simple monthly trend for last 6 months
+        // Monthly trend for the last 6 months, in the chosen currency
         const trend = Array.from({ length: 6 }).map((_, i) => {
             const d = subMonths(now, 5 - i);
             const range = { start: startOfMonth(d), end: endOfMonth(d) };
-            const mTotal = sum(expenditures.filter(exp => isWithinInterval(new Date(exp.date), range)));
+            const mTotal = sum(list.filter(exp => isWithinInterval(new Date(exp.date), range)), chartCurrency);
             return {
                 Month: format(d, 'MMM'),
                 // The chart needs a number; it is only drawn, never added up.
-                'Amount Spent': Number(mTotal)
+                'Amount spent': Number(mTotal)
             };
         });
 
         return { total, thisMonth, trend };
-    }, [expenditures]);
+    }, [expenditures, chartCurrency]);
 
     const filteredExps = useMemo(() => {
         if (!expenditures) return [];
@@ -178,15 +189,17 @@ export default function ExpenditurePage() {
     }, {} as Record<string, string>) || {};
 
     return (
-        <PageShell title="Expenses" description="Money the school spends. Amounts are shown as entered, without a currency.">
+        <PageShell title="Expenses" description="Money the school spends. USD and LRD are totalled separately.">
         <div className="space-y-8 animate-in fade-in duration-700">
             {/* Stats Overview */}
             <Grid numItemsSm={1} numItemsLg={3} className="gap-6">
                 <Card decoration="top" decorationColor="rose" className="bg-white/50 backdrop-blur-sm border-gray-100 shadow-sm transition-all hover:shadow-md">
                     <Flex alignItems="start">
                         <div>
-                            <Text className="text-gray-500 font-medium tracking-tight">Total Expenditures</Text>
-                            <Metric className="mt-1 font-bold">{formatAmount(stats.total)}</Metric>
+                            <Text className="text-gray-500 font-medium tracking-tight">Total spent</Text>
+                            {CURRENCIES.map((c) => (
+                                <Metric key={c} className="mt-1 font-bold">{formatMoney(stats.total[c], c)}</Metric>
+                            ))}
                         </div>
                         <Icon icon={Wallet} color="rose" variant="light" size="lg" />
                     </Flex>
@@ -194,8 +207,10 @@ export default function ExpenditurePage() {
                 <Card decoration="top" decorationColor="amber" className="bg-white/50 backdrop-blur-sm border-gray-100 shadow-sm transition-all hover:shadow-md">
                     <Flex alignItems="start">
                         <div>
-                            <Text className="text-gray-500 font-medium tracking-tight">Spent This Month</Text>
-                            <Metric className="mt-1 font-bold">{formatAmount(stats.thisMonth)}</Metric>
+                            <Text className="text-gray-500 font-medium tracking-tight">Spent this month</Text>
+                            {CURRENCIES.map((c) => (
+                                <Metric key={c} className="mt-1 font-bold">{formatMoney(stats.thisMonth[c], c)}</Metric>
+                            ))}
                         </div>
                         <Icon icon={TrendingDown} color="amber" variant="light" size="lg" />
                     </Flex>
@@ -203,7 +218,7 @@ export default function ExpenditurePage() {
                 <Card decoration="top" decorationColor="blue" className="bg-white/50 backdrop-blur-sm border-gray-100 shadow-sm transition-all hover:shadow-md">
                     <Flex alignItems="start">
                         <div>
-                            <Text className="text-gray-500 font-medium tracking-tight">Active Categories</Text>
+                            <Text className="text-gray-500 font-medium tracking-tight">Categories</Text>
                             <Metric className="mt-1 font-bold">{categories?.length || 0}</Metric>
                         </div>
                         <Icon icon={Filter} color="blue" variant="light" size="lg" />
@@ -213,14 +228,31 @@ export default function ExpenditurePage() {
 
             {/* Trend Chart */}
             <Card className="bg-white/50 backdrop-blur-sm border-gray-100 shadow-sm">
-                <Title className="text-gray-700">Spending Patterns (Last 6 Months)</Title>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <Title className="text-gray-700">Spending, last 6 months</Title>
+                    <div role="group" aria-label="Chart currency" className="flex gap-1">
+                        {CURRENCIES.map((c) => (
+                            <Button
+                                key={c}
+                                type="button"
+                                size="sm"
+                                variant={chartCurrency === c ? 'default' : 'outline'}
+                                aria-pressed={chartCurrency === c}
+                                className="min-h-11 md:min-h-8"
+                                onClick={() => setChartCurrency(c)}
+                            >
+                                {c}
+                            </Button>
+                        ))}
+                    </div>
+                </div>
                 <AreaChart
                     className="mt-6 h-64"
                     data={stats.trend}
                     index="Month"
-                    categories={['Amount Spent']}
+                    categories={['Amount spent']}
                     colors={['rose']}
-                    valueFormatter={(num) => formatAmount(num)}
+                    valueFormatter={(num) => `${chartCurrency} ${formatAmount(num)}`}
                     showAnimation={true}
                 />
             </Card>
@@ -285,11 +317,11 @@ export default function ExpenditurePage() {
                                         </TableCell>
                                         <TableCell className="text-right">
                                             <span className="text-rose-600 font-bold bg-rose-50 px-2.5 py-1 rounded-md text-sm border border-rose-100">
-                                                {formatAmount(exp.amount)}
+                                                {formatMoney(exp.amount, exp.currency)}
                                             </span>
                                         </TableCell>
                                         <TableCell className="text-right">
-                                            <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="flex justify-end gap-1 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
@@ -332,7 +364,7 @@ export default function ExpenditurePage() {
                     <DialogHeader>
                         <DialogTitle className="text-2xl font-bold flex items-center gap-2">
                             {editingId ? <Edit className="w-6 h-6 text-amber-500" /> : <Plus className="w-6 h-6 text-primary" />}
-                            {editingId ? 'Edit Expenditure' : 'Record Expenditure'}
+                            {editingId ? 'Edit expense' : 'Record expense'}
                         </DialogTitle>
                         <DialogDescription>
                             Enter the details of the outgoing payment below. This will update the monthly reports.
@@ -355,7 +387,22 @@ export default function ExpenditurePage() {
                             </select>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-[7rem_1fr] gap-4">
+                            <div className="space-y-2">
+                                <label htmlFor="expense-currency" className="text-sm font-semibold text-gray-700">Currency</label>
+                                <select
+                                    id="expense-currency"
+                                    className="flex w-full rounded-lg border border-gray-200 bg-white/50 px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+                                    value={currency}
+                                    onChange={(e) => setCurrency(e.target.value as Currency)}
+                                    required
+                                >
+                                    <option value="" disabled>Choose</option>
+                                    {CURRENCIES.map((c) => (
+                                        <option key={c} value={c}>{c}</option>
+                                    ))}
+                                </select>
+                            </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-semibold text-gray-700">Amount</label>
                                 <div className="relative">
@@ -371,8 +418,11 @@ export default function ExpenditurePage() {
                                     />
                                 </div>
                             </div>
+                        </div>
+
+                        <div className="grid gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-semibold text-gray-700">Transaction Date</label>
+                                <label className="text-sm font-semibold text-gray-700">Transaction date</label>
                                 <input
                                     type="date"
                                     required
@@ -410,7 +460,7 @@ export default function ExpenditurePage() {
                             </Button>
                             <Button
                                 type="submit"
-                                disabled={createExpMutation.isPending || updateExpMutation.isPending || !amount || !categoryId || !date}
+                                disabled={createExpMutation.isPending || updateExpMutation.isPending || !amount || !currency || !categoryId || !date}
                                 className="rounded-lg bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 min-w-32"
                             >
                                 {(createExpMutation.isPending || updateExpMutation.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

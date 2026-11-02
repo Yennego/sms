@@ -3,8 +3,9 @@
 // One student's published results for one year: summary, subject cards, then the full report
 // card (shared with staff) and Print. Used by the student "My results" and parent "Results" pages.
 import * as React from 'react';
-import { AlertTriangle, ChevronDown, ChevronUp, FileText, Printer, RotateCcw } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp, FileText, Lock, Printer, RotateCcw } from 'lucide-react';
 
+import { isReportCardHeld } from '@/components/parent/queries';
 import { ReportCard } from '@/components/report-cards/report-card';
 import { ReportCardPrintRoot, usePrintRequest } from '@/components/report-cards/print-root';
 import { useStudentReportCard } from '@/components/report-cards/queries';
@@ -26,6 +27,8 @@ export function useReportCardSchool(): ReportCardSchool {
     [tenant?.name, tenant?.logo]
   );
 }
+
+const HOLD_MESSAGE = 'This report card is held until school fees are paid. Please contact the school office.';
 
 function statusOf(error: unknown): number | undefined {
   const s = (error as { statusCode?: unknown } | null)?.statusCode;
@@ -66,6 +69,16 @@ export function ResultsView({ studentId, yearId, emptyMessage }: ResultsViewProp
     // 404: no report card for that year (e.g. not enrolled then) - same as "nothing yet".
     if (status === 404) {
       return <EmptyState icon={FileText} title="No results yet" description={emptyMessage} />;
+    }
+    // 403 for unpaid fees (phase5-design.md section 1): show the school's hold message.
+    if (isReportCardHeld(query.error)) {
+      return (
+        <EmptyState
+          icon={Lock}
+          title="Report card on hold"
+          description={(query.error as Error).message || HOLD_MESSAGE}
+        />
+      );
     }
     if (status === 403) {
       return (

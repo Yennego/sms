@@ -44,7 +44,8 @@ class PromotionEvaluationRequest(BaseModel):
 class PromotionEvaluationResult(BaseModel):
     student_id: UUID
     enrollment_id: UUID
-    status: Literal["Eligible", "Conditional", "Repeating"]
+    # "Not graded": no published results yet, so no decision (the transition skips them)
+    status: Literal["Eligible", "Conditional", "Repeating", "Not graded"]
     failed_subject_ids: List[UUID]
     total_score: float
     student_name: Optional[str] = None

@@ -1036,25 +1036,27 @@ A school year has 2 semesters. Each semester has 3 periods and one exam:
 1. **Publish everything.** All six periods and both semester exams must be published for every class.
 2. **Print final report cards.**
 3. **Create the new year:**
-   - Open **Classes → Setup** and tap **Create a school year**.
-   - Use **Choose what to copy** to copy last year's semesters, classes, sponsors and subjects.
-   - Leave **Make this the current school year** unticked until promotion is done.
-4. **Promotion:**
+   - Open **Classes → Setup** and tap **Create a school year**. Its semesters and periods are added for you.
+   - Leave **Make this the current school year** unticked until graduation is done.
+   - Use **Choose what to copy** to copy last year's classes, sponsors and subjects.
+4. **Promotion**, one grade at a time:
    - Open **Students → Promotion**.
-   - Choose the **Academic Year** and **Grade**, and tap **Evaluate Eligibility**.
+   - Choose the **Academic Year** (the year that is ending), **Promote into** (the new year) and the **Grade**, and tap **Evaluate Eligibility**.
    - Check the results. Each student is **Eligible**, **Repeating**, **Conditional** or **Not graded**.
-   - Tap **Execute Transition**, then **Confirm & Execute**.
-   - Repeat for each grade.
+   - Tap **Execute Transition**, then **Confirm & Execute**. Eligible students move up one grade into the new year. Repeating and Conditional students get remedial sessions and stay. Not graded students are skipped.
+   - Repeat for each grade. Running it again for the same grade is safe.
+   - The final grade is not moved: those students graduate in the next step.
 5. **Graduation:**
-   - Open **Students → Graduation**. It lists the students in the final grade.
+   - Open **Students → Graduation**. It lists the students in the final grade of the school year shown. Choose the ending year if another year is shown.
    - Students marked eligible are ticked. Check the list.
    - Tap **Graduate N students**, then **Graduate students**.
 6. **Make the new year current:** open **Classes → Years and terms** and tap **Activate** on the new year.
 7. **Finish the new year's setup** in **Classes → Setup**:
    - check each step;
-   - in step 5, use **Carry over promoted students**, then admit the new students.
+   - promoted students are already in their new classes;
+   - put students who repeat a grade in a class with **Class placement**, then admit the new students.
 8. **Fees:** set the new year's fees and issue invoices. Each student's currency is chosen again by their first payment of the new year.
-9. **Receipts:** receipt numbers start again at 00001 for the new year, for example 2027-00001.
+9. **Receipts:** receipt numbers start again at 00001 for the new year, for example 2027-00001. The number uses the year the school year starts in.
 
 Promotion and graduation change many records at once. Do them on a computer, one grade at a time, and check the results before you continue.
 

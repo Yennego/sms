@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, Request, B
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.db.crud import user as user_crud
 from src.db.crud import permission as permission_crud
@@ -800,6 +800,46 @@ async def admin_reset_password(
         "username": getattr(user, "username", None),
         "email": user.email,
     }
+
+
+class StaffAccountIn(BaseModel):
+    first_name: str = Field(..., max_length=100)
+    last_name: str = Field(..., max_length=100)
+    email: Optional[str] = Field(None, max_length=255)
+    username: Optional[str] = Field(None, max_length=50)
+    phone_number: Optional[str] = Field(None, max_length=20)
+    role_id: UUID
+
+
+def _staff_accounts(db: Session, tenant_id: UUID, current_user: User):
+    from src.services.auth.staff_accounts import StaffAccountService
+    return StaffAccountService(db, tenant_id, _is_school_admin(current_user) or is_super_admin(current_user))
+
+
+@router.get("/staff-roles")
+def staff_roles(
+    db: Session = Depends(get_db),
+    tenant_id: UUID = Depends(get_tenant_id_from_request),
+    current_user: User = Depends(has_permission("manage_users"))
+) -> Any:
+    """The roles you may give a new staff account (admin only if you are a school admin)."""
+    return [{"id": r.id, "name": r.name, "description": r.description, "is_system": r.tenant_id is None}
+            for r in _staff_accounts(db, tenant_id, current_user).roles()]
+
+
+@router.post("/staff-accounts", status_code=status.HTTP_201_CREATED)
+def create_staff_account(
+    body: StaffAccountIn,
+    db: Session = Depends(get_db),
+    tenant_id: UUID = Depends(get_tenant_id_from_request),
+    current_user: User = Depends(has_permission("manage_users"))
+) -> Any:
+    """Create a staff account in your own school with one staff role.
+
+    The password is returned once to hand over in person (never emailed); they choose their own at
+    first sign-in. Only a school admin may create an admin account.
+    """
+    return _staff_accounts(db, tenant_id, current_user).create(body.model_dump())
 
 
 @router.put("/roles/{role_id}/permissions", response_model=UserRole)

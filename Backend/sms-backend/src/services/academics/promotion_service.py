@@ -30,61 +30,86 @@ class PromotionService(TenantBaseService):
         self.db = db
         self._results_cache = {}  # class id -> ClassResults, shared by evaluations in one request
 
-    async def process_year_end_transition(self, current_year_id: UUID, target_year_name: str) -> Dict[str, Any]:
-        """Processes year-end transitions: Promoting passing students and flagging failures for remedial."""
-        from src.services.academics.remedial_service import RemedialService
-        from src.db.models.academics.enrollment import Enrollment as EnrollmentModel
-        
-        # Students without grades aren't judged: they're listed as skipped, not held back
-        results = {"promoted": [], "remedial": [], "skipped": [], "errors": []}
-        
-        # 1. Get all active enrollments for the year
-        enrollments = self.db.query(EnrollmentModel).filter(
-            EnrollmentModel.tenant_id == self.tenant_id,
-            EnrollmentModel.academic_year_id == current_year_id,
-            EnrollmentModel.is_active == True
-        ).all()
-        
-        # 2. Get grade sequence
-        grades = academic_grade_crud.get_active_grades(self.db, tenant_id=self.tenant_id)
-        grade_sequence = {grade.name: grade.sequence for grade in grades}
-        max_sequence = max(grade_sequence.values()) if grade_sequence else 12
-        
-        remedial_service = RemedialService(tenant=self.tenant_id, db=self.db)
-        
-        for en in enrollments:
-            try:
-                # Evaluate eligibility
-                eval_res = await self.evaluate_eligibility(en.id)
+    def _own_year(self, year_id: UUID):
+        from src.db.models.academics.academic_year import AcademicYear
+        return self.db.query(AcademicYear).filter(
+            AcademicYear.tenant_id == self.tenant_id, AcademicYear.id == year_id
+        ).first()
 
-                if eval_res["status"] == NOT_GRADED:
-                    results["skipped"].append({"student_id": en.student_id, "reason": eval_res["notes"]})
-                elif eval_res["status"] == "Eligible":
-                    # Promote
-                    promo_res = await self._promote_to_next_grade(
-                        en, target_year_name, grade_sequence, max_sequence
-                    )
-                    results["promoted"].append({"student_id": en.student_id, "res": promo_res})
+    def _grades_in_order(self) -> list:
+        return sorted(academic_grade_crud.get_active_grades(self.db, tenant_id=self.tenant_id),
+                      key=lambda g: g.sequence)
+
+    async def process_year_end_transition(
+        self, current_year_id: UUID, target_year_name: str, grade_id: Optional[UUID] = None
+    ) -> Dict[str, Any]:
+        """Year-end transition (one grade level, or all): passing students move to the next grade
+        level in the target year; failing ones get remedial sessions and stay; students without
+        published results are skipped. Final-grade students who passed are left for Graduation."""
+        from src.db.models.academics.enrollment import Enrollment as EnrollmentModel
+        from src.db.models.academics.remedial_session import RemedialSession
+
+        current = self._own_year(current_year_id)
+        target = academic_year_crud.get_by_name(self.db, tenant_id=self.tenant_id, name=target_year_name)
+        if not current or not target:
+            raise BusinessRuleViolationError("School year not found")
+        if target.start_date <= current.start_date:
+            raise BusinessRuleViolationError("Choose a school year that starts after the one you are promoting from")
+
+        results = {"promoted": [], "remedial": [], "graduating": [], "skipped": [], "errors": []}
+
+        query = self.db.query(EnrollmentModel).filter(
+            EnrollmentModel.tenant_id == self.tenant_id,
+            EnrollmentModel.academic_year_id == current.id,
+            EnrollmentModel.is_active == True,  # noqa: E712
+            EnrollmentModel.status == "active",
+        )
+        if grade_id:
+            query = query.filter(EnrollmentModel.grade_id == grade_id)
+        enrollments = query.all()
+
+        grades = self._grades_in_order()
+        final_grade_id = grades[-1].id if grades else None
+        promoted_ids = []
+
+        for en in enrollments:
+            eval_res = await self.evaluate_eligibility(en.id)
+            if eval_res["status"] == NOT_GRADED:
+                results["skipped"].append({"student_id": en.student_id, "reason": eval_res["notes"]})
+            elif eval_res["status"] == "Eligible" and en.grade_id == final_grade_id:
+                # Graduation is its own step (Graduation page), never done here
+                results["graduating"].append({"student_id": en.student_id})
+            elif eval_res["status"] == "Eligible":
+                promo_res = await self._promote_to_next_grade(en, target, grades)
+                if promo_res["type"] == "error":
+                    results["errors"].append(promo_res)
                 else:
-                    # Failed/Conditional -> Remedial
-                    # Mark current enrollment as 'remedial' state (or keep active for remedial)
-                    for subject_id in eval_res.get("failed_subject_ids", []):
-                        await remedial_service.assign(
-                            student_id=en.student_id,
-                            subject_id=subject_id,
-                            academic_year_id=current_year_id,
-                            scheduled_date=date.today()
-                        )
-                    results["remedial"].append({
-                        "student_id": en.student_id, 
-                        "status": eval_res["status"], 
-                        "failed_subjects": len(eval_res.get("failed_subject_ids", []))
-                    })
-            except Exception as e:
-                results["errors"].append({"student_id": en.student_id, "error": str(e)})
-                
+                    results["promoted"].append(promo_res)
+                    promoted_ids.append(en.student_id)
+            else:
+                # Failed/Conditional -> remedial sessions; the student stays in this year's class.
+                # Running the transition again doesn't book the same session twice.
+                booked = {sid for (sid,) in self.db.query(RemedialSession.subject_id).filter(
+                    RemedialSession.tenant_id == self.tenant_id, RemedialSession.enrollment_id == en.id)}
+                for subject_id in eval_res.get("failed_subject_ids", []):
+                    if subject_id in booked:
+                        continue
+                    self.db.add(RemedialSession(
+                        tenant_id=self.tenant_id, student_id=en.student_id, enrollment_id=en.id,
+                        subject_id=subject_id, academic_year_id=current.id, scheduled_date=date.today(),
+                    ))
+                self.db.flush()
+                results["remedial"].append({
+                    "student_id": en.student_id,
+                    "status": eval_res["status"],
+                    "failed_subjects": len(eval_res.get("failed_subject_ids", []))
+                })
+
+        # Billed like their new classmates when the target year already has invoices issued
+        from src.services.finance.fee_service import FeeService
+        FeeService(self.db, self.tenant_id, None).bill_new_enrollment(promoted_ids, target.id)
         return results
-    
+
     async def bulk_promote_students(
         self, 
         student_ids: List[UUID], 
@@ -103,11 +128,11 @@ class PromotionService(TenantBaseService):
             "errors": []
         }
         
-        # Get all academic grades with sequence
-        grades = academic_grade_crud.get_active_grades(self.db, tenant_id=self.tenant_id)
-        grade_sequence = {grade.name: grade.sequence for grade in grades}
-        max_sequence = max(grade_sequence.values()) if grade_sequence else 12
-        
+        grades = self._grades_in_order()
+        target_year = academic_year_crud.get_by_name(
+            self.db, tenant_id=self.tenant_id, name=target_academic_year
+        ) if target_academic_year else None
+
         for student_id in student_ids:
             try:
                 # Get current enrollment
@@ -125,9 +150,12 @@ class PromotionService(TenantBaseService):
                 if promotion_type == "semester":
                     result = await self._promote_to_next_semester(current_enrollment, target_semester)
                 elif promotion_type == "grade":
-                    result = await self._promote_to_next_grade(
-                        current_enrollment, target_academic_year, grade_sequence, max_sequence, promotion_rules
-                    )
+                    if target_year is None:
+                        result = {"student_id": student_id, "error": "Target school year not found", "type": "error"}
+                    else:
+                        result = await self._promote_to_next_grade(
+                            current_enrollment, target_year, grades, promotion_rules
+                        )
                 elif promotion_type == "graduation":
                     result = await self._graduate_student(current_enrollment)
                 
@@ -348,119 +376,78 @@ class PromotionService(TenantBaseService):
         }
 
     async def _promote_to_next_grade(
-        self, 
-        current_enrollment, 
-        target_academic_year: str, 
-        grade_sequence: Dict[str, int], 
-        max_sequence: int,
+        self,
+        current_enrollment,
+        target_year,
+        grades: list,
         promotion_rules: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
-        """Promote student to next grade."""
-        
-        if not current_enrollment.can_promote_to_next_grade():
-            return {
-                "student_id": current_enrollment.student_id,
-                "error": "Student has not completed both semesters",
-                "type": "error"
-            }
-        
-        current_grade = current_enrollment.grade
-        current_sequence = grade_sequence.get(current_grade, 0)
-        
-        # Check if student should graduate
-        if current_sequence >= max_sequence:
-            return self._graduate_student(current_enrollment)
-        
-        # Find next grade
-        next_sequence = current_sequence + 1
-        next_grade = None
-        for grade_name, sequence in grade_sequence.items():
-            if sequence == next_sequence:
-                next_grade = grade_name
-                break
-        
-        if not next_grade:
-            return {
-                "student_id": current_enrollment.student_id,
-                "error": f"No next grade found for sequence {next_sequence}",
-                "type": "error"
-            }
-        
-        # Apply promotion rules if provided
-        target_section = promotion_rules.get(str(current_enrollment.student_id)) if promotion_rules else current_enrollment.section
-        
-        # Mark current enrollment as completed
-        enrollment_crud.update(
-            self.db,
-            self.tenant_id,
-            db_obj=current_enrollment,
-            obj_in={"status": "completed", "is_active": False}
-        )
-        
-        # Resolve normalized IDs for next-grade enrollment
-        from src.services.academics.academic_year_service import AcademicYearService
-        from src.services.academics.academic_grade_service import AcademicGradeService
-        from src.services.academics.section_service import SectionService
+        """Promote a student to the next grade level in target_year (an AcademicYear).
 
-        ay_service = AcademicYearService(tenant=self.tenant_id, db=self.db)
-        ag_service = AcademicGradeService(tenant=self.tenant_id, db=self.db)
-        sec_service = SectionService(tenant=self.tenant_id, db=self.db)
+        Everything is checked before anything changes: on an error the current enrollment stays
+        active. The old enrollment is kept as history (status "completed")."""
+        from src.db.models.academics.enrollment import Enrollment as EnrollmentModel
+        from src.db.models.academics.section import Section
 
-        ay_obj = ay_service.get_by_name(target_academic_year)
-        if not ay_obj:
-            return {"student_id": current_enrollment.student_id, "error": "Target academic year not found", "type": "error"}
+        def error(message: str) -> Dict[str, Any]:
+            return {"student_id": current_enrollment.student_id, "error": message, "type": "error"}
 
-        next_grade_obj = ag_service.get_by_name(next_grade)
-        if not next_grade_obj:
-            return {"student_id": current_enrollment.student_id, "error": "Next grade not found", "type": "error"}
+        current_grade = next((g for g in grades if g.id == current_enrollment.grade_id), None)
+        if current_grade is None:
+            return error("Current grade level not found")
+        next_grade = next((g for g in grades if g.sequence > current_grade.sequence), None)
+        if next_grade is None:
+            return await self._graduate_student(current_enrollment)
+        if self.db.query(EnrollmentModel.id).filter(
+            EnrollmentModel.tenant_id == self.tenant_id,
+            EnrollmentModel.student_id == current_enrollment.student_id,
+            EnrollmentModel.academic_year_id == target_year.id,
+        ).first():
+            return error(f"Already has a class in {target_year.name}")
 
-        target_section_name = promotion_rules.get(str(current_enrollment.student_id)) if promotion_rules else current_enrollment.section_name
-        target_section_obj = sec_service.get_by_name(target_section_name, next_grade_obj.id)
-        if not target_section_obj:
-            sections = sec_service.get_by_grade(next_grade_obj.id)
-            target_section_obj = sections[0] if sections else None
-        if not target_section_obj:
-            return {"student_id": current_enrollment.student_id, "error": "Target section not found for next grade", "type": "error"}
+        # Same section name in the next grade level if it has one (or the one the rules name),
+        # else its first section
+        sections = self.db.query(Section).filter(
+            Section.tenant_id == self.tenant_id, Section.grade_id == next_grade.id,
+            Section.is_active == True,  # noqa: E712
+        ).order_by(Section.name).all()
+        wanted = (promotion_rules or {}).get(str(current_enrollment.student_id)) or current_enrollment.section_name
+        target_section = next((x for x in sections if x.name == wanted), sections[0] if sections else None)
+        if target_section is None:
+            return error(f"{next_grade.name} has no sections")
 
-        from src.schemas.academics.enrollment import EnrollmentCreate
-        new_enrollment_data = EnrollmentCreate(
-            student_id=current_enrollment.student_id,
-            academic_year=target_academic_year,
-            semester=1,
-            grade=next_grade,
-            section=target_section_obj.name,
-            academic_year_id=ay_obj.id,
-            grade_id=next_grade_obj.id,
-            section_id=target_section_obj.id,
-            enrollment_date=date.today(),
-            status="active",
-            is_active=True,
-            semester_1_status="active",
-            semester_2_status="pending",
-            comments=f"Promoted from {current_grade} to {next_grade} on {date.today()}"
-        )
+        current_enrollment.status = "completed"
+        current_enrollment.is_active = False
         # The new enrollment's class is the next grade/section's class for that year (created
         # if missing) when it is flushed: see Enrollment sync_enrollment_classes.
-        new_enrollment = enrollment_crud.create(self.db, tenant_id=self.tenant_id, obj_in=new_enrollment_data)
+        new_enrollment = EnrollmentModel(
+            tenant_id=self.tenant_id, student_id=current_enrollment.student_id,
+            academic_year_id=target_year.id, grade_id=next_grade.id, section_id=target_section.id,
+            semester=1, enrollment_date=date.today(), status="active", is_active=True,
+            comments=f"Promoted from {current_grade.name} to {next_grade.name} on {date.today()}",
+        )
+        self.db.add(new_enrollment)
+        self.db.flush()
 
         return {
             "student_id": current_enrollment.student_id,
-            "from_grade": current_grade,
-            "to_grade": next_grade,
-            "from_academic_year": current_enrollment.academic_year,
-            "to_academic_year": target_academic_year,
+            "from_grade": current_grade.name,
+            "to_grade": next_grade.name,
+            "from_academic_year": current_enrollment.academic_year_obj.name if current_enrollment.academic_year_obj else None,
+            "to_academic_year": target_year.name,
             "enrollment_id": new_enrollment.id,
+            "class_id": new_enrollment.class_id,
             "type": "grade_promotion"
         }
 
     async def _graduate_student(self, current_enrollment) -> Dict[str, Any]:
-        """Graduate student from the system."""
-        enrollment_crud.update(
-            self.db,
-            self.tenant_id,
-            db_obj=current_enrollment,
-            obj_in={"status": "graduated", "is_active": False}
-        )
+        """Graduate student from the system (as GraduationService.graduate does)."""
+        current_enrollment.status = "graduated"
+        current_enrollment.is_active = False
+        current_enrollment.withdrawal_date = current_enrollment.withdrawal_date or date.today()
+        if current_enrollment.student is not None:
+            current_enrollment.student.graduate(date.today())
+        self.db.flush()
         return {
             "student_id": current_enrollment.student_id,
             "type": "graduation",

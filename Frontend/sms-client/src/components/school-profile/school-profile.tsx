@@ -1,13 +1,13 @@
 "use client"
 
 // School profile (phase4-design.md section 6): what report cards print about the school besides
-// its name and logo — address, motto, phone, email, the principal (and the title printed under
-// their signature) and an optional school seal. Needs manage_tenant_settings; a 403 from the
-// server is shown as a plain message.
+// its name — address, motto, phone, email, the principal (and the title printed under their
+// signature), an optional school seal, and the logo (also used on the sign-in page, header and
+// receipts). Needs manage_tenant_settings; a 403 from the server is shown as a plain message.
 
 import * as React from "react"
 import Link from "next/link"
-import { Loader2, Lock, RefreshCw, Stamp, Trash2 } from "lucide-react"
+import { ImageIcon, Loader2, Lock, RefreshCw, Stamp, Trash2 } from "lucide-react"
 
 import { ImagePicker, type PickedImage } from "@/components/signature/image-picker"
 import { errorText, statusOf } from "@/components/signature/errors"
@@ -23,7 +23,15 @@ import { Textarea } from "@/components/ui/textarea"
 import { notify } from "@/components/ui/toaster"
 import type { SchoolProfile as Profile, StaffOption } from "@/services/api/school-profile-service"
 
-import { usePrincipalCandidates, useRemoveSeal, useSaveSeal, useSchoolProfile, useUpdateSchoolProfile } from "./queries"
+import {
+  usePrincipalCandidates,
+  useRemoveLogo,
+  useRemoveSeal,
+  useSaveLogo,
+  useSaveSeal,
+  useSchoolProfile,
+  useUpdateSchoolProfile,
+} from "./queries"
 
 const NO_PRINCIPAL = "__none__"
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -178,9 +186,26 @@ function ProfileForm({ profile }: { profile: Profile }) {
   )
 }
 
-function SealCard({ profile }: { profile: Profile }) {
-  const save = useSaveSeal()
-  const remove = useRemoveSeal()
+interface ImageCardProps {
+  id: string
+  icon: React.ComponentType<{ className?: string }>
+  /** "School seal", "School logo" */
+  title: string
+  /** "seal", "logo" */
+  noun: string
+  description: React.ReactNode
+  hint: string
+  /** The current image (a data URL or an address), or null */
+  current: string | null
+  /** Whether "Remove" applies to the current image (a logo given as a web address isn't removed here) */
+  removable: boolean
+  removeDescription: string
+  save: { mutateAsync: (v: { file: Blob; filename: string }) => Promise<unknown>; isPending: boolean }
+  remove: { mutateAsync: () => Promise<unknown>; isPending: boolean }
+}
+
+// An optional image of the school (seal, logo): show it, replace it, remove it
+function ImageCard({ id, icon: Icon, title, noun, description, hint, current, removable, removeDescription, save, remove }: ImageCardProps) {
   const [picked, setPicked] = React.useState<PickedImage | null>(null)
   const [confirm, setConfirm] = React.useState(false)
 
@@ -189,60 +214,62 @@ function SealCard({ profile }: { profile: Profile }) {
     try {
       await save.mutateAsync({ file: picked.file, filename: picked.filename })
       setPicked(null)
-      notify.success("School seal saved.")
+      notify.success(`${title} saved.`)
     } catch (error) {
-      notify.error(`${errorText(error, "The seal wasn't saved.")} Try again.`)
+      notify.error(`${errorText(error, `The ${noun} wasn't saved.`)} Try again.`)
     }
   }
 
   return (
-    <section className="rounded-xl border p-4 md:p-6" aria-labelledby="sp-seal">
+    <section className="rounded-xl border p-4 md:p-6" aria-labelledby={id}>
       <div className="flex items-start gap-3">
         <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-          <Stamp className="size-5" aria-hidden="true" />
+          <Icon className="size-5" aria-hidden="true" />
         </div>
         <div>
-          <h2 id="sp-seal" className="text-base font-semibold">
-            School seal
+          <h2 id={id} className="text-base font-semibold">
+            {title}
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">Optional. Printed next to the principal&rsquo;s signature.</p>
+          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         </div>
       </div>
 
-      {profile.seal ? (
+      {current ? (
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex size-32 items-center justify-center rounded-xl border bg-white p-2">
-            {/* eslint-disable-next-line @next/next/no-img-element -- data URL from the server */}
-            <img src={profile.seal} alt="Current school seal" className="max-h-full max-w-full object-contain" />
+            {/* eslint-disable-next-line @next/next/no-img-element -- data URL or the school's own image address */}
+            <img src={current} alt={`Current ${title.toLowerCase()}`} className="max-h-full max-w-full object-contain" />
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            className="min-h-11 text-destructive"
-            onClick={() => setConfirm(true)}
-            disabled={remove.isPending}
-          >
-            <Trash2 aria-hidden="true" />
-            Remove seal
-          </Button>
+          {removable ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11 text-destructive"
+              onClick={() => setConfirm(true)}
+              disabled={remove.isPending}
+            >
+              <Trash2 aria-hidden="true" />
+              Remove {noun}
+            </Button>
+          ) : null}
         </div>
       ) : null}
 
       <div className="mt-4">
         <ImagePicker
-          what="school seal"
+          what={title.toLowerCase()}
           value={picked}
           onChange={setPicked}
           previewClassName="h-40"
           disabled={save.isPending}
-          hint="A clear photo or scan of the stamp on white paper. PNG or JPEG, up to 1 MB."
+          hint={hint}
         />
       </div>
       {picked ? (
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
           <Button type="button" className="min-h-11" onClick={onSave} disabled={save.isPending}>
             {save.isPending ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
-            {profile.seal ? "Replace seal" : "Save seal"}
+            {current ? `Replace ${noun}` : `Save ${noun}`}
           </Button>
         </div>
       ) : null}
@@ -250,21 +277,61 @@ function SealCard({ profile }: { profile: Profile }) {
       <ConfirmDialog
         open={confirm}
         onOpenChange={setConfirm}
-        title="Remove the school seal?"
-        description="Report cards will print without a seal. You can upload it again at any time."
-        confirmLabel="Remove seal"
+        title={`Remove the ${title.toLowerCase()}?`}
+        description={removeDescription}
+        confirmLabel={`Remove ${noun}`}
         destructive
         onConfirm={async () => {
           try {
             await remove.mutateAsync()
-            notify.success("School seal removed.")
+            notify.success(`${title} removed.`)
           } catch (error) {
-            notify.error(`${errorText(error, "The seal wasn't removed.")} Try again.`)
+            notify.error(`${errorText(error, `The ${noun} wasn't removed.`)} Try again.`)
             throw error
           }
         }}
       />
     </section>
+  )
+}
+
+function LogoCard({ profile }: { profile: Profile }) {
+  const save = useSaveLogo()
+  const remove = useRemoveLogo()
+  return (
+    <ImageCard
+      id="sp-logo"
+      icon={ImageIcon}
+      title="School logo"
+      noun="logo"
+      description="Shown on your sign-in page, at the top of the app, on receipts and on report cards."
+      hint="A square image on a plain or clear background works best. PNG or JPEG, up to 1 MB."
+      current={profile.logo}
+      removable={profile.logo_uploaded}
+      removeDescription="Your sign-in page, receipts and report cards will show no logo. You can upload it again at any time."
+      save={save}
+      remove={remove}
+    />
+  )
+}
+
+function SealCard({ profile }: { profile: Profile }) {
+  const save = useSaveSeal()
+  const remove = useRemoveSeal()
+  return (
+    <ImageCard
+      id="sp-seal"
+      icon={Stamp}
+      title="School seal"
+      noun="seal"
+      description={<>Optional. Printed next to the principal&rsquo;s signature.</>}
+      hint="A clear photo or scan of the stamp on white paper. PNG or JPEG, up to 1 MB."
+      current={profile.seal}
+      removable
+      removeDescription="Report cards will print without a seal. You can upload it again at any time."
+      save={save}
+      remove={remove}
+    />
   )
 }
 
@@ -275,11 +342,11 @@ export function SchoolProfile({ school }: { school: string }) {
   return (
     <PageShell
       title="School profile"
-      description="What report cards print about your school: address, motto, contacts, the principal and the school seal."
+      description="What report cards print about your school: logo, address, motto, contacts, the principal and the school seal."
       className="max-w-4xl"
     >
       <p className="rounded-xl border bg-muted/40 p-4 text-sm">
-        The school&rsquo;s name and logo are changed in{" "}
+        The school&rsquo;s name and colours are changed in{" "}
         <Link href={`/${school}/settings/tenant`} className="font-medium text-primary underline underline-offset-4">
           school settings
         </Link>
@@ -313,6 +380,7 @@ export function SchoolProfile({ school }: { school: string }) {
       ) : query.data ? (
         <>
           <ProfileForm key={query.data.updated_at ?? "profile"} profile={query.data} />
+          <LogoCard profile={query.data} />
           <SealCard profile={query.data} />
         </>
       ) : null}

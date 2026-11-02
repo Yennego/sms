@@ -4,7 +4,7 @@
 // (components/fees/money.ts); the browser never adds amounts up. USD and LRD are kept apart:
 // every amount pair is a PerCurrency object ({USD?: "...", LRD?: "..."}).
 //
-// The expense endpoints (/finance/expenses) are unchanged from before Phase 5 and live here too.
+// The expense endpoints (/finance/expenses) live here too; each expense has its own currency.
 import { useMemo } from 'react';
 
 import { createWaitForApiClientReady, useApiClientWithLoading } from './api-client';
@@ -435,12 +435,14 @@ export interface ArrearsReport {
   totals: { students: number; students_overdue: number; overdue: PerCurrency; balance: PerCurrency };
 }
 
-// ---- Expenses (unchanged endpoints) --------------------------------------------------------------
+// ---- Expenses ------------------------------------------------------------------------------------
 
+/** One expense, in one currency; totals are kept per currency. */
 export interface Expenditure {
   id: string;
   expense_category_id: string;
   amount: Money;
+  currency: Currency;
   date: string;
   payee: string | null;
   description: string | null;
@@ -449,6 +451,7 @@ export interface Expenditure {
 export interface ExpenditureInput {
   expense_category_id: string;
   amount: Money;
+  currency: Currency;
   date: string;
   payee?: string | null;
   description?: string | null;
