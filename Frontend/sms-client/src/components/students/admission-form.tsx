@@ -326,7 +326,7 @@ export function AdmissionForm({ school }: { school: string }) {
                 <FormField
                   label="Phone number"
                   error={errors.g_phone?.message}
-                  description="Used to sign in and for school messages."
+                  description="For school messages and calls. They sign in with their username or email."
                   required
                 >
                   <Input type="tel" inputMode="tel" {...register("g_phone")} autoComplete="off" className={inputClass} />
