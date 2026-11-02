@@ -1043,7 +1043,7 @@ A school year has 2 semesters. Each semester has 3 periods and one exam:
    - Open **Students → Promotion**.
    - Choose the **Academic Year** (the year that is ending), **Promote into** (the new year) and the **Grade**, and tap **Evaluate Eligibility**.
    - Check the results. Each student is **Eligible**, **Repeating**, **Conditional** or **Not graded**.
-   - Tap **Execute Transition**, then **Confirm & Execute**. Eligible students move up one grade into the new year. Repeating and Conditional students get remedial sessions and stay. Not graded students are skipped.
+   - Tap **Execute Transition**, then **Confirm & Execute**. Eligible students move up one grade into the new year. Repeating and Conditional students repeat their grade: they go into the same grade's class in the new year (their own section if it has a class, otherwise the class with the most free places) and get remedial sessions. Not graded students are skipped: grade them and run it again, or place them by hand.
    - Repeat for each grade. Running it again for the same grade is safe.
    - The final grade is not moved: those students graduate in the next step.
 5. **Graduation:**
@@ -1053,8 +1053,8 @@ A school year has 2 semesters. Each semester has 3 periods and one exam:
 6. **Make the new year current:** open **Classes → Years and terms** and tap **Activate** on the new year.
 7. **Finish the new year's setup** in **Classes → Setup**:
    - check each step;
-   - promoted students are already in their new classes;
-   - put students who repeat a grade in a class with **Class placement**, then admit the new students.
+   - promoted and repeating students are already in their new classes;
+   - admit the new students.
 8. **Fees:** set the new year's fees and issue invoices. Each student's currency is chosen again by their first payment of the new year.
 9. **Receipts:** receipt numbers start again at 00001 for the new year, for example 2027-00001. The number uses the year the school year starts in.
 

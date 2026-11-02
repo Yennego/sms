@@ -18,7 +18,7 @@ from src.schemas.people import Student, StudentCreate, StudentUpdate, StudentBul
 from src.schemas.people import Teacher, TeacherCreate, TeacherUpdate, TeacherCreateResponse
 from src.schemas.people import Parent, ParentCreate, ParentUpdate
 from src.core.middleware.tenant import get_tenant_id_from_request, get_tenant_from_request 
-from src.core.auth.dependencies import has_any_role, get_current_user, get_current_active_user, has_permission
+from src.core.auth.dependencies import get_current_user, get_current_active_user, has_permission, has_role_or_permission
 from src.schemas.auth import User
 from src.schemas.auth import User
 from src.db.crud.auth.user import user
@@ -301,7 +301,7 @@ async def bulk_delete_students(
 async def delete_student(
     *,
     student_id: UUID,
-    current_user: User = Depends(has_any_role(["admin"])),
+    current_user: User = Depends(has_permission("delete_students")),
     db: Session = Depends(get_db),
     tenant_id: UUID = Depends(get_tenant_id_from_request)
 ) -> Any:
@@ -351,7 +351,7 @@ async def promote_student(
     student_id: UUID,
     new_grade: str = Query(..., description="New grade for the student"),
     new_section: Optional[str] = Query(None, description="New section for the student"),
-    current_user: User = Depends(has_any_role(["admin"])),
+    current_user: User = Depends(has_permission("manage_academic_year")),
     db: Session = Depends(get_db),
     tenant_id: UUID = Depends(get_tenant_id_from_request)
 ) -> Any:
@@ -381,7 +381,7 @@ async def graduate_student(
     student_id: UUID,
     graduation_date: date = Query(..., description="Graduation date"),
     honors: List[str] = Query(None, description="Honors received"),
-    current_user: User = Depends(has_any_role(["admin"])),
+    current_user: User = Depends(has_permission("manage_academic_year")),
     db: Session = Depends(get_db),
     tenant_id: UUID = Depends(get_tenant_id_from_request)
 ) -> Any:
@@ -528,9 +528,11 @@ async def get_teachers(
     department: Optional[str] = None,
     is_class_teacher: Optional[bool] = None,
     status: Optional[str] = None,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["view_teachers"])),
 ) -> Any:
-    """Get all teachers for a tenant with optional filtering and search."""
+    """The school's teachers (staff with view_teachers, and teachers). Students and parents
+    can't list staff contact details."""
     
     filters = {}
     if department:
@@ -795,7 +797,7 @@ async def remove_student_from_parent(*, db: Session = Depends(get_db), tenant_id
 async def get_student_enrollments(
     *,
     student_id: UUID,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student", "parent"])),
+    current_user: User = Depends(has_role_or_permission(["teacher", "student", "parent"], ["view_students"])),
     db: Session = Depends(get_db),
     tenant_id: UUID = Depends(get_tenant_id_from_request),
     skip: int = 0,
@@ -818,7 +820,7 @@ async def get_student_enrollments(
 async def get_student_current_enrollment(
     *,
     student_id: UUID,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student", "parent"])),
+    current_user: User = Depends(has_role_or_permission(["teacher", "student", "parent"], ["view_students"])),
     db: Session = Depends(get_db),
     tenant_id: UUID = Depends(get_tenant_id_from_request)
 ) -> Any:
@@ -840,7 +842,7 @@ async def get_student_current_enrollment(
 async def get_bulk_current_enrollments(
     *,
     payload: Dict[str, Any] = Body(...),
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student", "parent"])),
+    current_user: User = Depends(has_role_or_permission(["teacher", "student", "parent"], ["view_students"])),
     db: Session = Depends(get_db),
     tenant_id: UUID = Depends(get_tenant_id_from_request)
 ) -> Any:

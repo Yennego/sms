@@ -99,7 +99,8 @@ export default function AssignmentsPage() {
           academic_year_id: academicYearId || undefined
         }),
         getActiveSubjects(),
-        getTeachers(),
+        // Students can't list staff; the teacher filter is for staff only
+        isStudent ? Promise.resolve([]) : getTeachers().catch(() => []),
         getGrades(),
       ]);
       setAssignments(enrollment

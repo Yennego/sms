@@ -31,6 +31,10 @@ ADMIN_PERMISSIONS = [
     "view_users", "manage_users", "delete_users", "view_students", "manage_students",
     "manage_teachers", "manage_tenant_settings", "view_financial_data", "manage_financial_data",
     "manage_roles", "create_users", "manage_academic_year", "manage_enrollment", "promote_students",
+    # academics and attendance check these instead of the admin role name (migration c3f9a1d7e2b8)
+    "view_classes", "manage_classes", "view_subjects", "manage_subjects", "manage_teacher_assignments",
+    "view_academic_data", "manage_academic_data", "create_assignments", "delete_assignments",
+    "delete_students", "view_school_attendance", "manage_school_attendance", "view_teachers",
 ]
 PLATFORM_ONLY = ["manage_tenants"]
 

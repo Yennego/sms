@@ -29,8 +29,8 @@ from src.schemas.academics.daily_attendance import (
     DailyStatusSet, ExcuseReview, ExcuseSet, SchoolCalendarDayUpsert, SchoolDayInfo
 )
 from src.services.academics.attendance_access import (
-    academic_year_for, check_class_marking_permission, check_enrollment, enrolled_student_ids,
-    is_admin, resolve_viewable_student_id
+    academic_year_for, check_class_marking_permission, check_class_viewing_permission, check_enrollment,
+    enrolled_student_ids, is_admin, resolve_viewable_student_id
 )
 from src.services.notification import alerts
 
@@ -530,7 +530,7 @@ class DailyAttendanceService:
         from src.db.models.auth import User as UserModel
 
         record = self._get_record(daily_id)
-        check_class_marking_permission(self.db, self._get_class(record.class_id), user.id)
+        check_class_viewing_permission(self.db, self._get_class(record.class_id), user)
         rows = self.db.query(AttendanceEvent, UserModel.first_name, UserModel.last_name).outerjoin(
             UserModel, UserModel.id == AttendanceEvent.actor_id
         ).filter(

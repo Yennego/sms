@@ -63,10 +63,12 @@ const STUDENTS: NavArea = {
 
 const STUDENTS_READ_ONLY: NavArea = { ...STUDENTS, tabs: [tab('Directory', '/students')] };
 
-// The registrar: Enrollments and Graduation are admin and principal pages
+// The registrar: Enrollments, Promotion and Graduation (the year's end) are admin and principal pages
 const STUDENTS_REGISTRAR: NavArea = {
   ...STUDENTS,
-  tabs: STUDENTS.tabs.filter((t) => !['/academics/enrollments', '/academics/graduation'].includes(t.path)),
+  tabs: STUDENTS.tabs.filter(
+    (t) => !['/academics/enrollments', '/academics/promotion', '/academics/graduation'].includes(t.path)
+  ),
 };
 
 const STAFF: NavArea = {
@@ -93,6 +95,12 @@ const CLASSES: NavArea = {
   ],
 };
 
+// The registrar sets up classes but not the school year (Setup needs manage_academic_year)
+const CLASSES_REGISTRAR: NavArea = {
+  ...CLASSES,
+  tabs: CLASSES.tabs.filter((t) => t.path !== '/academics/setup'),
+};
+
 const ATTENDANCE: NavArea = {
   key: 'attendance', label: 'Attendance', icon: ClipboardCheck,
   tabs: [
@@ -104,6 +112,13 @@ const ATTENDANCE: NavArea = {
     tab('Reports', '/attendance/reports', undefined, ['/attendance/students']),
     tab('ID cards', '/attendance/id-cards'),
   ],
+};
+
+// The principal and registrar read the whole school's attendance (view_school_attendance);
+// marking, scanning, excuses and ID cards stay with admins and teachers
+const ATTENDANCE_READ_ONLY: NavArea = {
+  ...ATTENDANCE,
+  tabs: ATTENDANCE.tabs.filter((t) => ['/attendance', '/attendance/reports'].includes(t.path)),
 };
 
 const GRADES: NavArea = {
@@ -173,9 +188,8 @@ const ADMIN: RoleNavigation = {
   settings: SCHOOL_SETTINGS,
 };
 
-// The admin dashboard and the Attendance pages (Today, Mark, Excuses, ID cards) are for school
-// admins (and teachers marking their class), so the principal and registrar don't get them: the
-// dashboard sends them away and the attendance pages refuse them.
+// The admin dashboard is for school admins (it sends anyone else away), so the principal and
+// registrar land on a page of their own.
 const ROLES: Record<string, RoleNavigation> = {
   admin: ADMIN,
   'tenant-admin': ADMIN,
@@ -183,7 +197,7 @@ const ROLES: Record<string, RoleNavigation> = {
     home: '/academics/grades/publish',
     signs: true,
     areas: [
-      STUDENTS, STAFF, CLASSES,
+      STUDENTS, STAFF, CLASSES, ATTENDANCE_READ_ONLY,
       // Assignments is the teachers' tool
       { ...GRADES, tabs: GRADES.tabs.filter((t) => t.path !== '/academics/assignments') },
       FEES_REVIEW(FEES), MESSAGES,
@@ -192,7 +206,7 @@ const ROLES: Record<string, RoleNavigation> = {
   registrar: {
     home: '/students',
     signs: true,
-    areas: [STUDENTS_REGISTRAR, CLASSES, MESSAGES],
+    areas: [STUDENTS_REGISTRAR, CLASSES_REGISTRAR, ATTENDANCE_READ_ONLY, MESSAGES],
   },
   accountant: { home: '/finance', areas: [{ ...FEES, feature: undefined }, STUDENTS_READ_ONLY, MESSAGES] },
   'financial-admin': { home: '/finance', areas: [{ ...FEES, feature: undefined }, STUDENTS_READ_ONLY, MESSAGES] },

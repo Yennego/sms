@@ -61,13 +61,15 @@ export default function AttendanceOverviewPage() {
     ? user.roles.map((r: unknown) => (typeof r === 'string' ? r : (r as { name?: string })?.name ?? ''))
     : user?.role ? [user.role] : [];
   const isAdmin = roleNames.some(r => ['admin', 'superadmin', 'super-admin'].includes(r));
+  // The principal and registrar read the whole school's attendance; only admins run it
+  const canView = isAdmin || (user?.permissions ?? []).includes('view_school_attendance');
   const base = `/${tenant?.domain ?? ''}`;
 
   useEffect(() => {
-    if (authLoading || !user || isAdmin) return;
+    if (authLoading || !user || canView) return;
     const home = ROLE_HOME[user.role ?? ''] ?? '/dashboard';
     router.replace(`${base}${home}`);
-  }, [authLoading, user, isAdmin, router, base]);
+  }, [authLoading, user, canView, router, base]);
 
   const load = useCallback(async (day?: string) => {
     setLoading(true);
@@ -83,19 +85,21 @@ export default function AttendanceOverviewPage() {
   }, [getOverview]);
 
   useEffect(() => {
-    if (isAdmin) load();
-  }, [isAdmin, load]);
+    if (canView) load();
+  }, [canView, load]);
 
-  if (authLoading || !user || !isAdmin) {
+  if (authLoading || !user || !canView) {
     return <div className="flex justify-center py-24"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>;
   }
 
-  const links = [
+  const links = isAdmin ? [
     { href: '/attendance/daily', label: 'Mark attendance', icon: ClipboardList },
     { href: '/attendance/scan', label: 'Scan ID cards', icon: ScanLine },
     { href: '/attendance/id-cards', label: 'Print ID cards', icon: IdCard },
     { href: '/attendance/reports', label: 'Class reports', icon: BarChart3 },
     { href: '/settings/attendance', label: 'Settings & holidays', icon: Settings },
+  ] : [
+    { href: '/attendance/reports', label: 'Class reports', icon: BarChart3 },
   ];
 
   return (
@@ -147,7 +151,7 @@ export default function AttendanceOverviewPage() {
               <span>The cut-off has passed: students who weren&apos;t scanned or marked are recorded absent.</span>
             </div>
           )}
-          {overview.pending_excuses > 0 && (
+          {isAdmin && overview.pending_excuses > 0 && (
             <Link href={`${base}/attendance/excuses`}
               className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 hover:bg-amber-100">
               <span className="flex items-center gap-3"><FileText className="h-5 w-5" />
@@ -180,8 +184,8 @@ export default function AttendanceOverviewPage() {
                   <tr><td colSpan={10} className="px-5 py-10 text-center text-gray-500">No active classes in this academic year.</td></tr>
                 ) : overview.classes.map(c => (
                   <tr key={c.class_id}
-                    onClick={() => router.push(`${base}/attendance/daily?classId=${c.class_id}&date=${overview.day.date}`)}
-                    className="cursor-pointer hover:bg-indigo-50/40">
+                    onClick={isAdmin ? () => router.push(`${base}/attendance/daily?classId=${c.class_id}&date=${overview.day.date}`) : undefined}
+                    className={isAdmin ? 'cursor-pointer hover:bg-indigo-50/40' : undefined}>
                     <td className="px-5 py-3 font-semibold text-gray-800">{c.class_name}</td>
                     <td className="px-5 py-3 text-gray-600">{c.sponsor_name ?? <span className="text-amber-600">No sponsor</span>}</td>
                     <td className="px-3 py-3 text-right">{c.enrolled}</td>

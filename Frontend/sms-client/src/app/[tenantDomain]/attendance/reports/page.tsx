@@ -49,18 +49,19 @@ export default function AttendanceReportsPage() {
   const isAdmin = Array.isArray(user?.roles)
     ? user.roles.some((r: unknown) => ['admin', 'superadmin', 'super-admin'].includes(typeof r === 'string' ? r : (r as { name?: string })?.name ?? ''))
     : user?.role === 'admin';
+  const wholeSchool = isAdmin || (user?.permissions ?? []).includes('view_school_attendance');
 
-  // Admins report on any class; a sponsor on the classes they sponsor
+  // Admins, the principal and the registrar report on any class; a sponsor on the classes they sponsor
   useEffect(() => {
     if (!user?.id) return;
-    getClasses(isAdmin ? { is_active: true } : { class_teacher_id: user.id, is_active: true })
+    getClasses(wholeSchool ? { is_active: true } : { class_teacher_id: user.id, is_active: true })
       .then(list => {
         const options = list.map(c => ({ id: c.id, name: c.name || `${c.grade_name} ${c.section_name}` }));
         setClasses(options);
         if (options.length === 1) setClassId(options[0].id);
       })
       .catch((err: unknown) => toast.error(errorMessageOf(err, 'Failed to load classes')));
-  }, [user?.id, isAdmin, getClasses]);
+  }, [user?.id, wholeSchool, getClasses]);
 
   const run = async () => {
     if (!classId) {

@@ -44,7 +44,8 @@ class PromotionService(TenantBaseService):
         self, current_year_id: UUID, target_year_name: str, grade_id: Optional[UUID] = None
     ) -> Dict[str, Any]:
         """Year-end transition (one grade level, or all): passing students move to the next grade
-        level in the target year; failing ones get remedial sessions and stay; students without
+        level in the target year; students who stay in their grade (Repeating, Conditional) get
+        remedial sessions and a class of the same grade in the target year; students without
         published results are skipped. Final-grade students who passed are left for Graduation."""
         from src.db.models.academics.enrollment import Enrollment as EnrollmentModel
         from src.db.models.academics.remedial_session import RemedialSession
@@ -57,6 +58,7 @@ class PromotionService(TenantBaseService):
             raise BusinessRuleViolationError("Choose a school year that starts after the one you are promoting from")
 
         results = {"promoted": [], "remedial": [], "graduating": [], "skipped": [], "errors": []}
+        billed_ids = []  # newly in a class in the target year
 
         query = self.db.query(EnrollmentModel).filter(
             EnrollmentModel.tenant_id == self.tenant_id,
@@ -70,7 +72,6 @@ class PromotionService(TenantBaseService):
 
         grades = self._grades_in_order()
         final_grade_id = grades[-1].id if grades else None
-        promoted_ids = []
 
         for en in enrollments:
             eval_res = await self.evaluate_eligibility(en.id)
@@ -85,10 +86,11 @@ class PromotionService(TenantBaseService):
                     results["errors"].append(promo_res)
                 else:
                     results["promoted"].append(promo_res)
-                    promoted_ids.append(en.student_id)
+                    billed_ids.append(en.student_id)
             else:
-                # Failed/Conditional -> remedial sessions; the student stays in this year's class.
-                # Running the transition again doesn't book the same session twice.
+                # Repeating/Conditional: the promotion rules keep them in their grade. Remedial
+                # sessions in this year, and the same grade's class in the target year. Running the
+                # transition again doesn't book the same session twice.
                 booked = {sid for (sid,) in self.db.query(RemedialSession.subject_id).filter(
                     RemedialSession.tenant_id == self.tenant_id, RemedialSession.enrollment_id == en.id)}
                 for subject_id in eval_res.get("failed_subject_ids", []):
@@ -99,16 +101,68 @@ class PromotionService(TenantBaseService):
                         subject_id=subject_id, academic_year_id=current.id, scheduled_date=date.today(),
                     ))
                 self.db.flush()
+                placed = self._repeat_grade(en, target)
+                if placed["type"] == "error":
+                    results["errors"].append(placed)
+                    continue
+                billed_ids.append(en.student_id)
                 results["remedial"].append({
                     "student_id": en.student_id,
                     "status": eval_res["status"],
-                    "failed_subjects": len(eval_res.get("failed_subject_ids", []))
+                    "failed_subjects": len(eval_res.get("failed_subject_ids", [])),
+                    "class_id": placed["class_id"],
+                    "class_name": placed["class_name"],
                 })
 
         # Billed like their new classmates when the target year already has invoices issued
         from src.services.finance.fee_service import FeeService
-        FeeService(self.db, self.tenant_id, None).bill_new_enrollment(promoted_ids, target.id)
+        FeeService(self.db, self.tenant_id, None).bill_new_enrollment(billed_ids, target.id)
         return results
+
+    def _repeat_grade(self, current_enrollment, target_year) -> Dict[str, Any]:
+        """Enroll a student who stays in their grade in that grade's class in target_year: the same
+        section's class when there is one, else the grade's class with the most free places. The
+        old enrollment is kept as history (status "completed")."""
+        from sqlalchemy import func
+        from src.db.models.academics.class_model import Class
+        from src.db.models.academics.enrollment import Enrollment as EnrollmentModel
+
+        def error(message: str) -> Dict[str, Any]:
+            return {"student_id": current_enrollment.student_id, "error": message, "type": "error"}
+
+        if self.db.query(EnrollmentModel.id).filter(
+            EnrollmentModel.tenant_id == self.tenant_id,
+            EnrollmentModel.student_id == current_enrollment.student_id,
+            EnrollmentModel.academic_year_id == target_year.id,
+        ).first():
+            return error(f"Already has a class in {target_year.name}")
+        classes = self.db.query(Class).filter(
+            Class.tenant_id == self.tenant_id, Class.academic_year_id == target_year.id,
+            Class.grade_id == current_enrollment.grade_id,
+        ).all()
+        klass = next((c for c in classes if c.section_id == current_enrollment.section_id), None)
+        if klass is None and classes:
+            enrolled = dict(self.db.query(EnrollmentModel.class_id, func.count(EnrollmentModel.id)).filter(
+                EnrollmentModel.tenant_id == self.tenant_id,
+                EnrollmentModel.class_id.in_([c.id for c in classes]),
+                EnrollmentModel.status == "active",
+            ).group_by(EnrollmentModel.class_id).all())
+            klass = max(classes, key=lambda c: ((c.capacity or 0) - enrolled.get(c.id, 0), c.name or ""))
+        if klass is None:
+            return error(f"No {current_enrollment.grade_name} class in {target_year.name}. Create it in the year setup.")
+
+        current_enrollment.status = "completed"
+        current_enrollment.is_active = False
+        new_enrollment = EnrollmentModel(
+            tenant_id=self.tenant_id, student_id=current_enrollment.student_id, academic_year_id=target_year.id,
+            class_id=klass.id, grade_id=klass.grade_id, section_id=klass.section_id,
+            semester=1, enrollment_date=date.today(), status="active", is_active=True,
+            comments=f"Repeats {current_enrollment.grade_name} (year-end transition on {date.today()})",
+        )
+        self.db.add(new_enrollment)
+        self.db.flush()
+        return {"student_id": current_enrollment.student_id, "enrollment_id": new_enrollment.id,
+                "class_id": klass.id, "class_name": klass.name, "type": "repeat"}
 
     async def bulk_promote_students(
         self, 

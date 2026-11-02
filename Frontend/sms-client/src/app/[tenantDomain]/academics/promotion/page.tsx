@@ -237,7 +237,7 @@ export default function PromotionDashboard() {
                             <CardTitle>Transition done</CardTitle>
                             <CardDescription>
                                 {transitionResult.promoted.length} promoted to {targetYearName}.{' '}
-                                {transitionResult.remedial.length} kept back for remedial.{' '}
+                                {transitionResult.remedial.length} repeat their grade in {targetYearName}, with remedial sessions.{' '}
                                 {transitionResult.skipped.length} not graded, skipped.
                                 {transitionResult.graduating.length > 0 && ` ${transitionResult.graduating.length} in the final grade: graduate them on the Graduation page.`}
                                 {transitionResult.errors.length > 0 && ` ${transitionResult.errors.length} not moved: ${transitionResult.errors.map(e => e.error).join('; ')}.`}
@@ -358,7 +358,7 @@ export default function PromotionDashboard() {
                         </div>
                         <DialogDescription className="text-base text-gray-600">
                             Students in {grades.find(g => g.id === selectedGrade)?.name ?? 'this grade'} who passed move up one grade in {targetYearName}.
-                            Students who failed get remedial sessions and stay. Students not graded are skipped.
+                            Students who failed repeat their grade in {targetYearName} and get remedial sessions. Students not graded are skipped.
                             <span className="block mt-2 font-medium text-indigo-700">Final-grade students are not moved: graduate them on the Graduation page.</span>
                         </DialogDescription>
                     </DialogHeader>

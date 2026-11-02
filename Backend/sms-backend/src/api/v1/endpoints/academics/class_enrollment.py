@@ -15,7 +15,7 @@ from src.schemas.academics.class_enrollment import (
     ClassEnrollmentSummary
 )
 from src.core.middleware.tenant import get_tenant_from_request
-from src.core.auth.dependencies import has_any_role, get_current_user, has_permission
+from src.core.auth.dependencies import get_current_user, has_permission, has_role_or_permission
 from src.schemas.auth import User
 from src.core.exceptions.business import (
     EntityNotFoundError,
@@ -83,7 +83,7 @@ async def create_class_enrollment(
     *,
     class_enrollment_service: ClassEnrollmentService = Depends(),
     enrollment_in: ClassEnrollmentCreate,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["manage_enrollment"]))
 ) -> Any:
     """Enroll a student in a class (requires admin or teacher role)."""
     try:
@@ -114,7 +114,7 @@ async def bulk_create_class_enrollments(
     *,
     class_enrollment_service: ClassEnrollmentService = Depends(),
     bulk_data: BulkClassEnrollmentCreate,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["manage_enrollment"]))
 ) -> Any:
     """Bulk enroll multiple students in a class (requires admin or teacher role)."""
     try:
@@ -242,7 +242,7 @@ async def delete_class_enrollment(
     *,
     class_enrollment_service: ClassEnrollmentService = Depends(),
     enrollment_id: UUID,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_enrollment"))
 ):
     """Delete a class enrollment (requires admin role)."""
     try:
@@ -304,7 +304,7 @@ async def complete_student_enrollment(
     class_enrollment_service: ClassEnrollmentService = Depends(),
     enrollment_id: UUID,
     completion_data: Dict[str, Any] = Body(...),
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["manage_enrollment"]))
 ) -> Any:
     """Mark a student's enrollment as completed."""
     try:
@@ -334,7 +334,7 @@ async def reactivate_enrollment(
     *,
     class_enrollment_service: ClassEnrollmentService = Depends(),
     enrollment_id: UUID,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["manage_enrollment"]))
 ) -> Any:
     """Reactivate a dropped enrollment."""
     try:
@@ -389,7 +389,7 @@ async def get_student_classes(
     student_id: UUID,
     academic_year_id: Optional[UUID] = Query(None, description="Filter by academic year"),
     is_active: bool = Query(True, description="Filter by active status"),
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student", "parent"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student", "parent"], ["view_students"]))
 ) -> Any:
     """Get all classes a student is enrolled in."""
     try:

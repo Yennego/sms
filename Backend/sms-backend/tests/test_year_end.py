@@ -9,11 +9,13 @@ from datetime import date
 from uuid import UUID
 
 from src.db.models.academics.assessment import Assessment
+from src.db.models.academics.class_model import Class
 from src.db.models.academics.class_subject import ClassSubject
 from src.db.models.academics.enrollment import Enrollment
 from src.db.models.academics.gradebook import ResultPublication, ScoreEntry
 from src.db.models.academics.period import Period
 from src.db.models.academics.remedial_session import RemedialSession
+from src.db.models.academics.section import Section
 from src.db.models.academics.semester import Semester
 from src.db.models.academics.subject import Subject
 from src.db.models.people.student import Student
@@ -92,12 +94,13 @@ def test_end_of_year_promote_graduate_and_start_the_new_year(env, clock, monkeyp
     result = client.post(f"{A}/promotions/transition", headers=h, params=grade1).json()
     assert [p["student_id"] for p in result["promoted"]] == [pupil[0]]
     assert result["promoted"][0]["class_id"] == new_classes[s["g2"]]  # last year's class, copied
-    assert [x["student_id"] for x in result["remedial"]] == [pupil[1]]
+    # Conditional: the rules keep them in Grade 1, so remedial sessions and next year's Grade 1 class
+    assert [(x["student_id"], x["class_id"]) for x in result["remedial"]] == [(pupil[1], new_classes[s["g1"]])]
     assert [x["student_id"] for x in result["skipped"]] == [pupil[2]]
     assert result["errors"] == [] and result["graduating"] == []
     # Running it again changes nothing and books no second remedial session
     again = client.post(f"{A}/promotions/transition", headers=h, params=grade1).json()
-    assert again["promoted"] == [] and again["errors"] == []
+    assert again["promoted"] == [] and again["remedial"] == [] and again["errors"] == []
     gen, db = _db()
     assert db.query(RemedialSession).filter(RemedialSession.student_id == ids["pupil1"]).count() == 1
     next(gen, None)
@@ -127,10 +130,16 @@ def test_end_of_year_promote_graduate_and_start_the_new_year(env, clock, monkeyp
     rows = {(str(e.student_id), str(e.academic_year_id)): e for e in db.query(Enrollment)}
     assert str(rows[(pupil[0], new)].class_id) == new_classes[s["g2"]] and rows[(pupil[0], new)].is_active
     assert (rows[(pupil[0], old)].status, rows[(pupil[0], old)].is_active) == ("completed", False)
-    assert rows[(pupil[1], old)].status == "active" and (pupil[1], new) not in rows  # repeats: placed by hand
+    assert str(rows[(pupil[1], new)].class_id) == new_classes[s["g1"]]  # repeats Grade 1
+    assert (rows[(pupil[1], old)].status, rows[(pupil[1], old)].is_active) == ("completed", False)
+    assert (pupil[2], new) not in rows and rows[(pupil[2], old)].status == "active"  # not graded: skipped
     assert rows[(pupil[3], old)].status == "graduated"
     assert db.query(Student).filter(Student.id == ids["pupil3"]).one().status == "graduated"
     next(gen, None)
+
+    roster = client.get(f"{A}/class-placement/roster", headers=h,
+                        params={"academic_year_id": old, "placement": "placed"}).json()
+    assert {i["student_id"] for i in roster["items"]} == {pupil[0], pupil[1], pupil[2]}  # pupil 3 graduated
 
     # Last year's report cards are still there
     for i, class_name in ((0, "Grade 1 - A"), (3, "Grade 2 - A")):
@@ -161,7 +170,7 @@ def test_end_of_year_promote_graduate_and_start_the_new_year(env, clock, monkeyp
         "academic_year_id": new, "semester_id": sem1_id, "category_id": tuition,
         "amount_usd": "120", "amount_lrd": "21000"}).status_code == 200
     issued = client.post(f"{F}/invoices/issue", headers=h, json={"academic_year_id": new, "semester_id": sem1_id})
-    assert issued.json()["students"] == 1  # only pupil 0 is in a class this year so far
+    assert issued.json()["students"] == 2  # pupils 0 (promoted) and 1 (repeating) so far
     assert _statement(client, ids, s, pupil=0)["account"]["currency"] is None
     paid = client.post(f"{F}/payments", headers=h, json={
         "student_id": pupil[0], "academic_year_id": new, "amount": "1000", "currency": "LRD", "method": "cash"})
@@ -169,6 +178,31 @@ def test_end_of_year_promote_graduate_and_start_the_new_year(env, clock, monkeyp
     assert paid.json()["receipt_number"] == "2027-00001"
     old_statement = client.get(f"{F}/accounts/{pupil[0]}", headers=h, params={"academic_year_id": old}).json()
     assert old_statement["account"]["currency"] == "USD"
+
+
+def test_repeater_goes_to_the_class_with_most_free_places_when_their_section_has_none(env):
+    client, ids = env
+    s = _seed_school(ids)
+    h = headers(ids, "admin_a")
+    _publish_exam(ids, s, {1: 40})  # pupil 1 fails Grade 1 (section A)
+    new = client.post(f"{A}/academic-years", headers=h, json={
+        "name": "2027/2028", "start_date": "2027-09-01", "end_date": "2028-07-15"}).json()["id"]
+    gen, db = _db()
+    a, g1 = ids["tenant_a"], UUID(s["g1"])
+    b, c = (Section(tenant_id=a, name=n, grade_id=g1, capacity=30, is_active=True) for n in "BC")
+    db.add_all([b, c])
+    db.flush()
+    small = Class(tenant_id=a, name="Grade 1 - B", academic_year_id=UUID(new), grade_id=g1, section_id=b.id,
+                  capacity=1, is_active=True)
+    roomy = Class(tenant_id=a, name="Grade 1 - C", academic_year_id=UUID(new), grade_id=g1, section_id=c.id,
+                  capacity=30, is_active=True)
+    db.add_all([small, roomy])
+    db.flush()
+    roomy_id = str(roomy.id)
+    next(gen, None)
+    result = client.post(f"{A}/promotions/transition", headers=h, params={
+        "current_year_id": s["year"], "target_year_name": "2027/2028", "grade_id": s["g1"]}).json()
+    assert [(x["student_id"], x["class_id"]) for x in result["remedial"]] == [(s["pupils"][1], roomy_id)]
 
 
 def test_transition_needs_this_schools_years(env):

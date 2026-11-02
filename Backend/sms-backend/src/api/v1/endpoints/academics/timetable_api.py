@@ -9,7 +9,7 @@ from src.services.academics.timetable_service import TimetableService, SuperAdmi
 from src.db.session import get_db
 from src.schemas.academics.timetable import Timetable, TimetableCreate, TimetableUpdate, TimetableWithDetails
 from src.core.middleware.tenant import get_tenant_from_request
-from src.core.auth.dependencies import has_any_role, get_current_user, has_permission
+from src.core.auth.dependencies import get_current_user, has_permission
 from src.schemas.auth import User
 from src.core.exceptions.business import (
     BusinessLogicError,
@@ -33,7 +33,7 @@ async def create_timetable(
     *,
     timetable_service: TimetableService = Depends(get_timetable_service),
     timetable_in: TimetableCreate,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ) -> Any:
     """Create a new timetable (requires admin role)."""
     try:
@@ -105,7 +105,7 @@ async def update_timetable(
     timetable_service: TimetableService = Depends(get_timetable_service),
     timetable_id: UUID,
     timetable_in: TimetableUpdate,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ) -> Any:
     """Update a timetable."""
     try:
@@ -127,7 +127,7 @@ async def delete_timetable(
     *,
     timetable_service: TimetableService = Depends(get_timetable_service),
     timetable_id: UUID,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ) -> Any:
     """Delete a timetable (admin only)."""
     timetable = await timetable_service.get(id=timetable_id)

@@ -8,7 +8,7 @@ from src.services.academics.section_service import SectionService, SuperAdminSec
 from src.db.session import get_db
 from src.schemas.academics.section import Section, SectionCreate, SectionUpdate
 from src.core.middleware.tenant import get_tenant_from_request
-from src.core.auth.dependencies import has_any_role, get_current_user, has_permission
+from src.core.auth.dependencies import get_current_user, has_permission, has_role_or_permission
 from src.schemas.auth import User
 from src.core.exceptions.business import (
     BusinessLogicError,
@@ -25,7 +25,7 @@ async def create_section(
     *,
     section_service: SectionService = Depends(),
     section_in: SectionCreate,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ) -> Any:
     """Create a new section (requires admin role)."""
     try:
@@ -49,7 +49,7 @@ async def get_sections(
     limit: int = 100,
     grade_id: Optional[UUID] = None,
     is_active: Optional[bool] = None,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student"], ["view_classes"]))
 ) -> Any:
     """Get all sections for a tenant with optional filtering (requires authentication)."""
     if is_active is not None and is_active:
@@ -67,7 +67,7 @@ async def get_section(
     *,
     section_service: SectionService = Depends(),
     section_id: UUID,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student"], ["view_classes"]))
 ) -> Any:
     """Get a specific section by ID."""
     section_obj = await section_service.get(id=section_id)
@@ -85,7 +85,7 @@ async def get_sections_by_grade(
     grade_id: UUID,
     skip: int = 0,
     limit: int = 100,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student"], ["view_classes"]))
 ) -> Any:
     """Get all active sections for a specific grade."""
     return await section_service.get_active_sections(grade_id=grade_id, skip=skip, limit=limit)
@@ -96,7 +96,7 @@ async def update_section(
     section_service: SectionService = Depends(),
     section_id: UUID,
     section_in: SectionUpdate,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ) -> Any:
     """Update a section (admin only)."""
     try:
@@ -123,7 +123,7 @@ async def delete_section(
     *,
     section_service: SectionService = Depends(),
     section_id: UUID,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ) -> Any:
     """Delete a section (admin only)."""
     section_obj = await section_service.get(id=section_id)

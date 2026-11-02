@@ -65,7 +65,7 @@ export interface PromotionError {
 // Year-end transition: what happened to each student of the year (or grade level)
 export interface TransitionResult {
   promoted: GradePromotionResult[];
-  remedial: { student_id: string; status: PromotionStatusTag; failed_subjects: number }[];
+  remedial: { student_id: string; status: PromotionStatusTag; failed_subjects: number; class_id: string; class_name: string }[];
   graduating: { student_id: string }[];
   skipped: { student_id: string; reason: string }[];
   errors: PromotionError[];

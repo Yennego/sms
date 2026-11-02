@@ -8,7 +8,7 @@ from src.services.academics.subject_service import SubjectService, SuperAdminSub
 from src.db.session import get_db
 from src.schemas.academics.subject import Subject, SubjectCreate, SubjectUpdate
 from src.core.middleware.tenant import get_tenant_from_request
-from src.core.auth.dependencies import has_any_role, get_current_user, has_permission
+from src.core.auth.dependencies import get_current_user, has_permission, has_role_or_permission
 from src.schemas.auth import User
 from src.core.exceptions.business import (
     BusinessLogicError,
@@ -25,7 +25,7 @@ async def create_subject(
     *,
     subject_service: SubjectService = Depends(),
     subject_in: SubjectCreate,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_subjects"))
 ) -> Any:
     """Create a new subject (requires admin role)."""
     try:
@@ -48,7 +48,7 @@ async def get_subjects(
     skip: int = 0,
     limit: int = 100,
     is_active: Optional[bool] = None,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student"], ["view_subjects"]))
 ) -> Any:
     """Get all subjects for a tenant with optional filtering (requires authentication)."""
     if is_active is not None:
@@ -65,7 +65,7 @@ async def get_subject(
     *,
     subject_service: SubjectService = Depends(),
     subject_id: UUID,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student"], ["view_subjects"]))
 ) -> Any:
     """Get a specific subject by ID."""
     subject_obj = await subject_service.get(id=subject_id)
@@ -81,7 +81,7 @@ async def get_subject_by_code(
     *,
     subject_service: SubjectService = Depends(),
     code: str,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student"], ["view_subjects"]))
 ) -> Any:
     """Get a specific subject by code."""
     subject_obj = await subject_service.get_by_code(code=code)
@@ -98,7 +98,7 @@ async def update_subject(
     subject_service: SubjectService = Depends(),
     subject_id: UUID,
     subject_in: SubjectUpdate,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_subjects"))
 ) -> Any:
     """Update a subject (admin only)."""
     try:
@@ -125,7 +125,7 @@ async def delete_subject(
     *,
     subject_service: SubjectService = Depends(),
     subject_id: UUID,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_subjects"))
 ) -> Any:
     """Delete a subject (admin only)."""
     subject_obj = await subject_service.get(id=subject_id)
