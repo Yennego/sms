@@ -141,9 +141,9 @@ export default function TenantFeatureToggle({
         <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent className="sm:max-w-[500px]">
                 <DialogHeader>
-                    <DialogTitle>Modular Features: {tenantName}</DialogTitle>
+                    <DialogTitle>Modules: {tenantName}</DialogTitle>
                     <DialogDescription>
-                        Enable or disable specific modules for this tenant.
+                        Turn modules on or off for this school.
                         Changes take effect immediately on the school portal sidebar.
                     </DialogDescription>
                 </DialogHeader>

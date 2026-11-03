@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from src.services.academics.teacher_assignment_service import TeacherAssignmentService
 from src.db.session import get_db
 from src.core.middleware.tenant import get_tenant_from_request
-from src.core.auth.dependencies import has_any_role, get_current_user
+from src.core.auth.dependencies import get_current_user, has_permission, has_role_or_permission
 from src.schemas.auth import User
 from src.schemas.academics.class_schema import Class, ClassCreate, ClassUpdate, BulkDeleteRequest, BulkReassignRequest
 from src.schemas.academics.class_subject_schema import ClassSubjectWithDetails
@@ -49,7 +49,7 @@ async def get_class_students(
     *,
     service: TeacherAssignmentService = Depends(get_service),
     id: UUID,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["manage_teacher_assignments"]))
 ) -> Any:
     """Get students for a specific class assignment (ClassSubject)."""
     try:
@@ -62,7 +62,7 @@ async def create_assignment(
     *,
     service: TeacherAssignmentService = Depends(get_service),
     assignment_in: Any = Body(...), # Flexible input to handle legacy frontend
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["manage_teacher_assignments"]))
 ) -> Any:
     """Create a new teacher assignment (ClassSubject)."""
     try:
@@ -94,7 +94,7 @@ async def get_teacher_assignments(
     academic_year_id: Optional[UUID] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["manage_teacher_assignments"]))
 ) -> Any:
     """Get all assignments for a specific teacher."""
     assignments = service.get_by_teacher(teacher_id, academic_year_id, skip=skip, limit=limit)
@@ -107,7 +107,7 @@ async def get_all_assignments(
     academic_year_id: Optional[UUID] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["manage_teacher_assignments"]))
 ) -> Any:
     """Get all assignments."""
     assignments = service.get_all_assignments(academic_year_id, skip=skip, limit=limit)
@@ -118,7 +118,7 @@ async def get_teacher_workload(
     *,
     service: TeacherAssignmentService = Depends(get_service),
     academic_year_id: UUID = Query(...),
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_teacher_assignments"))
 ) -> Any:
     """Get workload stats for all teachers."""
     return service.get_teacher_workload(academic_year_id)
@@ -128,7 +128,7 @@ async def get_unassigned_subjects(
     *,
     service: TeacherAssignmentService = Depends(get_service),
     academic_year_id: UUID = Query(...),
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_teacher_assignments"))
 ) -> Any:
     """Get unassigned subjects."""
     return service.get_unassigned_subjects(academic_year_id)
@@ -138,7 +138,7 @@ async def get_class_sponsors(
     *,
     service: TeacherAssignmentService = Depends(get_service),
     academic_year_id: Optional[UUID] = Query(None),
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_teacher_assignments"))
 ) -> Any:
     """Get all class sponsors (section-teacher links)."""
     return service.get_class_sponsors(academic_year_id)
@@ -152,7 +152,7 @@ async def reassign_teacher(
     subject_id: UUID,
     academic_year_id: UUID,
     new_teacher_id: UUID,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_teacher_assignments"))
 ) -> Any:
     """Reassign a class to a different teacher."""
     # This logic should be moved to service for consistency if needed, 
@@ -189,7 +189,7 @@ async def remove_assignment(
     section_id: UUID,
     subject_id: UUID,
     academic_year_id: UUID,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_teacher_assignments"))
 ) -> Any:
     """Remove an assignment (ClassSubject)."""
     class_obj = service.db.query(Class).filter(
@@ -215,7 +215,7 @@ async def assign_class_sponsor(
     service: TeacherAssignmentService = Depends(get_service),
     section_id: UUID,
     teacher_id: UUID = Body(..., embed=True),
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_teacher_assignments"))
 ) -> Any:
     """Assign a teacher as a class sponsor for a specific section."""
     try:
@@ -228,7 +228,7 @@ async def get_assignment(
     *,
     service: TeacherAssignmentService = Depends(get_service),
     id: UUID,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["manage_teacher_assignments"]))
 ) -> Any:
     """Get assignment by ID."""
     assignment = service.get_assignment_with_details(id=id)
@@ -242,7 +242,7 @@ async def update_assignment(
     service: TeacherAssignmentService = Depends(get_service),
     id: UUID,
     assignment_in: Any = Body(...),
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_teacher_assignments"))
 ) -> Any:
     """Update assignment (teacher_id or grading_schema_id)."""
     try:
@@ -267,7 +267,7 @@ async def delete_assignment(
     *,
     service: TeacherAssignmentService = Depends(get_service),
     id: UUID,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_teacher_assignments"))
 ) -> Any:
     """Delete assignment."""
     try:
@@ -281,7 +281,7 @@ async def bulk_delete_assignments(
     *,
     service: TeacherAssignmentService = Depends(get_service),
     request: BulkDeleteRequest,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_teacher_assignments"))
 ) -> Any:
     """Bulk delete assignments."""
     try:
@@ -296,7 +296,7 @@ async def bulk_reassign_assignments(
     *,
     service: TeacherAssignmentService = Depends(get_service),
     request: BulkReassignRequest,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_teacher_assignments"))
 ) -> Any:
     """Bulk reassign assignments to a new teacher."""
     try:

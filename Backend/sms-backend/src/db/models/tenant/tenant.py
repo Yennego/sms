@@ -1,6 +1,6 @@
 from uuid import uuid4
-from sqlalchemy import Column, String, Boolean, Index, func
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, Boolean, Index, LargeBinary, func
+from sqlalchemy.orm import deferred, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from src.db.models.base import TimestampMixin, UUIDMixin, Base
 # from datetime import datetime, timezone
@@ -39,6 +39,9 @@ class Tenant(Base, TimestampMixin, UUIDMixin):
         Index("uq_tenants_subdomain_lower", func.lower(subdomain), unique=True),
     )
     logo = Column(String(500), nullable=True, comment="Logo URL for the tenant")
+    # An uploaded logo (PNG, School profile page), served at GET /tenants/{id}/logo; logo then points there.
+    # Deferred: tenants are loaded on every request and the bytes are only read by that endpoint.
+    logo_image = deferred(Column(LargeBinary, nullable=True))
     primary_color = Column(String(7), nullable=True, comment="Primary color for branding (hex)")
     secondary_color = Column(String(7), nullable=True, comment="Secondary color for branding (hex)")
 

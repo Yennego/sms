@@ -8,14 +8,33 @@ from sqlalchemy.orm import Session
 from src.core.exceptions.business import BusinessRuleViolationError, PermissionDeniedError
 
 ADMIN_ROLE_NAMES = {"admin", "superadmin", "super-admin", "super_admin"}
+# Run attendance for the whole school (mark any class, excuses, calendar, ID cards, close the day)
+MANAGE_PERMISSION = "manage_school_attendance"
+# Read every class's attendance (the principal and registrar); teachers read their own classes
+VIEW_PERMISSION = "view_school_attendance"
 
 
 def role_names(user: Any) -> Set[str]:
     return {role.name for role in getattr(user, "roles", [])}
 
 
+def _holds(user: Any, permission: str) -> bool:
+    return any(p.name == permission for role in getattr(user, "roles", []) for p in role.permissions)
+
+
 def is_admin(user: Any) -> bool:
-    return bool(role_names(user) & ADMIN_ROLE_NAMES)
+    """Runs attendance for the whole school: an admin, or a role granted manage_school_attendance."""
+    return bool(role_names(user) & ADMIN_ROLE_NAMES) or _holds(user, MANAGE_PERMISSION)
+
+
+def can_view_school_attendance(user: Any) -> bool:
+    return is_admin(user) or _holds(user, VIEW_PERMISSION)
+
+
+def check_class_viewing_permission(db: Session, cls: Any, user: Any) -> None:
+    """Read a class's attendance: whole-school readers, or whoever may mark it."""
+    if not can_view_school_attendance(user):
+        check_class_marking_permission(db, cls, user.id)
 
 
 def class_sponsor_id(db: Session, cls: Any) -> Optional[UUID]:
@@ -82,7 +101,7 @@ def resolve_viewable_student_id(db: Session, current_user: Any, student_id: Opti
     from src.db.models.people.parent import parent_student
 
     names = role_names(current_user)
-    if names & (ADMIN_ROLE_NAMES | {"teacher"}):
+    if names & (ADMIN_ROLE_NAMES | {"teacher"}) or can_view_school_attendance(current_user):
         return student_id
     if "student" in names:
         if student_id and str(student_id) != str(current_user.id):

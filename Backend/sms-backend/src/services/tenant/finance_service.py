@@ -1,10 +1,11 @@
 from typing import Any, Dict
 from uuid import UUID
-from decimal import Decimal
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from src.db.crud.finance import expenditure
+from src.db.models.finance.expenditure import Expenditure
+from src.services.finance.ledger import CURRENCIES, ZERO, money
 
 
 class FinanceService:
@@ -12,10 +13,12 @@ class FinanceService:
 
     @staticmethod
     def get_expenditure_summary(db: Session, tenant_id: UUID) -> Dict[str, Any]:
-        """Total spent, as a string with two decimals (never a float)."""
-        all_expenditures = expenditure.get_multi(db, tenant_id=tenant_id, limit=10000)
-        total_spent = sum((exp.amount or Decimal('0')) for exp in all_expenditures)
-        return {"total_spent": f"{Decimal(total_spent).quantize(Decimal('0.01')):.2f}"}
+        """Total spent per currency, as strings with two decimals (never a float, never USD + LRD)."""
+        rows = (db.query(Expenditure.currency, func.sum(Expenditure.amount))
+                .filter(Expenditure.tenant_id == tenant_id)
+                .group_by(Expenditure.currency).all())
+        totals = {currency: total for currency, total in rows}
+        return {"total_spent": {c: money(totals.get(c) or ZERO) for c in CURRENCIES}}
 
 
 finance_service = FinanceService()

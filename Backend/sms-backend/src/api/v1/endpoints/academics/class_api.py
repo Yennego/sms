@@ -15,7 +15,7 @@ from src.schemas.academics.class_subject_schema import ClassSubject as ClassSubj
 from src.services.academics.class_subject_service import ClassSubjectService
 from src.schemas.people.student import Student
 from src.core.middleware.tenant import get_tenant_from_request
-from src.core.auth.dependencies import has_any_role, get_current_user, has_permission
+from src.core.auth.dependencies import get_current_user, has_permission, has_role_or_permission
 from src.schemas.auth import User
 from src.core.exceptions.business import (
     BusinessLogicError,
@@ -32,7 +32,7 @@ async def create_class(
     *,
     class_service: ClassService = Depends(),
     class_in: ClassCreate,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ) -> Any:
     """Create a new class (requires admin or teacher role)."""
     try:
@@ -61,7 +61,7 @@ async def get_classes(
     teacher_id: Optional[UUID] = None,
     class_teacher_id: Optional[UUID] = None,
     is_active: Optional[bool] = None,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student"], ["view_classes"]))
 ) -> Any:
     """Get all classes for a tenant with optional filtering (class_teacher_id = sponsor)."""
     filters = {}
@@ -154,7 +154,7 @@ async def update_class(
     class_service: ClassService = Depends(),
     class_id: UUID,
     class_in: ClassUpdate,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ) -> Any:
     """Update a class."""
     try:
@@ -176,7 +176,7 @@ async def delete_class(
     *,
     class_service: ClassService = Depends(),
     class_id: UUID,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ) -> Any:
     """Delete a class (admin only)."""
     class_obj = await class_service.get(id=class_id)
@@ -196,7 +196,7 @@ async def get_students_by_class(
     class_service: ClassService = Depends(),
     enrollment_service: EnrollmentService = Depends(),
     class_id: UUID,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["view_classes"]))
 ) -> Any:
     """Get all students enrolled in a specific class using IDs."""
     class_obj = await class_service.get(id=class_id)
@@ -238,7 +238,7 @@ async def add_subject_to_class(
     class_subject_service: ClassSubjectService = Depends(),
     class_id: UUID,
     subject_in: ClassSubjectCreate,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ) -> Any:
     """Add or update a subject in a class."""
     return await class_subject_service.add_subject_to_class(class_id, subject_in)
@@ -249,7 +249,7 @@ async def remove_subject_from_class(
     class_subject_service: ClassSubjectService = Depends(),
     class_id: UUID,
     subject_id: UUID,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ):
     """Remove a subject from a class."""
     await class_subject_service.remove_subject_from_class(class_id, subject_id)
@@ -260,7 +260,7 @@ async def get_class_details(
     *,
     class_service: ClassService = Depends(),
     class_id: UUID,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student"], ["view_classes"]))
 ) -> Any:
     """Get a class with embedded relationship names."""
     class_obj = await class_service.get(id=class_id)

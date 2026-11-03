@@ -4,22 +4,56 @@ import { useAuth } from '@/hooks/use-auth';
 import { useTenant } from '@/hooks/use-tenant';
 import {
     Users, BookOpen, GraduationCap, ClipboardList,
-    Clock, Calendar, Award, MessageSquare,
-    ChevronRight, Plus, ListChecks, FileText
+    Clock, Calendar, Award,
+    ChevronRight, Plus, FileText
 } from 'lucide-react';
-import { PermissionGuard } from '@/components/common/PermissionGuard';
 import Link from 'next/link';
 import { useDashboardService } from '@/services/api/dashboard-service';
-import { useClassService } from '@/services/api/class-service';
+import { useTeacherService } from '@/services/api/teacher-service';
+import { useTimetableService, type Timetable } from '@/services/api/timetable-service';
 import { useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SponsorTodayCard } from '@/components/attendance/SponsorTodayCard';
+
+interface Lesson {
+    id: string;
+    time: string;
+    subject: string;
+    className: string;
+}
+
+const hhmm = (t: string) => (t || '').slice(0, 5);
+
+/** The teacher's slots on today's weekday, earliest first (a slot's class_id is the subject assignment). */
+function lessonsToday(timetables: Timetable[], assignmentIds: Set<string>, teacherId: string): Lesson[] {
+    const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+    const seen = new Set<string>();
+    const lessons: (Lesson & { start: string })[] = [];
+    for (const t of timetables) {
+        if (!t.is_active || seen.has(t.id)) continue; // the teacher filter can return a timetable twice
+        seen.add(t.id);
+        for (const slot of t.time_slots) {
+            if ((slot.day_of_week || '').toLowerCase() !== today) continue;
+            const mine = (slot.class_id && assignmentIds.has(slot.class_id)) || slot.teacher_id === teacherId;
+            if (!mine) continue;
+            lessons.push({
+                id: slot.id,
+                start: slot.start_time,
+                time: `${hhmm(slot.start_time)}–${hhmm(slot.end_time)}`,
+                subject: slot.subject_name || slot.name,
+                className: [t.grade_name, t.section_name].filter(Boolean).join(' - ') || t.name,
+            });
+        }
+    }
+    return lessons.sort((a, b) => a.start.localeCompare(b.start));
+}
 
 export default function TeacherDashboard() {
     const { user } = useAuth();
     const { tenant } = useTenant();
     const dashboardService = useDashboardService();
-    const classService = useClassService();
+    const { getTeacherAssignments } = useTeacherService();
+    const { getTimetables } = useTimetableService();
 
     const { data: statsData, isLoading: statsLoading } = useQuery({
         queryKey: ['dashboard-stats', user?.id],
@@ -27,9 +61,17 @@ export default function TeacherDashboard() {
         enabled: !!user?.id
     });
 
-    const { data: classes, isLoading: classesLoading } = useQuery({
-        queryKey: ['teacher-classes', user?.id],
-        queryFn: () => classService.getClasses({ teacher_id: user?.id, is_active: true }),
+    // Today's lessons: timetable slots of the subjects this teacher is assigned to
+    const { data: todaysLessons, isLoading: scheduleLoading } = useQuery({
+        queryKey: ['teacher-today-lessons', user?.id],
+        queryFn: async () => {
+            const teacherId = user?.id as string;
+            const [assignments, timetables] = await Promise.all([
+                getTeacherAssignments(teacherId),
+                getTimetables({ teacher_id: teacherId }),
+            ]);
+            return lessonsToday(timetables, new Set(assignments.map((a: { id: string }) => a.id)), teacherId);
+        },
         enabled: !!user?.id
     });
 
@@ -42,14 +84,6 @@ export default function TeacherDashboard() {
         { label: 'Pending Grades', value: t?.pending_grades?.toString() || '0', icon: Clock, color: 'text-rose-600', bg: 'bg-rose-50' },
         { label: 'Active Assignments', value: t?.active_assignments?.toString() || '0', icon: FileText, color: 'text-blue-600', bg: 'bg-blue-50' },
     ];
-
-    const upcomingSchedule = classes?.slice(0, 3).map(c => ({
-        id: c.id,
-        time: 'Today',
-        subject: c.subject_name || 'Class Session',
-        class: `${c.grade_name} - ${c.section_name}`,
-        room: 'Online'
-    })) || [];
 
     return (
         <div className="min-h-screen bg-[#f8fafc] p-6 lg:p-10">
@@ -98,12 +132,12 @@ export default function TeacherDashboard() {
                             <div className="p-6 border-b border-slate-50 flex items-center justify-between">
                                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                                     <Calendar className="h-5 w-5 text-indigo-600" />
-                                    My Schedule
+                                    Today&apos;s lessons
                                 </h3>
-                                <Link href="../academics/timetable" className="text-sm font-bold text-indigo-600 hover:text-indigo-700">Full Timetable</Link>
+                                <Link href="../academics/timetables" className="text-sm font-bold text-indigo-600 hover:text-indigo-700">Full timetable</Link>
                             </div>
                             <div className="divide-y divide-slate-50">
-                                {classesLoading ? (
+                                {scheduleLoading ? (
                                     [1, 2].map(i => (
                                         <div key={i} className="p-6 flex items-center gap-4">
                                             <Skeleton className="h-4 w-20" />
@@ -113,34 +147,21 @@ export default function TeacherDashboard() {
                                             </div>
                                         </div>
                                     ))
-                                ) : upcomingSchedule.length > 0 ? (
-                                    upcomingSchedule.map((item) => (
-                                        <div key={item.id} className="p-6 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
-                                            <div className="flex items-center gap-6">
-                                                <div className="text-sm font-bold text-slate-400 w-16 uppercase">{item.time}</div>
-                                                <div>
-                                                    <div className="font-bold text-slate-900">{item.subject}</div>
-                                                    <div className="text-xs text-slate-500">{item.class} • {item.room}</div>
-                                                </div>
+                                ) : todaysLessons && todaysLessons.length > 0 ? (
+                                    todaysLessons.map((item) => (
+                                        <div key={item.id} className="p-4 sm:p-6 flex items-center gap-4 sm:gap-6">
+                                            <div className="text-sm font-bold text-slate-400 w-24 shrink-0 tabular-nums">{item.time}</div>
+                                            <div className="min-w-0">
+                                                <div className="font-bold text-slate-900 truncate">{item.subject}</div>
+                                                <div className="text-xs text-slate-500">{item.className}</div>
                                             </div>
-                                            <ChevronRight className="h-4 w-4 text-slate-300" />
                                         </div>
                                     ))
                                 ) : (
-                                    <div className="p-10 text-center text-slate-500 text-sm italic">
-                                        No active classes assigned yet.
+                                    <div className="p-10 text-center text-slate-500 text-sm">
+                                        You have no lessons on the timetable today.
                                     </div>
                                 )}
-                            </div>
-                        </div>
-
-                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                            <h3 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
-                                <ListChecks className="h-5 w-5 text-indigo-600" />
-                                Recent Activity
-                            </h3>
-                            <div className="h-[200px] flex items-center justify-center bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400 text-sm italic">
-                                Activity logs will appear here as the term progresses.
                             </div>
                         </div>
                     </div>

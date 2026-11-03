@@ -17,7 +17,7 @@ from src.schemas.academics.daily_attendance import (
     AttendanceCounts, ClassAttendanceReport, ClassOverview, DailyOverview, StudentReportRow
 )
 from src.services.academics.attendance_access import (
-    academic_year_for, check_class_marking_permission, enrolled_student_ids, is_admin
+    academic_year_for, can_view_school_attendance, check_class_viewing_permission, enrolled_student_ids
 )
 from src.services.academics.daily_attendance_service import DailyAttendanceService
 
@@ -45,8 +45,8 @@ class AttendanceReportService(DailyAttendanceService):
 
     def overview(self, on_date: Optional[date], user: Any) -> DailyOverview:
         """Whole school for one day: totals and one row per class."""
-        if not is_admin(user):
-            raise PermissionDeniedError("view", "the attendance overview (administrator only)")
+        if not can_view_school_attendance(user):
+            raise PermissionDeniedError("view", "the attendance overview (school attendance readers only)")
         on_date = on_date or self.school_today()
         info = self.day_info(on_date)
         if on_date > info.today:
@@ -107,9 +107,9 @@ class AttendanceReportService(DailyAttendanceService):
     def class_report(
         self, class_id: UUID, start: Optional[date], end: Optional[date], user: Any
     ) -> ClassAttendanceReport:
-        """Per-student totals for a class over a date range (sponsor or admin)."""
+        """Per-student totals for a class over a date range (sponsor, admin, or whole-school readers)."""
         cls = self._get_class(class_id)
-        check_class_marking_permission(self.db, cls, user.id)
+        check_class_viewing_permission(self.db, cls, user)
 
         if start and end and start > end:
             raise BusinessRuleViolationError("start_date must be on or before end_date")

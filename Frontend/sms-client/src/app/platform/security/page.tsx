@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useSuperAdminService, AuditLog, SystemAlert } from '@/services/api/super-admin-service';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { toast } from 'sonner';
 
 // Add proper error response interface
 interface ApiErrorResponse {
@@ -22,6 +23,22 @@ interface AxiosErrorResponse {
   };
   detail?: string;
   message?: string;
+}
+
+// Most rows the audit log endpoint returns in one call
+const EXPORT_LIMIT = 1000;
+
+function downloadCsv(logs: AuditLog[], logType: string) {
+  const header = ['Timestamp', 'User', 'Action', 'Details', 'IP address'];
+  const rows = logs.map(l => [l.timestamp, l.user, l.action, l.details, l.ipAddress]);
+  const escape = (v: string | null | undefined) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = [header, ...rows].map(line => line.map(escape).join(',')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `audit-logs-${logType}-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 export default function SecurityPage() {
@@ -42,6 +59,26 @@ export default function SecurityPage() {
   
   // Log type filter state - moved to component level
   const [logType, setLogType] = useState<'all' | 'super_admin' | 'tenant'>('all');
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+
+  // Export the latest logs of the chosen type (up to EXPORT_LIMIT), not just the page on screen
+  const exportLogs = async () => {
+    setIsExporting(true);
+    try {
+      const logs = await superAdminService.getCombinedAuditLogs({ skip: 0, limit: EXPORT_LIMIT, log_type: logType });
+      if (!Array.isArray(logs) || logs.length === 0) {
+        toast.error('No audit logs to export');
+        return;
+      }
+      downloadCsv(logs, logType);
+      if (logs.length === EXPORT_LIMIT) toast.info(`Exported the latest ${EXPORT_LIMIT} logs`);
+    } catch (error) {
+      console.error('Error exporting audit logs:', error);
+      toast.error('Could not export the audit logs');
+    } finally {
+      setIsExporting(false);
+    }
+  };
   
   // Calculate pagination values
   const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
@@ -288,9 +325,9 @@ export default function SecurityPage() {
         {/* Audit Logs with Pagination */}
         <Card>
           <CardHeader>
-            <div className="flex justify-between items-center">
+            <div className="flex flex-wrap justify-between items-center gap-2">
               <CardTitle>Audit Logs</CardTitle>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-4">
                 {/* Log Type Filter */}
                 <select 
                   value={logType} 
@@ -313,7 +350,9 @@ export default function SecurityPage() {
                       'No audit logs available'
                     )}
                   </span>
-                  <Button variant="outline" size="sm">Export Logs</Button>
+                  <Button variant="outline" size="sm" onClick={exportLogs} disabled={isExporting || auditLogs.length === 0}>
+                    {isExporting ? 'Exporting...' : 'Export CSV'}
+                  </Button>
                 </div>
               </div>
             </div>

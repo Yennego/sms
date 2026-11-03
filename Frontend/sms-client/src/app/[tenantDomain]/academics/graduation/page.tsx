@@ -7,6 +7,8 @@ import { GraduationCap } from 'lucide-react';
 import PermissionGuard from '@/components/auth/permission-guard';
 import { useEnrollmentService, type GraduationCandidates } from '@/services/api/enrollment-service';
 import { useTenant } from '@/hooks/use-tenant';
+import { useAcademicYear } from '@/contexts/academic-year-context';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { PageShell } from '@/components/ui/page-shell';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -21,21 +23,29 @@ const STATUS_VARIANT: Record<string, 'success' | 'danger' | 'warning' | 'neutral
 export default function GraduationPage() {
   const { tenant, isLoading: tenantLoading } = useTenant();
   const enrollmentService = useEnrollmentService();
+  const { academicYears } = useAcademicYear();
   const [yearId, setYearId] = useState<string | null>(null);
   const [data, setData] = useState<GraduationCandidates | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
+  // Starts on the current school year; another year can be chosen (e.g. last year, after the
+  // new year was made current)
+  useEffect(() => {
+    if (tenantLoading || !tenant?.id) return;
+    enrollmentService.getCurrentAcademicYear()
+      .then((currentYear) => setYearId((prev) => prev ?? currentYear?.id ?? null))
+      .catch(() => notify.error('The current school year could not be loaded. Choose a year.'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per school
+  }, [tenantLoading, tenant?.id]);
+
   useEffect(() => {
     const load = async () => {
-      if (tenantLoading || !tenant?.id) return;
+      if (!yearId) return;
       setLoading(true);
       try {
-        const currentYear = await enrollmentService.getCurrentAcademicYear();
-        if (!currentYear?.id) return;
-        setYearId(currentYear.id);
-        const result = await enrollmentService.getGraduationCandidates(currentYear.id);
+        const result = await enrollmentService.getGraduationCandidates(yearId);
         setData(result);
         // Preselect only students the promotion evaluation found eligible
         setSelected(new Set(result.candidates.filter((c) => c.promotion_status === 'Eligible').map((c) => c.student_id)));
@@ -47,8 +57,8 @@ export default function GraduationPage() {
       }
     };
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per school
-  }, [tenantLoading, tenant?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when the year changes
+  }, [yearId]);
 
   const candidates = useMemo(() => data?.candidates ?? [], [data]);
   const toggle = (id: string) => setSelected((prev) => {
@@ -70,22 +80,33 @@ export default function GraduationPage() {
       <PageShell
         title="Graduation"
         description={data?.final_grade
-          ? `Students in ${data.final_grade.name}, the final grade level, this school year.`
-          : 'Students in the final grade level this school year.'}
+          ? `Students in ${data.final_grade.name}, the final grade level, in the school year you choose.`
+          : 'Students in the final grade level, in the school year you choose.'}
         primaryAction={candidates.length > 0 ? (
           <Button onClick={() => setConfirming(true)} disabled={selected.size === 0}>
             Graduate {selected.size} student{selected.size === 1 ? '' : 's'}
           </Button>
         ) : undefined}
       >
+        {academicYears.length > 1 && (
+          <div className="mb-4 max-w-xs space-y-1">
+            <label htmlFor="graduation-year" className="text-sm font-medium">School year</label>
+            <Select value={yearId ?? ''} onValueChange={(v) => { setSelected(new Set()); setYearId(v); }}>
+              <SelectTrigger id="graduation-year"><SelectValue placeholder="Choose a school year" /></SelectTrigger>
+              <SelectContent>
+                {academicYears.map((y) => <SelectItem key={y.id} value={y.id}>{y.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         {loading ? (
           <p className="text-sm text-muted-foreground" role="status">Loading the graduation list…</p>
         ) : candidates.length === 0 ? (
           <EmptyState
             icon={GraduationCap}
             description={data?.final_grade
-              ? `No active students in ${data.final_grade.name} this school year.`
-              : 'Set up grade levels and a current school year to see graduation candidates.'}
+              ? `No active students in ${data.final_grade.name} in this school year.`
+              : 'Set up grade levels and a school year to see graduation candidates.'}
           />
         ) : (
           <div className="overflow-x-auto rounded-md border">

@@ -9,7 +9,7 @@ from src.services.academics.academic_grade_service import AcademicGradeService, 
 from src.db.session import get_db
 from src.schemas.academics.academic_grade import AcademicGrade, AcademicGradeCreate, AcademicGradeUpdate
 from src.core.middleware.tenant import get_tenant_from_request
-from src.core.auth.dependencies import has_any_role, get_current_user, has_permission
+from src.core.auth.dependencies import get_current_user, has_permission, has_role_or_permission
 from src.schemas.auth import User
 from src.core.exceptions.business import (
     BusinessLogicError,
@@ -26,7 +26,7 @@ async def create_academic_grade(
     *,
     grade_service: AcademicGradeService = Depends(),
     grade_in: AcademicGradeCreate,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ) -> Any:
     """Create a new academic grade (requires admin role)."""
     try:
@@ -49,7 +49,7 @@ async def get_academic_grades(
     skip: int = 0,
     limit: int = 100,
     is_active: Optional[bool] = None,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student"], ["view_classes"]))
 ) -> Any:
     """Get all academic grades for a tenant with optional filtering (requires authentication)."""
     if is_active is not None and is_active:
@@ -65,7 +65,7 @@ async def get_academic_grade(
     *,
     grade_service: AcademicGradeService = Depends(),
     grade_id: UUID,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student"], ["view_classes"]))
 ) -> Any:
     """Get a specific academic grade by ID."""
     grade_obj = await grade_service.get(id=grade_id)
@@ -81,7 +81,7 @@ async def get_academic_grade_by_name(
     *,
     grade_service: AcademicGradeService = Depends(),
     name: str,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student"], ["view_classes"]))
 ) -> Any:
     """Get a specific academic grade by name."""
     grade_obj = await grade_service.get_by_name(name=name)
@@ -98,7 +98,7 @@ async def update_academic_grade(
     grade_service: AcademicGradeService = Depends(),
     grade_id: UUID,
     grade_in: AcademicGradeUpdate,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ) -> Any:
     """Update an academic grade (admin only)."""
     try:
@@ -125,7 +125,7 @@ async def delete_academic_grade(
     *,
     grade_service: AcademicGradeService = Depends(),
     grade_id: UUID,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ) -> Any:
     """Delete an academic grade (admin only)."""
     grade_obj = await grade_service.get(id=grade_id)

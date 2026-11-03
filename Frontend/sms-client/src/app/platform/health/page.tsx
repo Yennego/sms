@@ -5,6 +5,40 @@ import { useSuperAdminService, SystemMetrics } from '@/services/api/super-admin-
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
+function Figure({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div>
+      <dt className="text-sm text-muted-foreground">{label}</dt>
+      <dd className="text-lg font-semibold">{value ?? 'Not measured'}</dd>
+    </div>
+  );
+}
+
+function numberOrNone(value: number | null): string | null {
+  return value === null || value === undefined ? null : String(value);
+}
+
+function formatBytes(bytes: number | null): string | null {
+  if (bytes === null || bytes === undefined) return null;
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024;
+    i += 1;
+  }
+  return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function formatDuration(seconds: number): string {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days > 0) return `${days} d ${hours} h`;
+  if (hours > 0) return `${hours} h ${minutes} min`;
+  return `${minutes} min`;
+}
+
 export default function SystemHealthPage() {
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -31,12 +65,6 @@ export default function SystemHealthPage() {
     fetchSystemMetrics();
   }, [superAdminService]);
   
-  const getStatusColor = (value: number): string => {
-    if (value < 50) return 'text-green-500';
-    if (value < 80) return 'text-yellow-500';
-    return 'text-red-500';
-  };
-  
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-6">
@@ -54,56 +82,24 @@ export default function SystemHealthPage() {
         <div className="text-center py-4">Loading system metrics...</div>
       ) : systemMetrics ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* System Resource Usage */}
+          {/* Measured figures only: host CPU, memory and disk aren't visible on managed hosting */}
           <Card>
             <CardHeader>
-              <CardTitle>System Resource Usage</CardTitle>
+              <CardTitle>System</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-6">
-                <div>
-                  <div className="flex justify-between mb-1">
-                    <span>CPU Usage</span>
-                    <span className={getStatusColor(systemMetrics.cpuUsage)}>{systemMetrics.cpuUsage}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2.5">
-                    <div 
-                      className={`h-2.5 rounded-full ${systemMetrics.cpuUsage < 50 ? 'bg-green-500' : systemMetrics.cpuUsage < 80 ? 'bg-yellow-500' : 'bg-red-500'}`} 
-                      style={{ width: `${systemMetrics.cpuUsage}%` }}
-                    ></div>
-                  </div>
-                </div>
-                
-                <div>
-                  <div className="flex justify-between mb-1">
-                    <span>Memory Usage</span>
-                    <span className={getStatusColor(systemMetrics.memoryUsage)}>{systemMetrics.memoryUsage}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2.5">
-                    <div 
-                      className={`h-2.5 rounded-full ${systemMetrics.memoryUsage < 50 ? 'bg-green-500' : systemMetrics.memoryUsage < 80 ? 'bg-yellow-500' : 'bg-red-500'}`} 
-                      style={{ width: `${systemMetrics.memoryUsage}%` }}
-                    ></div>
-                  </div>
-                </div>
-                
-                <div>
-                  <div className="flex justify-between mb-1">
-                    <span>Disk Usage</span>
-                    <span className={getStatusColor(systemMetrics.diskUsage)}>{systemMetrics.diskUsage}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2.5">
-                    <div 
-                      className={`h-2.5 rounded-full ${systemMetrics.diskUsage < 50 ? 'bg-green-500' : systemMetrics.diskUsage < 80 ? 'bg-yellow-500' : 'bg-red-500'}`} 
-                      style={{ width: `${systemMetrics.diskUsage}%` }}
-                    ></div>
-                  </div>
-                </div>
-                
-                <div className="pt-4">
-                  <p><strong>Active Connections:</strong> {systemMetrics.activeConnections}</p>
-                </div>
-              </div>
+              <dl className="grid gap-4 sm:grid-cols-2">
+                <Figure label="Database size" value={formatBytes(systemMetrics.databaseSizeBytes)} />
+                <Figure label="Open database connections" value={numberOrNone(systemMetrics.activeConnections)} />
+                <Figure
+                  label="Database response"
+                  value={systemMetrics.databaseResponseMs === null ? null : `${systemMetrics.databaseResponseMs} ms`}
+                />
+                <Figure label="API running for" value={formatDuration(systemMetrics.apiUptimeSeconds)} />
+              </dl>
+              <p className="mt-4 text-sm text-muted-foreground">
+                CPU, memory and disk use aren&apos;t measured here. Check them on your hosting provider&apos;s dashboard.
+              </p>
             </CardContent>
           </Card>
           

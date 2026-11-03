@@ -4,10 +4,11 @@
 // semester bills with their lines and discounts, the installment schedule (paid / due / overdue),
 // payments with receipt links and the balance (both currencies until the student's currency is
 // fixed, then only that one). Record payment, add a discount or scholarship, print the statement.
-// With approve_financial_transactions: reset the fixed currency and override the report card hold.
+// With approve_financial_transactions: void a bill, reset the fixed currency and override the report
+// card hold.
 import * as React from 'react';
 import Link from 'next/link';
-import { ArrowLeft, BadgePercent, FileX, Plus, Printer, RotateCcw, Trash2 } from 'lucide-react';
+import { ArrowLeft, BadgePercent, Ban, FileX, Plus, Printer, RotateCcw, Trash2 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -25,6 +26,7 @@ import {
   type Currency,
   type FeeAdjustment,
   type InstallmentState,
+  type Invoice,
   type Statement,
 } from '@/services/api/fees-service';
 import { AdjustmentSheet } from './adjustment-sheet';
@@ -50,6 +52,7 @@ import {
 import { useReceiptSchool } from './receipt-screen';
 import { RecordPaymentSheet } from './record-payment-sheet';
 import { Amounts, LoadError, PrintPortal, StatTile } from './shared';
+import { VoidInvoiceDialog } from './void-invoice-dialog';
 
 const STATEMENT_PAGE = '@page { size: A4 portrait; margin: 12mm; }';
 
@@ -75,17 +78,19 @@ function adjustmentAmount(a: FeeAdjustment, currencies: Currency[]): string {
     .join(' · ');
 }
 
-/** The statement itself; `interactive` adds the remove buttons (left out when printing). */
+/** The statement itself; `interactive` adds the remove and void buttons (left out when printing). */
 function StatementBody({
   statement,
   interactive,
   school,
   onRemoveAdjustment,
+  onVoidInvoice,
 }: {
   statement: Statement;
   interactive: boolean;
   school: string;
   onRemoveAdjustment?: (a: FeeAdjustment) => void;
+  onVoidInvoice?: (inv: Invoice) => void;
 }) {
   const locked = statement.account.currency;
   const currencies: Currency[] = locked
@@ -163,6 +168,19 @@ function StatementBody({
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   {inv.issued_at ? <span>Issued {formatDate(inv.issued_at)}</span> : null}
                   {inv.status === 'void' ? <StatusBadge status="neutral" label="Void" /> : null}
+                  {interactive && onVoidInvoice && inv.status !== 'void' ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="min-h-11 md:min-h-8"
+                      onClick={() => onVoidInvoice(inv)}
+                      aria-label={`Void the ${inv.semester_name || 'semester'} invoice`}
+                    >
+                      <Ban aria-hidden="true" />
+                      Void invoice
+                    </Button>
+                  ) : null}
                 </div>
               </header>
               {inv.status === 'void' ? (
@@ -376,6 +394,7 @@ export function StatementScreen({ school, studentId }: { school: string; student
   const [recording, setRecording] = React.useState(false);
   const [adjusting, setAdjusting] = React.useState(false);
   const [removing, setRemoving] = React.useState<FeeAdjustment | null>(null);
+  const [voiding, setVoiding] = React.useState<Invoice | null>(null);
   const [resetting, setResetting] = React.useState(false);
   /** The override being confirmed: true = release, false = follow the school setting. */
   const [holdChange, setHoldChange] = React.useState<boolean | null>(null);
@@ -510,6 +529,7 @@ export function StatementScreen({ school, studentId }: { school: string; student
         interactive
         school={school}
         onRemoveAdjustment={perms.approve ? setRemoving : undefined}
+        onVoidInvoice={perms.approve ? setVoiding : undefined}
       />
 
       <PrintPortal pageCss={STATEMENT_PAGE}>
@@ -583,6 +603,9 @@ export function StatementScreen({ school, studentId }: { school: string; student
           locked={locked}
           currencies={statement.currencies}
         />
+      ) : null}
+      {perms.approve ? (
+        <VoidInvoiceDialog invoice={voiding} onOpenChange={(open) => !open && setVoiding(null)} />
       ) : null}
       {perms.approve ? (
         <ConfirmDialog

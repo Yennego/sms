@@ -8,6 +8,23 @@ import Link from 'next/link';
 import { useBillingSchool } from '@/components/billing/queries';
 import { BillingStatusBadge } from '@/components/billing/shared';
 import { anyPositive, formatPair } from '@/components/fees/money';
+import { isReservedSlug } from '@/config/reserved-slugs';
+
+// A school's address is app-host/{slug}; the slug is Domain, or Subdomain when Domain is empty.
+// Same rules as the backend (src/core/constants/reserved_slugs.py); it stores them in lower case.
+const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const SLUG_MAX_LENGTH = 63;
+
+function slugProblem(value: string | undefined, what: string): string | null {
+  const slug = (value ?? '').trim().toLowerCase();
+  if (!slug) return null;
+  if (slug.length > SLUG_MAX_LENGTH) return `${what} must be at most ${SLUG_MAX_LENGTH} characters`;
+  if (!SLUG_PATTERN.test(slug)) {
+    return `${what} can only use lowercase letters, numbers and hyphens, and can't start or end with a hyphen`;
+  }
+  if (isReservedSlug(slug)) return `${what} "${slug}" is used by the app. Choose another.`;
+  return null;
+}
 
 interface TenantFormProps {
   tenant: Tenant | null;
@@ -29,6 +46,9 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The app's own host, for the address preview (set after mount, so server and client render alike)
+  const [appHost, setAppHost] = useState('');
+  useEffect(() => setAppHost(window.location.host), []);
 
   const tenantService = useTenantService();
   const billing = useBillingSchool(tenant?.id);
@@ -68,16 +88,20 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
   // Add this function before the handleSubmit function
   const validateForm = (): string | null => {
     if (!formData.name || formData.name.length < 3) {
-      return 'Tenant name must be at least 3 characters long';
+      return 'School name must be at least 3 characters long';
     }
 
     if (!formData.code || formData.code.length < 2) {
-      return 'Tenant code must be at least 2 characters long';
+      return 'School code must be at least 2 characters long';
     }
 
     if (!/^[a-zA-Z0-9]+$/.test(formData.code)) {
-      return 'Tenant code must contain only alphanumeric characters';
+      return 'School code can only use letters and numbers';
     }
+
+    const addressProblem =
+      slugProblem(formData.domain, 'School address') ?? slugProblem(formData.subdomain, 'Second address');
+    if (addressProblem) return addressProblem;
 
     return null;
   };
@@ -122,7 +146,7 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
     } catch (err: unknown) {
       console.error('Error saving tenant:', err);
 
-      let errorMessage = 'Failed to save tenant';
+      let errorMessage = "Couldn't save the school. Please try again.";
 
       // Enhanced error handling
       if (err instanceof AppError) {
@@ -173,10 +197,11 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 rounded-t-lg">
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-semibold text-gray-900">
-              {tenant ? 'Edit Tenant' : 'Create Tenant'}
+              {tenant ? 'Edit school' : 'Create school'}
             </h2>
             <button
               onClick={onClose}
+              aria-label="Close"
               className="text-gray-400 hover:text-gray-600 transition-colors duration-200"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -200,12 +225,12 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
             {/* Basic Information Section */}
             <div className="mb-8">
               <h3 className="text-lg font-medium text-gray-900 mb-4 pb-2 border-b border-gray-200">
-                Basic Information
+                Basic information
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Tenant Name *
+                    School name *
                   </label>
                   <input
                     type="text"
@@ -214,13 +239,13 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
                     onChange={handleChange}
                     required
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors duration-200"
-                    placeholder="Enter tenant name"
+                    placeholder="Enter the school's name"
                   />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Code * (Unique identifier)
+                    Code * (unique identifier)
                   </label>
                   <input
                     type="text"
@@ -234,25 +259,26 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
                     placeholder="e.g., ACME123"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Alphanumeric only, minimum 2 characters
+                    Letters and numbers only, at least 2 characters
                   </p>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Tenant Logo
+                    School logo
                   </label>
                   <div className="flex items-center space-x-4">
                     {formData.logo ? (
                       <div className="relative w-16 h-16 border rounded-lg overflow-hidden bg-gray-50">
                         <img
                           src={formData.logo}
-                          alt="Logo Preview"
+                          alt="Logo preview"
                           className="object-contain w-full h-full"
                         />
                         <button
                           type="button"
                           onClick={() => setFormData({ ...formData, logo: '' })}
+                          aria-label="Remove logo"
                           className="absolute top-0 right-0 bg-red-500 text-white rounded-bl-lg p-1 hover:bg-red-600 transition-colors"
                         >
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -294,7 +320,7 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
                         htmlFor="logo-upload"
                         className={`inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 cursor-pointer ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
-                        {isLoading ? 'Uploading...' : 'Choose Logo File'}
+                        {isLoading ? 'Uploading...' : 'Choose logo file'}
                       </label>
                       <p className="text-xs text-gray-500 mt-1">
                         PNG, JPG, WebP up to 5MB
@@ -305,40 +331,71 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
               </div>
             </div>
 
-            {/* Domain Configuration Section */}
+            {/* School address (the Domain field; Subdomain when Domain is empty) */}
             <div className="mb-8">
               <h3 className="text-lg font-medium text-gray-900 mb-4 pb-2 border-b border-gray-200">
-                Domain Configuration
+                School address
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Domain
+                  <label htmlFor="tenant-domain" className="block text-sm font-medium text-gray-700 mb-2">
+                    School address
                   </label>
-                  <input
-                    type="text"
-                    name="domain"
-                    value={formData.domain}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors duration-200"
-                    placeholder="example.com"
-                  />
+                  <div className="flex min-w-0 items-stretch rounded-lg border border-gray-300 focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-indigo-500">
+                    <span className="flex max-w-[50%] shrink-0 items-center truncate rounded-l-lg border-r border-gray-300 bg-gray-50 px-3 text-sm text-gray-500">
+                      {appHost || 'app'}/
+                    </span>
+                    <input
+                      id="tenant-domain"
+                      type="text"
+                      name="domain"
+                      value={formData.domain}
+                      onChange={handleChange}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      aria-describedby="tenant-domain-hint"
+                      className="min-w-0 flex-1 rounded-r-lg px-3 py-3 focus:outline-none"
+                      placeholder="top-foundation"
+                    />
+                  </div>
+                  <p id="tenant-domain-hint" className="text-xs text-gray-500 mt-1">
+                    Only lowercase letters, numbers and hyphens, e.g. top-foundation. Staff, students and parents
+                    sign in at this address.
+                  </p>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Subdomain
+                  <label htmlFor="tenant-subdomain" className="block text-sm font-medium text-gray-700 mb-2">
+                    Second address (optional)
                   </label>
                   <input
+                    id="tenant-subdomain"
                     type="text"
                     name="subdomain"
                     value={formData.subdomain}
                     onChange={handleChange}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    aria-describedby="tenant-subdomain-hint"
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors duration-200"
-                    placeholder="tenant"
+                    placeholder="topfoundation"
                   />
+                  <p id="tenant-subdomain-hint" className="text-xs text-gray-500 mt-1">
+                    Used as the address only when School address is empty. Same rules.
+                  </p>
                 </div>
               </div>
+              {(() => {
+                const slug = (formData.domain || formData.subdomain || '').trim().toLowerCase();
+                return slug ? (
+                  <p className="mt-3 break-all text-sm text-gray-700">
+                    The school&apos;s address will be{' '}
+                    <span className="font-mono font-medium">{appHost || 'app'}/{slug}</span>
+                  </p>
+                ) : null;
+              })()}
             </div>
 
             {/* Billing: one platform price list for every school (phase7-design.md §1), so nothing to set here */}
@@ -366,12 +423,12 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
             {/* Branding Section */}
             <div className="mb-8">
               <h3 className="text-lg font-medium text-gray-900 mb-4 pb-2 border-b border-gray-200">
-                Branding & Colors
+                Branding and colors
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Primary Color
+                    Primary color
                   </label>
                   <div className="flex items-center space-x-3">
                     <input
@@ -393,7 +450,7 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Secondary Color
+                    Secondary color
                   </label>
                   <div className="flex items-center space-x-3">
                     <input
@@ -423,7 +480,7 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
                       className="w-5 h-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
                     />
                     <label className="text-sm font-medium text-gray-700">
-                      Active Status
+                      Active
                     </label>
                   </div>
                 </div>
@@ -454,8 +511,8 @@ export default function TenantForm({ tenant, onClose, onSubmit, isWizardMode = f
                     Saving...
                   </div>
                 ) : (
-                  tenant ? 'Update Tenant' :
-                    isWizardMode ? 'Next: Admin Setup' : 'Create Tenant'
+                  tenant ? 'Save changes' :
+                    isWizardMode ? 'Next: admin setup' : 'Create school'
                 )}
               </button>
             </div>

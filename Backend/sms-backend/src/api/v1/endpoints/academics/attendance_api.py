@@ -12,7 +12,7 @@ from src.schemas.academics.attendance import (
     AttendanceSummary, BulkAttendanceCreate, AttendanceReport, AttendanceStatus
 )
 from src.core.middleware.tenant import get_tenant_from_request
-from src.core.auth.dependencies import has_any_role, get_current_user, has_permission
+from src.core.auth.dependencies import has_any_role, get_current_user, has_permission, has_role_or_permission
 from src.schemas.auth import User
 from src.core.exceptions.business import (
     BusinessLogicError,
@@ -29,7 +29,7 @@ async def create_attendance(
     *,
     attendance_service: AttendanceService = Depends(),
     attendance_in: AttendanceCreate,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["manage_school_attendance"]))
 ) -> Any:
     """Create a new attendance record (requires admin or teacher role)."""
     try:
@@ -66,7 +66,7 @@ async def get_attendance_records(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     status_filter: Optional[AttendanceStatus] = None,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student", "parent"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student", "parent"], ["view_school_attendance"]))
 ) -> Any:
     """Get attendance records with optional filtering."""
     student_id = attendance_service.resolve_viewable_student_id(current_user, student_id)
@@ -97,7 +97,7 @@ async def get_attendance_summary(
     class_id: Optional[UUID] = None,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student", "parent"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student", "parent"], ["view_school_attendance"]))
 ) -> Any:
     """Get attendance summary statistics."""
     student_id = attendance_service.resolve_viewable_student_id(current_user, student_id)
@@ -117,7 +117,7 @@ async def generate_attendance_report(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     report_type: str = "summary",
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["view_school_attendance"]))
 ) -> Any:
     """Generate attendance report."""
     return await attendance_service.generate_attendance_report(
@@ -134,7 +134,7 @@ async def get_absent_students(
     attendance_service: AttendanceService = Depends(),
     class_id: Optional[UUID] = None,
     attendance_date: Optional[date] = None,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["view_school_attendance"]))
 ) -> Any:
     """Get list of absent students."""
     return await attendance_service.get_absent_students(
@@ -148,7 +148,7 @@ async def get_late_students(
     attendance_service: AttendanceService = Depends(),
     class_id: Optional[UUID] = None,
     attendance_date: Optional[date] = None,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["view_school_attendance"]))
 ) -> Any:
     """Get list of late students."""
     return await attendance_service.get_late_students(
@@ -177,7 +177,7 @@ async def get_student_attendance_percentage(
     student_id: UUID,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student", "parent"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student", "parent"], ["view_school_attendance"]))
 ) -> Any:
     """Calculate student's attendance percentage for a period."""
     attendance_service.resolve_viewable_student_id(current_user, student_id)
@@ -200,7 +200,7 @@ async def get_class_attendance_trends(
     attendance_service: AttendanceService = Depends(),
     class_id: UUID,
     days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["view_school_attendance"]))
 ) -> Any:
     """Get attendance trends for a class over specified days."""
     return await attendance_service.get_class_attendance_trends(
@@ -214,7 +214,7 @@ async def get_attendance(
     *,
     attendance_service: AttendanceService = Depends(),
     attendance_id: UUID,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student", "parent"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student", "parent"], ["view_school_attendance"]))
 ) -> Any:
     """Get a specific attendance record by ID."""
     attendance = await attendance_service.get(id=attendance_id)
@@ -232,7 +232,7 @@ async def update_attendance(
     attendance_service: AttendanceService = Depends(),
     attendance_id: UUID,
     attendance_in: AttendanceUpdate,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["manage_school_attendance"]))
 ) -> Any:
     """Update an attendance record."""
     attendance = await attendance_service.get(id=attendance_id)
@@ -257,7 +257,7 @@ async def delete_attendance(
     *,
     attendance_service: AttendanceService = Depends(),
     attendance_id: UUID,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_school_attendance"))
 ) -> Any:
     """Delete an attendance record (admin only)."""
     attendance = await attendance_service.get(id=attendance_id)
@@ -284,7 +284,7 @@ async def mark_daily_attendance(
     check_in_time: Optional[datetime] = None,
     check_out_time: Optional[datetime] = None,
     comments: Optional[str] = None,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["manage_school_attendance"]))
 ) -> Any:
     """Mark daily attendance for a student (needs schedule_id or period)."""
     try:
@@ -312,7 +312,7 @@ async def bulk_mark_attendance(
     *,
     attendance_service: AttendanceService = Depends(),
     attendance_in: BulkAttendanceCreate,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["manage_school_attendance"]))
 ) -> Any:
     """Bulk mark attendance for multiple students."""
     try:
@@ -336,7 +336,7 @@ async def update_attendance_status(
     check_in_time: Optional[datetime] = None,
     check_out_time: Optional[datetime] = None,
     comments: Optional[str] = None,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["manage_school_attendance"]))
 ) -> Any:
     """Update attendance status and related fields."""
     attendance = await attendance_service.update_attendance_status(

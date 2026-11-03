@@ -36,7 +36,11 @@ export default function TimetablesPage() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   const { user } = useAuth();
-  const isAdmin = user?.roles?.some(r => ['admin', 'superadmin', 'super-admin'].includes(r.name));
+  // Editing follows the server: admins, and anyone who manages classes (e.g. the principal)
+  const isAdmin = Boolean(
+    user?.roles?.some(r => ['admin', 'superadmin', 'super-admin'].includes(r.name)) ||
+      user?.permissions?.includes('manage_classes')
+  );
 
   // Use Context for Academic Years
   const { academicYears: ayList, selectedAcademicYearId, setSelectedAcademicYearId } = useAcademicYear();

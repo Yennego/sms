@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from src.services.academics import AssignmentService, SuperAdminAssignmentService
 from src.schemas.academics.assignment import Assignment, AssignmentCreate, AssignmentUpdate
-from src.core.auth.dependencies import has_any_role, has_permission, holds_any_permission
+from src.core.auth.dependencies import has_permission, holds_any_permission, has_role_or_permission
 
 # Who may see unpublished assignments; everyone else with view_assignments sees published ones only
 ASSIGNMENT_STAFF = ["create_assignments", "update_assignments", "manage_academic_data", "view_academic_data"]
@@ -22,7 +22,7 @@ async def create_assignment(
     *,
     assignment_service: AssignmentService = Depends(),
     assignment_in: AssignmentCreate,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["create_assignments"]))
 ) -> Any:
     return await assignment_service.create(obj_in=assignment_in)
 
@@ -86,7 +86,7 @@ async def update_assignment(
     assignment_service: AssignmentService = Depends(),
     assignment_id: UUID,
     assignment_in: AssignmentUpdate,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["create_assignments"]))
 ) -> Any:
     db_obj = await assignment_service.get(id=assignment_id)
     if not db_obj:
@@ -102,7 +102,7 @@ async def delete_assignment(
     *,
     assignment_service: AssignmentService = Depends(),
     assignment_id: UUID,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("delete_assignments"))
 ) -> None:
     assignment = await assignment_service.get(id=assignment_id)
     if not assignment:
@@ -115,7 +115,7 @@ async def publish_assignment(
     *,
     assignment_service: AssignmentService = Depends(),
     assignment_id: UUID,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["create_assignments"]))
 ) -> Any:
     return await assignment_service.update_publication_status(id=assignment_id, is_published=True)
 @router.put("/assignments/{assignment_id}/unpublish", response_model=Assignment)
@@ -123,7 +123,7 @@ async def unpublish_assignment(
     *,
     assignment_service: AssignmentService = Depends(),
     assignment_id: UUID,
-    current_user: User = Depends(has_any_role(["admin", "teacher"]))
+    current_user: User = Depends(has_role_or_permission(["teacher"], ["create_assignments"]))
 ) -> Any:
     return await assignment_service.update_publication_status(id=assignment_id, is_published=False)
 

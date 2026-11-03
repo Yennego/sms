@@ -34,7 +34,7 @@ export default function AssignmentsPage() {
   const { getActiveSubjects } = useSubjectService();
   const { getTeachers } = useTeacherService();
   const { getGrades } = useAcademicGradeService();
-  const { getCurrentAcademicYear } = useEnrollmentService();
+  const { getCurrentAcademicYear, getCurrentEnrollment } = useEnrollmentService();
   const sectionService = useSectionService();
   const { user } = useAuth();
 
@@ -82,20 +82,30 @@ export default function AssignmentsPage() {
   const loadData = async () => {
     setLoading(true);
     try {
+      // A student sees only the assignments of their own class
+      const isStudent = user?.role?.toLowerCase() === 'student';
+      const enrollment = isStudent && user?.id ? await getCurrentEnrollment(user.id).catch(() => null) : null;
+      if (isStudent && !enrollment) {
+        setAssignments([]);
+        return;
+      }
       const [list, subs, trs, grs] = await Promise.all([
         getAssignments({
           limit: 50,
           subject_id: filterSubjectId || undefined,
           teacher_id: filterTeacherId || undefined,
-          grade_id: filterGradeId || undefined,
-          section_id: filterSectionId || undefined,
+          grade_id: enrollment?.grade_id || filterGradeId || undefined,
+          section_id: enrollment ? undefined : filterSectionId || undefined,
           academic_year_id: academicYearId || undefined
         }),
         getActiveSubjects(),
-        getTeachers(),
+        // Students can't list staff; the teacher filter is for staff only
+        isStudent ? Promise.resolve([]) : getTeachers().catch(() => []),
         getGrades(),
       ]);
-      setAssignments(list || []);
+      setAssignments(enrollment
+        ? (list || []).filter(a => !a.section_id || a.section_id === enrollment.section_id)
+        : list || []);
       setSubjects(subs || []);
       setTeachers(trs || []);
       setGrades(grs || []);
@@ -422,7 +432,7 @@ export default function AssignmentsPage() {
         )}
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
             <div className="flex items-center justify-between mb-4">
               <div className="p-2 bg-indigo-50 rounded-lg">
@@ -431,7 +441,7 @@ export default function AssignmentsPage() {
               <span className="text-sm font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full">Total</span>
             </div>
             <h3 className="text-2xl font-bold text-slate-900">{assignments.length}</h3>
-            <p className="text-sm text-slate-500 mt-1">Active coursework</p>
+            <p className="text-sm text-slate-500 mt-1">In this list</p>
           </div>
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
@@ -456,17 +466,6 @@ export default function AssignmentsPage() {
             <p className="text-sm text-slate-500 mt-1">Awaiting review</p>
           </div>
 
-          <PermissionGuard roles={['admin', 'teacher', 'superadmin']}>
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow cursor-pointer group" onClick={() => { }}>
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-2 bg-slate-50 rounded-lg group-hover:bg-indigo-600 transition-colors">
-                  <Plus className="h-6 w-6 text-slate-600 group-hover:text-white" />
-                </div>
-              </div>
-              <h3 className="text-lg font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">New Entry</h3>
-              <p className="text-sm text-slate-500 mt-1">Create an assignment</p>
-            </div>
-          </PermissionGuard>
         </div>
 
         {/* Filters & Actions */}
@@ -744,7 +743,7 @@ export default function AssignmentsPage() {
                               </button>
                             </div>
                           ) : (
-                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                            <div className="flex items-center justify-end gap-1 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-all">
                               <PermissionGuard roles={['student']}>
                                 {(() => {
                                   const submission = studentSubmissions.find(s => s.assignment_id === a.id);

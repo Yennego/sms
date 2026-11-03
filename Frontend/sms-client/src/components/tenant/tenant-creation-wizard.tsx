@@ -40,7 +40,7 @@ export default function TenantCreationWizard({ onClose, onComplete }: TenantCrea
     if (!('first_name' in credentialsOrAdmin)) return;
     const adminUserData: AdminUserData = credentialsOrAdmin;
     if (!tenantData) {
-      setError('Tenant data is missing. Please go back and fill the tenant form.');
+      setError('The school details are missing. Go back and fill in the school form.');
       return;
     }
 
@@ -69,7 +69,7 @@ export default function TenantCreationWizard({ onClose, onComplete }: TenantCrea
       setCurrentStep('credentials');
     } catch (error: unknown) {
       console.error('Failed to create tenant with admin:', error);
-      const message = error instanceof Error ? error.message : 'Failed to create tenant and admin user. Please try again.';
+      const message = error instanceof Error ? error.message : "Couldn't create the school and its admin. Please try again.";
       setError(message);
     } finally {
       setIsCreating(false);
@@ -110,7 +110,7 @@ export default function TenantCreationWizard({ onClose, onComplete }: TenantCrea
         );
       case 'credentials':
         if (!createdResult) {
-          return <div className="p-6">Error: No creation result available</div>;
+          return <div className="p-6">Something went wrong: the school&apos;s details are missing.</div>;
         }
         
         const credentials = {
@@ -141,7 +141,7 @@ export default function TenantCreationWizard({ onClose, onComplete }: TenantCrea
         {/* Progress indicator */}
         <div className="bg-gray-50 px-6 py-4 border-b">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Create New Tenant</h2>
+            <h2 className="text-xl font-semibold">Create school</h2>
             <div className="flex space-x-2">
               <div className={`w-3 h-3 rounded-full ${
                 currentStep === 'tenant' ? 'bg-blue-600' : 
@@ -158,9 +158,9 @@ export default function TenantCreationWizard({ onClose, onComplete }: TenantCrea
           </div>
           <div className="mt-2 text-sm text-gray-600">
             Step {currentStep === 'tenant' ? '1' : currentStep === 'admin' ? '2' : '3'} of 3: 
-            {currentStep === 'tenant' && 'Tenant Information'}
-            {currentStep === 'admin' && 'Admin User Setup'}
-            {currentStep === 'credentials' && 'Credential Display'}
+            {currentStep === 'tenant' && ' School details'}
+            {currentStep === 'admin' && ' Admin account'}
+            {currentStep === 'credentials' && ' Sign-in details'}
           </div>
         </div>
         

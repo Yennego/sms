@@ -51,6 +51,24 @@ def has_any_permission(permissions: List[str]):
     return dependency
 
 
+def has_role_or_permission(roles: List[str], permissions: List[str]):
+    """Dependency: one of the built-in roles, or one of the permissions (super-admins always pass).
+
+    For pages shared by staff and families: teachers, students and parents keep their role-based
+    access (their services narrow what they see), and office staff get in by permission.
+    """
+    async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
+        if _is_super_admin(current_user) or _system_role_names(current_user) & set(roles):
+            return current_user
+        if not holds_any_permission(current_user, permissions):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"User needs one of these permissions: {', '.join(permissions)}"
+            )
+        return current_user
+    return dependency
+
+
 def holds_any_permission(user: User, permissions: List[str]) -> bool:
     if _is_super_admin(user):
         return True

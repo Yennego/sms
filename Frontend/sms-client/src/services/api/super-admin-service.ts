@@ -65,10 +65,15 @@ export interface RecentTenant {
 }
 
 export interface SystemMetrics {
-  cpuUsage: number;
-  memoryUsage: number;
-  diskUsage: number;
-  activeConnections: number;
+  /** Host figures: null where the hosting doesn't expose them (never estimated). */
+  cpuUsage: number | null;
+  memoryUsage: number | null;
+  diskUsage: number | null;
+  /** Open database connections (null when it can't be read). */
+  activeConnections: number | null;
+  databaseSizeBytes: number | null;
+  databaseResponseMs: number | null;
+  apiUptimeSeconds: number;
   alerts: SystemAlert[];
   tenantGrowth: TenantGrowthData[];
   revenue_metrics?: RevenueStats;

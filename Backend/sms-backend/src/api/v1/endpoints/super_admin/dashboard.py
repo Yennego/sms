@@ -46,12 +46,16 @@ async def get_system_metrics(db: Session = Depends(get_super_admin_db)):
     service = DashboardMetricsService(db)
     metrics = service.get_system_overview()
     
-    # Map service metrics to existing API response format
+    health = metrics["system_health"]
+    # Only measured figures: host CPU, memory and disk aren't visible on managed hosting (null)
     return {
-        "cpuUsage": metrics["system_health"]["cpuUsage"] if "cpuUsage" in metrics["system_health"] else 12,
-        "memoryUsage": metrics["system_health"]["memoryUsage"] if "memoryUsage" in metrics["system_health"] else 45,
-        "diskUsage": metrics["system_health"]["diskUsage"] if "diskUsage" in metrics["system_health"] else 62,
-        "activeConnections": metrics["system_health"]["activeConnections"] if "activeConnections" in metrics["system_health"] else 156,
+        "cpuUsage": None,
+        "memoryUsage": None,
+        "diskUsage": None,
+        "activeConnections": health["database_connections"],
+        "databaseSizeBytes": health["database_size_bytes"],
+        "databaseResponseMs": health["database_ms"],
+        "apiUptimeSeconds": health["api_uptime_seconds"],
         "alerts": [],
         "tenantGrowth": metrics["tenant_metrics"].get("history", []), 
         "revenue_metrics": metrics["revenue_metrics"] 

@@ -1,24 +1,26 @@
 'use client';
 
 import { useAuth } from '@/hooks/use-auth';
-import { useTenant } from '@/hooks/use-tenant';
 import { useState, useEffect } from 'react';
 import { useTeacherService } from '@/services/api/teacher-service';
+import { useClassService } from '@/services/api/class-service';
 import {
-    BookOpen, Users, Clock, Calendar,
-    MapPin, ChevronRight, Search, Filter,
+    BookOpen, Users, ChevronRight, Search,
     GraduationCap, X, Loader2
 } from 'lucide-react';
 import Link from 'next/link';
 
 export default function TeacherClasses() {
     const { user } = useAuth();
-    const { tenant } = useTenant();
 
-    // Mock data for classes
+    // One card per subject the teacher teaches in a class
     const { getTeacherAssignments, getAssignmentStudents } = useTeacherService();
+    const { getClasses } = useClassService();
     const [classes, setClasses] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [search, setSearch] = useState('');
+    // Classes this teacher sponsors: only the sponsor marks a class's daily attendance
+    const [sponsoredIds, setSponsoredIds] = useState<Set<string>>(new Set());
 
     // Modal state for viewing class details
     const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -33,17 +35,14 @@ export default function TeacherClasses() {
                 const data = await getTeacherAssignments(user.id);
                 // Map API response to UI model
                 const mapped = data.map((item: any) => ({
-                    id: item.class_id, // Use class_id (Section ID) or Assignment ID? Assignment ID is better for unique key if one teacher has multiple subjects in same class
-                    assignmentId: item.id,
+                    id: item.class_id, // The class; attendance is taken per class
+                    assignmentId: item.id, // The subject assignment; unique per card
                     name: item.subject_name || item.class_name,
                     grade: `${item.grade_name} - ${item.section_name}`,
                     grade_id: item.grade_id,
                     section_id: item.section_id,
                     subject_id: item.subject_id,
                     academic_year_id: item.academic_year_id,
-                    room: item.room || 'Main Building',
-                    students: 'View',
-                    schedule: 'See Timetable'
                 }));
                 setClasses(mapped);
             } catch (err) {
@@ -55,6 +54,18 @@ export default function TeacherClasses() {
 
         fetchClasses();
     }, [user?.id, getTeacherAssignments]);
+
+    useEffect(() => {
+        if (!user?.id) return;
+        getClasses({ class_teacher_id: user.id, is_active: true })
+            .then(data => setSponsoredIds(new Set(data.map(c => c.id))))
+            .catch(err => console.error('Failed to fetch sponsored classes', err));
+    }, [user?.id, getClasses]);
+
+    const query = search.trim().toLowerCase();
+    const shownClasses = query
+        ? classes.filter(c => `${c.name} ${c.grade}`.toLowerCase().includes(query))
+        : classes;
 
     // Fetch students when modal opens
     const handleViewDetails = async (cls: any) => {
@@ -98,6 +109,8 @@ export default function TeacherClasses() {
                     <div className="relative flex-1">
                         <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                         <input
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
                             placeholder="Search classes..."
                             className="w-full pl-10 pr-4 py-2 bg-slate-50 border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
                         />
@@ -111,9 +124,13 @@ export default function TeacherClasses() {
                     <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-slate-300">
                         <p className="text-slate-500">No classes assigned to you yet.</p>
                     </div>
+                ) : shownClasses.length === 0 ? (
+                    <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-slate-300">
+                        <p className="text-slate-500">No classes match your search.</p>
+                    </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {classes.map((cls: any) => (
+                        {shownClasses.map((cls: any) => (
                             <div key={cls.assignmentId} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-md transition-all group">
                                 <div className="p-6">
                                     <div className="flex justify-between items-start mb-4">
@@ -125,16 +142,6 @@ export default function TeacherClasses() {
                                         </span>
                                     </div>
                                     <h3 className="text-lg font-bold text-slate-900 mb-1">{cls.name}</h3>
-                                    <div className="space-y-3 mt-4">
-                                        <div className="flex items-center gap-3 text-sm text-slate-500">
-                                            <MapPin className="h-4 w-4 text-slate-400" />
-                                            <span>Room: {cls.room}</span>
-                                        </div>
-                                        <div className="flex items-center gap-3 text-sm text-slate-500">
-                                            <Users className="h-4 w-4 text-slate-400" />
-                                            <span>{cls.students} Students</span>
-                                        </div>
-                                    </div>
                                 </div>
                                 <div className="p-4 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between">
                                     <button
@@ -144,14 +151,16 @@ export default function TeacherClasses() {
                                         View Details
                                         <ChevronRight className="h-3 w-3" />
                                     </button>
-                                    <div className="flex gap-2">
-                                        <Link
-                                            href={`./attendance?classId=${cls.assignmentId}`}
-                                            className="text-[10px] font-bold px-2 py-1 bg-white border border-slate-200 rounded text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-100 transition-colors"
-                                        >
-                                            Attendance
-                                        </Link>
-                                    </div>
+                                    {sponsoredIds.has(cls.id) && (
+                                        <div className="flex gap-2">
+                                            <Link
+                                                href={`./attendance?classId=${cls.id}`}
+                                                className="text-[10px] font-bold px-2 py-1 bg-white border border-slate-200 rounded text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-100 transition-colors"
+                                            >
+                                                Attendance
+                                            </Link>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ))}
@@ -222,12 +231,14 @@ export default function TeacherClasses() {
                             >
                                 Close
                             </button>
-                            <Link
-                                href={`./attendance?classId=${selectedClass.assignmentId}`}
-                                className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
-                            >
-                                Mark Attendance
-                            </Link>
+                            {sponsoredIds.has(selectedClass.id) && (
+                                <Link
+                                    href={`./attendance?classId=${selectedClass.id}`}
+                                    className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+                                >
+                                    Mark attendance
+                                </Link>
+                            )}
                         </div>
                     </div>
                 </div>
