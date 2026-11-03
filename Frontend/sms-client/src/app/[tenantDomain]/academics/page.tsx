@@ -66,7 +66,9 @@ export default function AcademicsPage() {
     user?.role?.toLowerCase() === 'super-admin' ||
     user?.roles?.some((r: any) =>
       ['admin', 'superadmin', 'super-admin'].includes(r.name.toLowerCase())
-    );
+    ) ||
+    // Anyone who manages classes (e.g. the principal) gets the structure shortcuts too
+    Boolean(user?.permissions?.includes('manage_classes'));
 
   // Derive stats with camelCase for UI compatibility
   const stats: AcademicStats | null = data ? {

@@ -38,12 +38,12 @@ Each person signs in and sees only the menu for their role.
 | Role | What they can do |
 |---|---|
 | Platform operator | Creates schools and their first admin. Turns features such as Fees on or off. Sets the price list, bills schools and records their payments. Resets any user's password. |
-| School admin | Runs the whole school: students, staff, classes, attendance, grades, fees, messages and school settings. Manages users and passwords. Sees the school's bill from the platform. |
-| Principal (academic admin) | Students, staff, classes, attendance and grades. Publishes results and signs report cards. Has no Fees menu. |
-| Registrar | Admits, imports and places students. Manages classes and attendance. |
+| School admin | Runs the whole school: students, staff, classes, attendance, grades, fees, messages and school settings. Creates staff accounts. Manages users and passwords. Sees the school's bill from the platform. |
+| Principal (academic admin) | Sets up the school year, classes, sections, subjects, grade levels, timetables and teacher assignments. Views and admits students, and adds teachers. Runs promotion and graduation. Publishes results and signs report cards. Sees the school's attendance (read only). Has a Fees menu to review fees and approve voids, discounts, report card holds and currency resets. |
+| Registrar | Views, admits, imports and places students. Manages classes and sections. Sees the school's attendance (read only). Does not set up the school year, promote or graduate. |
 | Accountant | Fee setup, issuing invoices, recording payments, reports and expenses. Can see the student list. |
-| Financial admin | Everything the accountant does, plus discounts, voiding older payments, resetting a student's currency and releasing held report cards. |
-| Counselor | Can look at the student list and student profiles, and read messages. |
+| Financial admin | Everything the accountant does, plus discounts, voiding older payments, resetting a student's currency and releasing held report cards. Can see the student list. |
+| Counselor | Can look at the student list, student profiles and students' attendance, and read messages. |
 | Teacher | Marks attendance for the class they sponsor, enters marks for the subjects they teach, and sends announcements to their own classes. |
 | Gate scanner | Scans student ID cards at the gate. Sees nothing else. |
 | Student | Sees their timetable, courses, published results, attendance and messages. |
@@ -63,7 +63,9 @@ The app runs at `https://app.<your-domain>`. Replace `<your-domain>` with the pl
 - **Each school has its own sign-in page:** `https://app.<your-domain>/<school>/login`. The page shows the school's logo and name.
 - **The platform operator signs in at** `https://app.<your-domain>/platform/login`.
 
-Always use your school's address. The plain address `https://app.<your-domain>` does not help you find your school. Ask the school office for the right link.
+Always use your school's address. Ask the school office for the right link.
+
+The plain address `https://app.<your-domain>` opens **Find your school**. Type your school's web address or code (the name after the slash in your school's link, for example `top-foundation`), then tap **Go to sign in**. On a phone you used before, it opens your school's sign-in page by itself.
 
 Tip: put the school's sign-in link on a notice, or share it on WhatsApp, so that parents can save it.
 
@@ -111,7 +113,7 @@ Keep your password secret. On a shared phone, always sign out when you finish (s
 **If your account has no email address:** the app says "No email? Ask your school office to reset your password."
 
 1. Go to the school office.
-2. The office opens **Settings → Users**, finds you and taps **Reset password**.
+2. The office opens **Users** (in the user menu), finds you and taps **Reset password**.
 3. The office gives you the new password. It is shown only once.
 4. Sign in with it. The app then asks you to choose your own password.
 
@@ -150,18 +152,18 @@ Follow these steps in order. Each step says who does it, where to find it in the
 **Who:** the platform operator. **Where:** **Schools**.
 
 1. Sign in at `/platform/login`.
-2. Open **Schools**, then tap **Create Tenant**. "Tenant" means school.
-3. On step 1 of 3, **Tenant Information**, fill in:
-   - **Tenant Name** (the school's name);
+2. Open **Schools**, then tap **Create school**.
+3. On step 1 of 3, **School details**, fill in:
+   - **School name**;
    - **Code** (letters and numbers only);
-   - **Domain**: the short name used in the school's address, for example `top-foundation`;
-   - optionally the logo (**Choose Logo File**) and the **Primary Color**.
-4. Tap **Next: Admin Setup**.
-5. On step 2 of 3, enter the first admin's **First Name**, **Last Name** and **Email Address**. Leave **Generate secure password automatically (Recommended)** ticked.
-6. Tap **Create Tenant & Admin**.
-7. Step 3 of 3 shows the **Login URL**, the **Username/Email** and the password. Copy them, or tap **Download Credentials (Secure File)**.
+   - **School address**: the short name after the slash in the school's link, for example `top-foundation`. Use only lowercase letters, numbers and hyphens. The form shows the full address under the field;
+   - optionally the logo (**Choose logo file**) and the **Primary color**.
+4. Tap **Next: admin setup**.
+5. On step 2 of 3, **Admin account**, enter the first admin's **First Name**, **Last Name** and **Email Address**. Leave **Generate secure password automatically (Recommended)** ticked.
+6. Tap **Create school and admin**.
+7. Step 3 of 3, **Sign-in details**, shows the **Login URL**, the **Username/Email** and the password. Copy them, or tap **Download Credentials (Secure File)**.
    - These details are shown only once and hide after 5 minutes.
-8. Tick the box that you have copied the details, then tap **Complete Tenant Setup**.
+8. Tick the box that you have copied the details, then tap **Finish school setup**.
 9. Give the details to the school admin in person or by a private message. Delete any downloaded file afterwards.
 
 **Check:** the school is in the **Schools** list as **Active**. Open the **Login URL**: it should show the school's name.
@@ -198,19 +200,21 @@ Only **Finance & Billing** changes the school's menu today. The other switches i
 **Who:** the school admin. **Where:** the user menu (tap your name at the top right).
 
 1. Sign in with the details from the operator, and choose your own password.
-2. **Logo and name:** open **School settings**, then **Tenant Settings**. Fill in **Logo URL (optional)** and the colours, then save.
+2. **Name and colours:** open **School settings**, then **Tenant Settings**. Check the name and the colours, then save.
 3. **School profile:** open **School profile** from the user menu.
    - Fill in **Address**, **Motto**, **Phone** and **Email**. These are printed on report cards.
    - Under **Who signs as principal**, choose the principal. Under **Title under the signature**, type the title, for example "Principal".
    - Tap **Save school profile**.
-4. **School seal:** under **School seal**, tap **Choose a photo or scan**. Use a clear photo of the stamp on white paper, PNG or JPEG, up to 1 MB. Tap **Save seal**.
-5. **Signatures:** each person who signs report cards adds their own. The principal and every class sponsor open **My signature** from the user menu (see 4.2).
+4. **School logo:** on the same page, under **School logo**, tap **Choose a photo or scan**. Use a square image, PNG or JPEG, up to 1 MB. Tap **Save logo**. The logo shows on the sign-in page, at the top of the app, on receipts and on report cards.
+   - A logo can also be given as a web link in **School settings** (**Logo URL (optional)**). A link saved there replaces the uploaded logo.
+5. **School seal:** under **School seal**, tap **Choose a photo or scan**. Use a clear photo of the stamp on white paper, PNG or JPEG, up to 1 MB. Tap **Save seal**.
+6. **Signatures:** each person who signs report cards adds their own. The principal and every class sponsor open **My signature** from the user menu (see 4.2).
 
-**Check:** **School profile** shows the principal's name and the seal.
+**Check:** **School profile** shows the logo, the principal's name and the seal.
 
 ### Step 5. The admin sets up the school year with the wizard
 
-**Who:** the school admin, the principal or the registrar. **Where:** **Classes → Setup**.
+**Who:** the school admin or the principal. **Where:** **Classes → Setup**. The registrar has no **Setup** tab.
 
 The wizard has five steps. It saves as you go, so you can stop and come back later.
 
@@ -246,7 +250,16 @@ You can also manage these items one at a time under the other **Classes** tabs: 
 4. Give the details to the teacher.
 5. Assign subjects in the wizard (Step 4) or under **Staff → Subject assignments**.
 
-**Other staff:** the school can't yet create accounts for a registrar, accountant, financial admin, counselor or gate scanner itself. Ask the platform operator, who uses **Users → Create User** and picks the role under **Assigned Role** (see 4.1). The school admin can then change a person's roles under **Role assignment** in the user menu.
+**Other staff** (principal, registrar, accountant, financial admin, counselor, gate scanner): the school admin adds them.
+
+1. Open **Users** from the user menu and tap **Add staff member**.
+2. Fill in **First name** and **Last name**, and choose the **Role**.
+   - **Email**, **Username** and **Phone number** are optional. Without a username, the app makes one from the name, like `ama.kollie`.
+   - Only a school admin can create another admin.
+3. Tap **Create account**.
+4. The app shows the username and password once. Copy them, or tap **Print sign-in slips**, and hand them over. The person chooses a new password at their first sign-in.
+
+To change a person's roles later, use **Role assignment** in the user menu.
 
 **Check:** under **Staff → Directory**, the **Sponsor of** column shows each sponsor's class.
 
@@ -339,7 +352,7 @@ Students admitted after the invoices were issued are billed automatically.
 3. Under **Holidays & make-up days**, add each holiday with its **Date** and **Label**, then tap **Add**.
 4. Open **Attendance → ID cards**, choose a class, and tap **Print cards**. Repeat for each class.
 5. Cut out the cards and give them to the students.
-6. Give the gate scanner an account with the gate scanner role (see 4.8).
+6. Give the gate scanner an account: **Users → Add staff member**, role **Gate scanner** (see Step 6 and 4.8).
 
 **Check:** scan one card at the gate. It should show the student's name in green.
 
@@ -376,7 +389,7 @@ Everyone also has:
 | Billing | Overview, Invoices, Price list |
 | Users | Users, Roles and permissions |
 | Audit | Security and audit |
-| System | Settings, Health, Database, API docs |
+| System | Health, API docs |
 
 **Sign in** at `/platform/login` with **Email or username** and **Password**, then tap **Sign In to Console**. School accounts can't sign in here.
 
@@ -397,11 +410,11 @@ In **Schools**, tap **Deactivate** or **Activate** on the school's row, then con
 
 #### Create a staff account for a school
 
-Use this for a registrar, accountant, financial admin, counselor or gate scanner.
+Schools add their own staff under **Users → Add staff member** (section 3, Step 6). Use this only when a school asks for your help, for example when it has no admin who can sign in.
 
 1. Open **Users** and tap **Create User**.
 2. Fill in **First Name**, **Last Name** and **Email Address**.
-3. Choose the school under **Tenant Selection**, and the role under **Assigned Role**.
+3. Choose the school under **School**, and the role under **Assigned Role**.
 4. Choose **Auto-generate secure password**.
 5. Tap **Create Account**. The password appears once, in the message at the corner of the screen. Copy it straight away.
 
@@ -458,7 +471,11 @@ Open **Billing → Price list**. Edit the text under **How schools pay** and tap
 - **"No price list is in force yet":** add a price list that starts today or earlier.
 - **"This school has no terms yet":** the school must create its school year and semesters first (section 3, Step 5).
 - **A school admin is locked out or forgot their password:** reset it under **Users**.
-- **Pages that don't work yet:** **System → Settings** and **System → Database** are not working yet; their buttons do nothing. The **Export Logs** button under **Security and audit** does nothing yet.
+
+#### Health and audit
+
+- **System → Health** shows measured figures only: **Database size**, **Open database connections**, **Database response** time and **API running for** (uptime).
+- **Audit → Security and audit:** under **Audit Logs**, tap **Export CSV** to download the latest logs of the type you chose.
 
 ### 4.2 School admin
 
@@ -470,10 +487,12 @@ Open **Billing → Price list**. Edit the text under **How schools pay** and tap
 | Students | Directory, Admit, Import, Enrollments, Class placement, Promotion, Graduation, Remedial |
 | Staff | Directory, Add teacher, Subject assignments |
 | Classes | Classes, Class rosters, Sections, Subjects, Grade levels, Years and terms, Semesters, Timetable, Setup |
-| Attendance | Today, Mark, Scan, Excuses, Students, Calendar, Reports, ID cards |
+| Attendance | Today, Mark, Scan, Excuses, Reports, ID cards |
 | Grades | Gradebook, Review and publish, Report cards, Assignments, Grading settings, Remedial |
 | Fees | Overview, Student accounts, Payments, Fee setup, Reports, Expenses, Settings (only when Fees is on) |
 | Messages | Announcements, Inbox |
+
+A student's attendance record opens from **Attendance → Reports** or from the student's profile. Holidays are set in **Attendance rules** (user menu).
 
 **Your user menu** also has:
 
@@ -507,6 +526,10 @@ On a phone, the bottom bar shows **Home**, **Students**, **Staff**, **Classes** 
 4. For a new guardian, the app shows the password once. Print it or copy it and hand it over.
 
 To remove a guardian, tap **Remove** on their card, then **Remove guardian**. Their account stays, and you can link them again later.
+
+#### Add a staff member
+
+Open **Users** from the user menu and tap **Add staff member** (see section 3, Step 6). Teachers are added under **Staff → Add teacher** instead.
 
 #### Reset someone's password
 
@@ -562,17 +585,25 @@ Open **Delivery log** from the user menu. Look at the **Failed** tab and tap **R
 
 | Menu | Tabs |
 |---|---|
-| Home | Home |
 | Students | Directory, Admit, Import, Enrollments, Class placement, Promotion, Graduation, Remedial |
 | Staff | Directory, Add teacher, Subject assignments |
 | Classes | Classes, Class rosters, Sections, Subjects, Grade levels, Years and terms, Semesters, Timetable, Setup |
-| Attendance | Today, Mark, Scan, Excuses, Students, Calendar, Reports, ID cards |
-| Grades | Gradebook, Review and publish, Report cards, Assignments, Grading settings, Remedial |
+| Attendance | Today, Reports |
+| Grades | Gradebook, Review and publish, Report cards, Grading settings, Remedial |
+| Fees | Overview, Student accounts, Payments, Fee setup, Reports (only when Fees is on) |
 | Messages | Announcements, Inbox |
 
-You have no **Fees** menu, no school settings and no **Users** page. Your user menu has **My signature**.
+After signing in, you land on **Grades → Review and publish**. You have no school settings and no **Users** page. Your user menu has **My signature**.
 
-Some attendance pages are for the school admin only: **Today**, **Excuses** and **ID cards**. Use **Attendance → Mark** and **Attendance → Reports** instead.
+**Attendance** is read only for you: **Today** shows each class, and **Reports** shows each class's rate. Class sponsors mark attendance; the school admin handles excuses and ID cards.
+
+#### Fees: review and approve
+
+You see the school's fees, but you don't record payments or change the fee setup. That stays with the accountant. You approve what the accountant can't do alone:
+
+- **Void a payment** after the day it was recorded: **Fees → Payments**, find the receipt, tap **Void payment**, and give a reason. (The person who recorded it voids it themselves on the same day.)
+- **Add discount or scholarship**, **Reset currency** and **Release report cards**: on the student's statement (see 4.5).
+- **Void invoice**: on the student's statement (see 4.5).
 
 #### Each period: check marks, then publish
 
@@ -612,6 +643,10 @@ Columns that are not published show "—". Written remarks are not available yet
 - **Grades → Gradebook:** look at any class's marks. You can correct marks, even after publishing; each change is recorded.
 - **Attendance → Reports:** check each class's attendance rate.
 
+#### Year end
+
+You run promotion and graduation (section 5.5).
+
 #### When something goes wrong
 
 - **"You don't have permission to publish results":** ask the school admin to check your role under **Role assignment**.
@@ -624,13 +659,15 @@ Columns that are not published show "—". Written remarks are not available yet
 
 | Menu | Tabs |
 |---|---|
-| Home | Home |
-| Students | Directory, Admit, Import, Enrollments, Class placement, Promotion, Graduation, Remedial |
-| Classes | Classes, Class rosters, Sections, Subjects, Grade levels, Years and terms, Semesters, Timetable, Setup |
-| Attendance | Today, Mark, Scan, Excuses, Students, Calendar, Reports, ID cards |
+| Students | Directory, Admit, Import, Class placement, Remedial |
+| Classes | Classes, Class rosters, Sections, Subjects, Grade levels, Years and terms, Semesters, Timetable |
+| Attendance | Today, Reports |
 | Messages | Announcements, Inbox |
 
-As for the principal, **Today**, **Excuses** and **ID cards** are for the school admin only.
+After signing in, you land on **Students → Directory**.
+
+- **Attendance** is read only for you: **Today** and **Reports**.
+- The school year itself (**Setup**), promotion and graduation are done by the school admin or the principal.
 
 #### Daily: admit new students
 
@@ -650,18 +687,18 @@ As for the principal, **Today**, **Excuses** and **ID cards** are for the school
 
 #### Start of year
 
-- Set up the year (section 3, Step 5).
+- The school admin or the principal sets up the year (section 3, Step 5).
 - Import new students (Step 7).
 - Place students (Step 8).
 
 #### When something goes wrong
 
-- **"This year has no classes yet":** create the classes in **Classes → Setup**, step 3.
+- **"This year has no classes yet":** add them under **Classes → Classes**, or ask the principal to finish **Classes → Setup**.
 - **Import says rows need fixing:**
   1. Tick **Show only rows with problems**.
   2. Fix those rows in the file.
   3. Upload it again and tap **Check rows**.
-- **A class is over its seats:** move some students, or add seats in **Classes → Setup**, step 2.
+- **A class is over its seats:** move some students, or raise the section's **Capacity (Optional)** under **Classes → Sections**.
 
 ### 4.5 Accountant and financial admin
 
@@ -675,10 +712,11 @@ As for the principal, **Today**, **Excuses** and **ID cards** are for the school
 
 After signing in, you land on **Fees → Overview**. If the platform has not turned Fees on for the school, the pages say "Fees is turned off". Ask the school admin to contact the platform operator.
 
-**What only the financial admin (and the school admin) can do:**
+**What only the financial admin, the principal and the school admin can do:**
 
 - add a discount, scholarship or waiver;
 - void a payment after the day it was recorded, or one recorded by someone else;
+- void a student's invoice;
 - reset a student's currency;
 - release a student's report cards.
 
@@ -727,7 +765,16 @@ Students admitted later in the semester are billed automatically.
 The receipt keeps its number and is marked VOID. The balance goes back up.
 
 - The person who recorded a payment can void it the same day.
-- After that day, or for someone else's payment, ask the financial admin or the school admin.
+- After that day, or for someone else's payment, ask the principal, the financial admin or the school admin.
+
+#### An invoice was issued by mistake (financial admin)
+
+1. Open the student's statement (**Fees → Student accounts**, then tap the student).
+2. If payments are recorded on the invoice, void those payments first.
+3. On the invoice, tap **Void invoice**.
+4. Type the **Reason**, for example "Issued to the wrong class", and tap **Void invoice**.
+
+The invoice stays on the statement marked Void and no longer counts toward the balance.
 
 #### Discounts and scholarships (financial admin)
 
@@ -740,21 +787,22 @@ The receipt keeps its number and is marked VOID. The balance goes back up.
 
 In **Fees → Settings**, the switch **Hold report cards when fees are overdue** is off by default.
 
-- **When it is on:** a student with an overdue installment, and their parents, can't open or print the report card. They see a message to contact the school office.
-- **To let one student through** (financial admin): open the student's statement and tap **Release report cards**. To undo, tap **Follow the school setting**.
+- **When it is on:** a student with an overdue installment, and their parents, can't open or print the report card. They see "Report card on hold" with the reason and a message to contact the school office.
+- **To let one student through** (financial admin, principal or school admin): open the student's statement and tap **Release report cards**. To undo, tap **Follow the school setting**.
 
 #### Expenses
 
-Open **Fees → Expenses** and tap **Record Expense**. Fill in the category, **Amount**, **Transaction Date**, **Payee (Vendor/Staff)** and purpose.
+Open **Fees → Expenses** and tap **Record Expense**. Fill in the **Expense Category**, the **Currency** (USD or LRD), the **Amount**, the **Transaction date**, the **Payee (Vendor/Staff)** and the **Description / Purpose**.
 
-Expenses have no currency field. Write the currency in the description.
+Totals are shown per currency: USD and LRD are never added together. The chart shows one currency at a time; tap **USD** or **LRD** to switch.
 
 #### When something goes wrong
 
 - **"has no bill this school year yet":** issue invoices for the student's class in **Fee setup**.
 - **"Balance is … Enter that amount or less":** the family is paying more than they owe. Take only the balance.
 - **Wrong currency on the first payment:** see 6.3.
-- **"Only the person who recorded it can void it the same day":** ask the financial admin or the school admin.
+- **"Only the person who recorded it can void it the same day":** ask the principal, the financial admin or the school admin.
+- **An invoice can't be voided:** payments are recorded on it. Void those payments first.
 
 ### 4.6 Counselor
 
@@ -773,6 +821,7 @@ You land on **Students → Directory**.
 2. Tap the student to open their profile.
 3. Use the tabs, for example **Overview**, **Enrollment**, **Attendance**, **Results** and **Guardians**.
    - **Guardians** has the parents' phone numbers, with a **Call** button.
+   - **Attendance** shows the student's attendance record.
 
 Counseling notes are not available yet.
 
@@ -804,7 +853,9 @@ A **class sponsor** is the teacher in charge of a class. The sponsor marks the c
    - **Excused** needs a reason. You can add a photo of a note.
 4. Tap **Save N changes**.
 
-The home page card **My class today** shows how many are present, late, absent and not marked.
+The home page card **My class today** shows how many are present, late, absent and not marked. The home page also shows **Today's lessons** from the timetable.
+
+You can also open **My classes**: on a class you sponsor, tap **Attendance** to mark that class. The button only shows on classes you sponsor.
 
 After the school's cut-off time, unmarked students are recorded absent automatically. You can still correct any student.
 
@@ -839,7 +890,7 @@ Open **My signature**, draw or upload your signature, and tap **Save signature**
 #### Other pages
 
 - **Timetable** shows your weekly lessons. Tap **Print Schedule** to print it.
-- **Assignments** lets you post homework for students. Marks that count are entered in the **Gradebook**, not here.
+- **Gradebook → Assignments** lets you post homework for students. Students see only the assignments for their own grade and section, and hand in work there. Marks that count are entered in the **Gradebook**, not here.
 
 #### When something goes wrong
 
@@ -847,8 +898,7 @@ Open **My signature**, draw or upload your signature, and tap **Save signature**
 - **A subject is missing in the Gradebook:** ask the school office to assign you to it.
 - **"This subject has no grading categories":** ask the principal to set up **Grading settings**.
 - **"Fix N marks first":** a mark is higher than the highest possible score, or is not a number. The cell is marked in red.
-- **Home page:** some cards on the home page (**My Schedule**, **Recent Activity**) are not working yet. Use **Timetable** and **Gradebook** instead.
-- **My classes:** its **Attendance** button may not open your class. Use **Attendance → My class** instead.
+- **"You have no lessons on the timetable today":** your lessons are not on the timetable for today. Check **Timetable**, or ask the school office to add them.
 
 ### 4.8 Gate scanner
 
@@ -895,7 +945,7 @@ Important:
 |---|---|
 | Home | Home |
 | Timetable | Timetable |
-| Courses | My courses |
+| Courses | My courses, Assignments |
 | Results | My results |
 | Attendance | Attendance |
 | Messages | Inbox, Announcements |
@@ -909,13 +959,13 @@ Important:
 - **See your attendance:** open **Attendance**.
 - **See your lessons:** open **Timetable** and tap a day.
 - **Read messages:** tap the bell, or open **Messages**.
-- **Hand in homework:** from **Home**, tap **View All** under **Upcoming Deadlines**, then **Submit**.
+- **Hand in homework:** open **Courses → Assignments**. You see only the homework for your own class. Tap **Submit** on an assignment.
+  - **Home** shows your **Upcoming Deadlines**: your own homework that is due and not handed in yet. Tap **Submit**, or **View All** to see the list.
 
 #### When something goes wrong
 
 - **"No results yet":** the school has not published results. Wait for the alert in your inbox.
-- **"Can't show these results":** your report card may be held for school fees. Ask your parent or the school office.
-- **Some numbers on Home and My courses are not real yet** (for example "Completion"). Use **Results** for your marks.
+- **"Report card on hold":** your report card is held until school fees are paid. The message gives the reason. Ask your parent or the school office.
 - **Forgot your password:** ask the school office (see 2.4).
 
 ### 4.10 Parent
@@ -1005,7 +1055,7 @@ A school year has 2 semesters. Each semester has 3 periods and one exam:
 
 | Task | Who | Where |
 |---|---|---|
-| Create the year, terms, levels, sections, classes, sponsors, subjects and teachers | Admin, principal or registrar | **Classes → Setup** |
+| Create the year, terms, levels, sections, classes, sponsors, subjects and teachers | Admin or principal | **Classes → Setup** |
 | Admit and import new students; place everyone in a class | Admin, principal or registrar | **Students → Admit**, **Import**, **Class placement** |
 | Check the pass mark and categories | Admin or principal | **Grades → Grading settings** |
 | Check school days, times and holidays | Admin | **Attendance rules** (user menu) |
@@ -1039,11 +1089,12 @@ A school year has 2 semesters. Each semester has 3 periods and one exam:
    - Open **Classes → Setup** and tap **Create a school year**. Its semesters and periods are added for you.
    - Leave **Make this the current school year** unticked until graduation is done.
    - Use **Choose what to copy** to copy last year's classes, sponsors and subjects.
-4. **Promotion**, one grade at a time:
+4. **Promotion**, one grade at a time (school admin or principal):
    - Open **Students → Promotion**.
    - Choose the **Academic Year** (the year that is ending), **Promote into** (the new year) and the **Grade**, and tap **Evaluate Eligibility**.
    - Check the results. Each student is **Eligible**, **Repeating**, **Conditional** or **Not graded**.
    - Tap **Execute Transition**, then **Confirm & Execute**. Eligible students move up one grade into the new year. Repeating and Conditional students repeat their grade: they go into the same grade's class in the new year (their own section if it has a class, otherwise the class with the most free places) and get remedial sessions. Not graded students are skipped: grade them and run it again, or place them by hand.
+   - A Conditional student who later passes remedial work is moved up by hand: open **Students → Class placement**, tap **Move** and choose the class of the next grade.
    - Repeat for each grade. Running it again for the same grade is safe.
    - The final grade is not moved: those students graduate in the next step.
 5. **Graduation:**
@@ -1070,9 +1121,9 @@ Promotion and graduation change many records at once. Do them on a computer, one
 2. **Check the username.** Use your email or your username, not your phone number. The username is on your sign-in slip.
 3. **Check the password.** Passwords care about capital letters. Check that the keyboard is not in capitals.
 4. **"Incorrect username or password":** try again carefully, or use **Forgot password?** (only if your account has an email address).
-5. **Still no luck:** ask the school office to reset your password under **Settings → Users**.
+5. **Still no luck:** ask the school office to reset your password. The school admin does it under **Users** in the user menu.
 
-Staff can also find **Users** in the user menu (admin only). The platform operator can reset a school admin's password.
+The platform operator can reset a school admin's password.
 
 ### 6.2 I'm locked out
 
@@ -1087,14 +1138,14 @@ After 5 wrong passwords, the app says "Too many login attempts. Please wait 15 m
 
 The first payment of the year fixes a student's currency. To change it:
 
-1. The person who took the payment voids it the same day (**Fees → Payments → Void payment**). After that day, the financial admin or school admin voids it.
-2. The financial admin or school admin opens the student's statement and taps **Reset currency**. This only works when none of this year's payments still count.
+1. The person who took the payment voids it the same day (**Fees → Payments → Void payment**). After that day, the principal, the financial admin or the school admin voids it.
+2. The principal, the financial admin or the school admin opens the student's statement and taps **Reset currency**. This only works when none of this year's payments still count.
 3. Record the payment again in the right currency.
 
 ### 6.4 A payment was entered by mistake
 
 - **Same day, by the person who took it:** open **Fees → Payments**, find the receipt, tap **Void payment**, and give a reason.
-- **Later, or someone else's payment:** ask the financial admin or the school admin to void it.
+- **Later, or someone else's payment:** ask the principal, the financial admin or the school admin to void it.
 
 A voided receipt is never deleted. It stays on the list marked VOID, and the student's balance goes back up. Parents don't get an alert for a void.
 
@@ -1111,9 +1162,9 @@ If you need a new ID card for the student, open their profile, then **ID card �
 Check these in order:
 
 1. **Are the results published?** Open **Grades → Review and publish**, choose the period, and look at the class. If it says **Not published**, the principal must publish it.
-2. **Is the report card held for fees?** The parent sees "Report card on hold".
+2. **Is the report card held for fees?** The parent and the student see "Report card on hold", with the reason.
    - In **Fees → Settings**, check whether **Hold report cards when fees are overdue** is on.
-   - The family can pay the overdue amount, or the financial admin can tap **Release report cards** on the student's statement.
+   - The family can pay the overdue amount, or the principal, the financial admin or the school admin can tap **Release report cards** on the student's statement.
 3. **Is the parent linked to the child?** If the parent sees "No children are linked to your account", add them as a guardian on the student's **Guardians** tab.
 
 ### 6.7 The gate scanner is offline
