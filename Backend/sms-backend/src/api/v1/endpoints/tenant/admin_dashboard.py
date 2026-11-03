@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 
 from src.db.session import get_db, get_tenant_id
-from src.core.auth.dependencies import has_permission, has_any_role, get_current_user
+from src.core.auth.dependencies import has_permission, has_any_role, has_role_or_permission, get_current_user
 from src.services.tenant.admin_dashboard import TenantAdminDashboardService
 from src.db.models.auth import User
 from src.db.models.tenant import Tenant
@@ -19,9 +19,10 @@ async def get_admin_dashboard_stats(
     *,
     db: Session = Depends(get_db),
     tenant: Tenant = Depends(get_tenant_from_request),
-    current_user: User = Depends(has_any_role(["admin", "superadmin"])),
+    # The school's leaders: admins, and whoever runs the school year (the principal)
+    current_user: User = Depends(has_role_or_permission(["admin", "superadmin"], ["manage_academic_year"])),
 ) -> Any:
-    """Get dashboard statistics for tenant admin with Redis caching."""
+    """Get dashboard statistics for the school admin and the principal, with Redis caching."""
     cache_key = f"tenant:dashboard:stats:{tenant.id}"
     
     try:

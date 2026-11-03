@@ -31,7 +31,9 @@ export default function AdminDashboardPage() {
         user.roles[0].name) : 
       'admin');
   
-  const isAdmin = userRole === 'admin';
+  // The school dashboard is for the admin and the principal (academic admin)
+  const isAdmin = ['admin', 'tenant-admin', 'academic-admin'].includes(userRole) ||
+    (Array.isArray(user?.roles) && user.roles.some((r) => ['admin', 'tenant-admin', 'academic-admin'].includes(typeof r === 'string' ? r : r.name)));
   
   useEffect(() => {
     try {

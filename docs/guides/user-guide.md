@@ -585,6 +585,7 @@ Open **Delivery log** from the user menu. Look at the **Failed** tab and tap **R
 
 | Menu | Tabs |
 |---|---|
+| Home | The school dashboard |
 | Students | Directory, Admit, Import, Enrollments, Class placement, Promotion, Graduation, Remedial |
 | Staff | Directory, Add teacher, Subject assignments |
 | Classes | Classes, Class rosters, Sections, Subjects, Grade levels, Years and terms, Semesters, Timetable, Setup |
@@ -593,7 +594,7 @@ Open **Delivery log** from the user menu. Look at the **Failed** tab and tap **R
 | Fees | Overview, Student accounts, Payments, Fee setup, Reports (only when Fees is on) |
 | Messages | Announcements, Inbox |
 
-After signing in, you land on **Grades → Review and publish**. You have no school settings and no **Users** page. Your user menu has **My signature**.
+After signing in, you land on **Home**, the same school dashboard the admin sees: students, teachers, classes, recent activity and tasks waiting. You have no school settings and no **Users** page. Your user menu has **My signature**.
 
 **Attendance** is read only for you: **Today** shows each class, and **Reports** shows each class's rate. Class sponsors mark attendance; the school admin handles excuses and ID cards.
 
@@ -1094,7 +1095,7 @@ A school year has 2 semesters. Each semester has 3 periods and one exam:
    - Choose the **Academic Year** (the year that is ending), **Promote into** (the new year) and the **Grade**, and tap **Evaluate Eligibility**.
    - Check the results. Each student is **Eligible**, **Repeating**, **Conditional** or **Not graded**.
    - Tap **Execute Transition**, then **Confirm & Execute**. Eligible students move up one grade into the new year. Repeating and Conditional students repeat their grade: they go into the same grade's class in the new year (their own section if it has a class, otherwise the class with the most free places) and get remedial sessions. Not graded students are skipped: grade them and run it again, or place them by hand.
-   - A Conditional student who later passes remedial work is moved up by hand: open **Students → Class placement**, tap **Move** and choose the class of the next grade.
+   - A Conditional student who passes their remedial work in every failed subject moves up automatically. If they passed before this step, they are promoted with everyone else. If they pass later, the app moves them to the next grade's class (same section when there is one) as soon as the last remedial result is saved, and their unpaid bill takes the new grade's fees. If the bill already has a payment, it keeps the old grade's fees: check their fee statement.
    - Repeat for each grade. Running it again for the same grade is safe.
    - The final grade is not moved: those students graduate in the next step.
 5. **Graduation:**
