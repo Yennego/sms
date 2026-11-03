@@ -34,7 +34,7 @@ async def create_schedule(
     *,
     schedule_service: ScheduleService = Depends(get_schedule_service),
     schedule_in: ScheduleCreate,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ) -> Any:
     """Create a new schedule (requires admin or teacher role)."""
     try:
@@ -103,7 +103,7 @@ async def update_schedule(
     schedule_service: ScheduleService = Depends(get_schedule_service),
     schedule_id: UUID,
     schedule_in: ScheduleUpdate,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ) -> Any:
     """Update a schedule."""
     try:
@@ -125,7 +125,7 @@ async def delete_schedule(
     *,
     schedule_service: ScheduleService = Depends(get_schedule_service),
     schedule_id: UUID,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_classes"))
 ) -> Any:
     """Delete a schedule (admin only)."""
     schedule = await schedule_service.get(id=schedule_id)

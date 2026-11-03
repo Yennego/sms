@@ -58,6 +58,33 @@ export function useSaveSeal() {
   });
 }
 
+// The logo is on the school record too: refresh it so the header shows the new one
+export function useSaveLogo() {
+  const service = useSchoolProfileService();
+  const { tenantKey, refreshTenant } = useTenant();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ file, filename }: { file: Blob; filename: string }) => service.saveLogo(file, filename),
+    onSuccess: () => {
+      void refreshTenant();
+      return qc.invalidateQueries({ queryKey: schoolProfileKeys.profile(tenantKey) });
+    },
+  });
+}
+
+export function useRemoveLogo() {
+  const service = useSchoolProfileService();
+  const { tenantKey, refreshTenant } = useTenant();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => service.removeLogo(),
+    onSuccess: () => {
+      void refreshTenant();
+      return qc.invalidateQueries({ queryKey: schoolProfileKeys.profile(tenantKey) });
+    },
+  });
+}
+
 export function useRemoveSeal() {
   const service = useSchoolProfileService();
   const { tenantKey } = useTenant();

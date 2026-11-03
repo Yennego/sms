@@ -243,3 +243,28 @@ def test_publication_without_signatures_prints_blank_lines(env):
     card = client.get(f"{GB}/report-cards/students/{s['pupils'][0]}", headers=headers(ids, "pupil0")).json()
     assert card["signatures"] == {"sponsor": None, "principal": None}
     assert card["school"]["seal"] is None and card["school"]["address"] is None
+
+
+def test_school_logo_upload_is_served_publicly(env):
+    """The logo is uploaded like the seal; tenants.logo then points at the public image, so the
+    sign-in page, header, receipts and report cards show it without changes."""
+    client, ids = env
+    a = ids["tenant_a"]
+    assert _upload(client, ids, "student_a", _png(), url=f"{PROFILE}/logo").status_code == 403
+    assert _upload(client, ids, "admin_a", b"<svg/>", url=f"{PROFILE}/logo", name="logo.png").status_code == 422
+
+    r = _upload(client, ids, "admin_a", _png(size=(1000, 1000)), url=f"{PROFILE}/logo", name="logo.png")
+    assert r.status_code == 200, r.text
+    logo = r.json()["logo"]
+    assert logo.startswith(f"/api/v1/tenants/{a}/logo?v=") and r.json()["logo_uploaded"] is True
+
+    served = client.get(f"/api/v1/tenants/{a}/logo")  # no sign-in
+    assert served.status_code == 200 and served.headers["content-type"] == "image/png"
+    img = Image.open(io.BytesIO(served.content))
+    assert img.width <= 400 and img.height <= 400
+    assert client.get(f"/api/v1/tenants/{ids['tenant_b']}/logo").status_code == 404
+    assert client.get("/api/v1/tenants/by-domain/", params={"domain": "school-a"}).json()["logo"] == logo
+
+    cleared = client.delete(f"{PROFILE}/logo", headers=headers(ids, "admin_a")).json()
+    assert cleared["logo"] is None and cleared["logo_uploaded"] is False
+    assert client.get(f"/api/v1/tenants/{a}/logo").status_code == 404

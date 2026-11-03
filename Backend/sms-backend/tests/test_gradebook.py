@@ -94,7 +94,8 @@ def _seed(ids):
         perms[name] = db.query(Permission).filter(Permission.name == name).first() or Permission(name=name)
         db.add(perms[name])
     admin_role = db.query(UserRole).filter(UserRole.name == "admin").one()
-    admin_role.permissions += [perms["view_academic_data"], perms["manage_academic_data"], perms["publish_results"]]
+    admin_role.permissions += [p for p in (perms["view_academic_data"], perms["manage_academic_data"], perms["publish_results"])
+                               if p not in admin_role.permissions]
     acad = UserRole(name="academic-admin")
     acad.permissions = [perms["view_academic_data"], perms["publish_results"]]
     teacher_role, parent_role = UserRole(name="teacher"), UserRole(name="parent")

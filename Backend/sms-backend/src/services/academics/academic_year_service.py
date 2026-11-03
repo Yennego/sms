@@ -135,8 +135,10 @@ class AcademicYearService(TenantBaseService[AcademicYear, AcademicYearCreate, Ac
         if obj_in.is_current:
             self._unset_current_years()
         
-        # Create the academic year
-        db_obj = await super().create(obj_in=obj_in)
+        # Create the academic year (dates stay dates: the seeding below splits them into periods)
+        db_obj = AcademicYear(tenant_id=self.tenant_id, **obj_in.model_dump())
+        self.db.add(db_obj)
+        self.db.flush()
         
         # Auto-seed Semesters and Periods
         self._seed_academic_year(db_obj)
@@ -172,42 +174,22 @@ class AcademicYearService(TenantBaseService[AcademicYear, AcademicYearCreate, Ac
         self.db.add(s2)
         self.db.flush() # Ensure s1.id and s2.id are available
         
-        # Periods for Semester 1 (1-3)
-        s1_duration = ay.semester_1_end - ay.semester_1_start
-        for i in range(3):
-            p_start = ay.semester_1_start + (s1_duration / 3) * i
-            p_end = ay.semester_1_start + (s1_duration / 3) * (i + 1)
-            p = Period(
-                id=uuid4(),
-                tenant_id=self.tenant_id,
-                semester_id=s1.id,
-                name=f"Period {i+1}",
-                period_number=i+1,
-                start_date=p_start,
-                end_date=p_end,
-                is_active=True
-            )
-            self.db.add(p)
-            
-        # Periods for Semester 2 (4-6)
-        s2_duration = ay.semester_2_end - ay.semester_2_start
-        for i in range(3):
-            idx = i + 3
-            p_start = ay.semester_2_start + (s2_duration / 3) * i
-            p_end = ay.semester_2_start + (s2_duration / 3) * (i + 1)
-            p = Period(
-                id=uuid4(),
-                tenant_id=self.tenant_id,
-                semester_id=s2.id,
-                name=f"Period {idx+1}",
-                period_number=idx+1,
-                start_date=p_start,
-                end_date=p_end,
-                is_active=True
-            )
-            self.db.add(p)
-            
-        self.db.commit()
+        # Periods 1-3 and 4-6: consecutive date ranges, so every school day is in exactly one period
+        from src.services.academics.year_setup_service import _split
+        for semester, offset in ((s1, 0), (s2, 3)):
+            for i, (p_start, p_end) in enumerate(_split(semester.start_date, semester.end_date, 3)):
+                self.db.add(Period(
+                    id=uuid4(),
+                    tenant_id=self.tenant_id,
+                    semester_id=semester.id,
+                    name=f"Period {offset + i + 1}",
+                    period_number=offset + i + 1,
+                    start_date=p_start,
+                    end_date=p_end,
+                    is_active=True
+                ))
+
+        self.db.flush()  # committed once per request (get_db)
     
     async def update(self, *, db_obj: AcademicYear, obj_in: AcademicYearUpdate) -> AcademicYear:
         """Update an academic year with validation."""
@@ -235,7 +217,7 @@ class AcademicYearService(TenantBaseService[AcademicYear, AcademicYearCreate, Ac
         if obj_in.is_current and not db_obj.is_current:
             self._unset_current_years()
         
-        updated_ay = await self.crud.update(db=self.db, tenant_id=self.tenant_id, db_obj=db_obj, obj_in=obj_in)
+        updated_ay = self.crud.update(db=self.db, tenant_id=self.tenant_id, db_obj=db_obj, obj_in=obj_in)
         
         # Sync semester dates if they were updated
         if any([obj_in.semester_1_start, obj_in.semester_1_end, obj_in.semester_2_start, obj_in.semester_2_end]):
@@ -263,7 +245,7 @@ class AcademicYearService(TenantBaseService[AcademicYear, AcademicYearCreate, Ac
             s2.start_date = ay.semester_2_start
             s2.end_date = ay.semester_2_end
             
-        self.db.commit()
+        self.db.flush()
     
     async def set_current_year(self, academic_year_id: UUID) -> AcademicYear:
         """Set a specific academic year as current."""
@@ -331,7 +313,7 @@ class AcademicYearService(TenantBaseService[AcademicYear, AcademicYearCreate, Ac
             AcademicYear.tenant_id == self.tenant_id,
             AcademicYear.is_current == True
         ).update({"is_current": False})
-        self.db.commit()
+        self.db.flush()
 
 
 class SuperAdminAcademicYearService(SuperAdminBaseService[AcademicYear, AcademicYearCreate, AcademicYearUpdate]):

@@ -1,14 +1,14 @@
 "use client"
 
 // The school's Users page: everyone at this school (students, parents, teachers, staff), searched
-// and paged on the server, with "Reset password" for the office. The new password is shown once
-// to hand over in person; it is never emailed.
+// and paged on the server, with "Reset password" for the office and "Add staff member" for new staff
+// sign-ins. New passwords are shown once to hand over in person; they are never emailed.
 
 import * as React from "react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query"
 import { parseAsInteger, parseAsString, parseAsStringLiteral, useQueryState } from "nuqs"
-import { AlertTriangle, KeyRound, RefreshCw, Search, Users } from "lucide-react"
+import { AlertTriangle, KeyRound, RefreshCw, Search, UserPlus, Users } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -20,9 +20,18 @@ import { Pagination } from "@/components/ui/pagination"
 import { StatusBadge } from "@/components/ui/status-badge"
 import { notify } from "@/components/ui/toaster"
 import { NewPasswordDialog } from "@/components/staff/new-password-dialog"
+import { CredentialsDialog } from "@/components/students/credentials"
 import { errorMessage } from "@/components/students/format"
 import { useTenant } from "@/hooks/use-tenant"
-import { useUserDirectoryService, type DirectoryUser, type OfficeResetResult } from "@/services/api/user-directory-service"
+import {
+  useUserDirectoryService,
+  type DirectoryUser,
+  type OfficeResetResult,
+  type StaffAccountCreated,
+} from "@/services/api/user-directory-service"
+
+import { AddStaffSheet } from "./add-staff-sheet"
+import { roleLabel } from "./role-labels"
 
 const STATUSES = ["all", "active", "inactive"] as const
 
@@ -40,25 +49,11 @@ const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "attendance-scanner", label: "Gate scanners" },
 ]
 
-const ROLE_LABEL: Record<string, string> = {
-  student: "Student",
-  parent: "Parent",
-  teacher: "Teacher",
-  admin: "Admin",
-  "tenant-admin": "Admin",
-  "academic-admin": "Academic admin",
-  registrar: "Registrar",
-  accountant: "Accountant",
-  "financial-admin": "Financial admin",
-  counselor: "Counselor",
-  "attendance-scanner": "Gate scanner",
-}
-
 const selectClass =
   "h-11 w-full rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:w-auto md:h-9 md:text-sm"
 
 function rolesText(roles: string[]): string {
-  return roles.map((r) => ROLE_LABEL[r] ?? r).join(", ") || "No role"
+  return roles.map(roleLabel).join(", ") || "No role"
 }
 
 function statusCode(error: unknown): number | undefined {
@@ -76,6 +71,8 @@ function UsersScreen() {
   const [search, setSearch] = React.useState(q)
   const [target, setTarget] = React.useState<DirectoryUser | null>(null)
   const [issued, setIssued] = React.useState<(OfficeResetResult & { name: string }) | null>(null)
+  const [adding, setAdding] = React.useState(false)
+  const [created, setCreated] = React.useState<StaffAccountCreated | null>(null)
   const roleId = React.useId()
   const statusId = React.useId()
 
@@ -177,9 +174,10 @@ function UsersScreen() {
   const filtersActive = Boolean(q || role || status !== "all")
   const data = users.data
 
+  const forbidden = users.isError && !data && statusCode(users.error) === 403
+
   let content: React.ReactNode
   if (users.isError && !data) {
-    const forbidden = statusCode(users.error) === 403
     content = (
       <EmptyState
         icon={AlertTriangle}
@@ -253,7 +251,15 @@ function UsersScreen() {
   return (
     <PageShell
       title="Users"
-      description="Everyone at your school. Reset a password here when someone can't sign in."
+      description="Everyone at your school. Add staff sign-ins, or reset a password when someone can't sign in."
+      primaryAction={
+        forbidden ? undefined : (
+          <Button className="min-h-11 w-full sm:w-auto md:min-h-9" onClick={() => setAdding(true)}>
+            <UserPlus aria-hidden="true" />
+            Add staff member
+          </Button>
+        )
+      }
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="relative w-full sm:max-w-sm">
@@ -326,6 +332,26 @@ function UsersScreen() {
         username={issued?.username}
         email={issued?.email}
         password={issued?.generated_password ?? null}
+      />
+
+      <AddStaffSheet
+        open={adding}
+        onOpenChange={setAdding}
+        onCreated={(account) => {
+          setCreated(account)
+          void users.refetch()
+        }}
+      />
+
+      <CredentialsDialog
+        open={Boolean(created)}
+        onOpenChange={(open) => {
+          if (!open) setCreated(null)
+        }}
+        title={`Account created for ${created?.name ?? ""}`}
+        description="This password is shown only once. Copy or print it now and hand it over. They choose a new password the first time they sign in."
+        printTitle="New staff sign-in"
+        credentials={created?.credentials ?? []}
       />
     </PageShell>
   )

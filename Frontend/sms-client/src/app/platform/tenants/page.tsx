@@ -72,11 +72,11 @@ export default function TenantsManagementPage() {
   const handleActivateTenant = async (id: string) => {
     activateTenant.mutate(id, {
       onSuccess: () => {
-        toast.success('Tenant activated successfully');
+        toast.success('School activated');
       },
       onError: (error) => {
         console.error('Activation error:', error);
-        toast.error('Failed to activate tenant');
+        toast.error("Couldn't activate the school");
       }
     });
   };
@@ -84,11 +84,11 @@ export default function TenantsManagementPage() {
   const handleDeactivateTenant = async (id: string) => {
     deactivateTenant.mutate(id, {
       onSuccess: () => {
-        toast.success('Tenant deactivated successfully');
+        toast.success('School deactivated');
       },
       onError: (error) => {
         console.error('Deactivation error:', error);
-        toast.error('Failed to deactivate tenant');
+        toast.error("Couldn't deactivate the school");
       }
     });
   };
@@ -100,19 +100,19 @@ export default function TenantsManagementPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Tenant Management</h1>
+      <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
+        <h1 className="text-3xl font-bold">Schools</h1>
         <button
           onClick={handleCreateTenant}
           className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
         >
-          Create Tenant
+          Create school
         </button>
       </div>
 
 
       {isLoading ? (
-        <div className="text-center py-4">Loading tenants...</div>
+        <div className="text-center py-4">Loading schools...</div>
       ) : (
         <>
           <TenantList

@@ -16,7 +16,7 @@ from src.schemas.academics.enrollment import (
 from src.core.middleware.tenant import get_tenant_from_request, get_tenant_id_from_request
 from src.services.academics.graduation_service import GraduationService
 from pydantic import BaseModel
-from src.core.auth.dependencies import has_any_role, get_current_user, has_permission
+from src.core.auth.dependencies import get_current_user, has_permission
 from src.schemas.auth import User
 from src.core.exceptions.business import (
     EntityNotFoundError,
@@ -392,7 +392,7 @@ async def update_enrollment_status(
     enrollment_service: EnrollmentService = Depends(),
     enrollment_id: UUID,
     status_data: Dict[str, Any] = Body(...),
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_enrollment"))
 ) -> Any:
     """Update enrollment status with validation."""
     try:
@@ -439,7 +439,7 @@ async def update_enrollment_semester_status(
     enrollment_service: EnrollmentService = Depends(),
     enrollment_id: UUID,
     body: Dict[str, Any] = Body(...),
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_enrollment"))
 ) -> Any:
     """Update semester status and optional completion date."""
     try:
@@ -467,7 +467,7 @@ async def promote_enrollment(
     promotion_type: Literal["semester", "grade", "graduation"] = Body("semester"),
     target_academic_year: Optional[str] = Body(None),
     target_semester: Optional[int] = Body(2),
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_enrollment"))
 ) -> Any:
     """Promote a single enrollment’s student (next semester/grade/graduation)."""
     try:
@@ -476,8 +476,8 @@ async def promote_enrollment(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enrollment not found")
 
         tenant_id = tenant.id if hasattr(tenant, "id") else tenant
-        service = PromotionService(db=db, tenant_id=tenant_id)
-        result = service.bulk_promote_students(
+        service = PromotionService(tenant=tenant_id, db=db)
+        result = await service.bulk_promote_students(
             student_ids=[enrollment.student_id],
             promotion_type=promotion_type,
             target_academic_year=target_academic_year,

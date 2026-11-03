@@ -13,7 +13,7 @@ export interface PromotionCriteria {
   aggregate_method?: 'average' | 'weighted';
 }
 
-export type PromotionStatusTag = 'Eligible' | 'Conditional' | 'Repeating';
+export type PromotionStatusTag = 'Eligible' | 'Conditional' | 'Repeating' | 'Not graded';
 
 export interface PromotionEvaluationResult {
   student_id: string;
@@ -60,6 +60,15 @@ export interface PromotionError {
   student_id?: string;
   error: string;
   type: 'error';
+}
+
+// Year-end transition: what happened to each student of the year (or grade level)
+export interface TransitionResult {
+  promoted: GradePromotionResult[];
+  remedial: { student_id: string; status: PromotionStatusTag; failed_subjects: number; class_id: string; class_name: string }[];
+  graduating: { student_id: string }[];
+  skipped: { student_id: string; reason: string }[];
+  errors: PromotionError[];
 }
 
 export interface BulkPromotionResponse {
@@ -284,10 +293,10 @@ export function usePromotionService() {
       return client.get<unknown[]>(`/academics/remedial/sessions?skip=${skip}&limit=${limit}`);
     },
 
-    startTransition: async (currentYearId: string, targetYearName: string): Promise<any> => {
+    startTransition: async (currentYearId: string, targetYearName: string, gradeId?: string): Promise<TransitionResult> => {
       const client = await waitForApiClientReady();
-      return client.post(`/academics/promotions/transition`, null, {
-        params: { current_year_id: currentYearId, target_year_name: targetYearName }
+      return client.post<TransitionResult>(`/academics/promotions/transition`, null, {
+        params: { current_year_id: currentYearId, target_year_name: targetYearName, grade_id: gradeId || undefined }
       });
     },
 

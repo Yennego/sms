@@ -27,6 +27,7 @@ MAX_PAGE_SIZE = 100
 MAX_PLACEMENT_BATCH = 200
 SORTS = {"name", "admission_number", "class"}
 PLACEMENTS = {"all", "placed", "unplaced"}
+PLACED_STATUSES = ("active", "completed", "graduated")
 
 
 class ClassPlacementService:
@@ -66,14 +67,15 @@ class ClassPlacementService:
         # A school without a current year still has students: list them all as not placed
         year = self._year(academic_year_id) if academic_year_id else self._current_year_or_none()
 
-        # The student's active enrollment this year, if any (at most one per student and year)
+        # The student's enrollment this year, if any (at most one per student and year): active, or
+        # finished at year end (promoted, repeating or graduated), which still shows their class
         enr = aliased(Enrollment)
         cls, grade, section = aliased(Class), aliased(AcademicGrade), aliased(Section)
         base = (
             self.db.query(Student)
             .outerjoin(enr, and_(
                 enr.student_id == Student.id, enr.tenant_id == self.tenant_id,
-                enr.academic_year_id == (year.id if year else None), enr.status == "active",
+                enr.academic_year_id == (year.id if year else None), enr.status.in_(PLACED_STATUSES),
             ))
             .filter(Student.tenant_id == self.tenant_id)
         )

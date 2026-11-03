@@ -63,6 +63,14 @@ const STUDENTS: NavArea = {
 
 const STUDENTS_READ_ONLY: NavArea = { ...STUDENTS, tabs: [tab('Directory', '/students')] };
 
+// The registrar: Enrollments, Promotion and Graduation (the year's end) are admin and principal pages
+const STUDENTS_REGISTRAR: NavArea = {
+  ...STUDENTS,
+  tabs: STUDENTS.tabs.filter(
+    (t) => !['/academics/enrollments', '/academics/promotion', '/academics/graduation'].includes(t.path)
+  ),
+};
+
 const STAFF: NavArea = {
   key: 'staff', label: 'Staff', icon: Users,
   tabs: [
@@ -87,6 +95,12 @@ const CLASSES: NavArea = {
   ],
 };
 
+// The registrar sets up classes but not the school year (Setup needs manage_academic_year)
+const CLASSES_REGISTRAR: NavArea = {
+  ...CLASSES,
+  tabs: CLASSES.tabs.filter((t) => t.path !== '/academics/setup'),
+};
+
 const ATTENDANCE: NavArea = {
   key: 'attendance', label: 'Attendance', icon: ClipboardCheck,
   tabs: [
@@ -94,11 +108,17 @@ const ATTENDANCE: NavArea = {
     tab('Mark', '/attendance/daily'),
     tab('Scan', '/attendance/scan'),
     tab('Excuses', '/attendance/excuses'),
-    tab('Students', '/attendance/students'),
-    tab('Calendar', '/attendance/calendar'),
-    tab('Reports', '/attendance/reports'),
+    // A student's attendance record opens from Reports and the student profile
+    tab('Reports', '/attendance/reports', undefined, ['/attendance/students']),
     tab('ID cards', '/attendance/id-cards'),
   ],
+};
+
+// The principal and registrar read the whole school's attendance (view_school_attendance);
+// marking, scanning, excuses and ID cards stay with admins and teachers
+const ATTENDANCE_READ_ONLY: NavArea = {
+  ...ATTENDANCE,
+  tabs: ATTENDANCE.tabs.filter((t) => ['/attendance', '/attendance/reports'].includes(t.path)),
 };
 
 const GRADES: NavArea = {
@@ -112,6 +132,13 @@ const GRADES: NavArea = {
     tab('Remedial', '/academics/remedial'),
   ],
 };
+
+// The principal reviews fees and approves voids, adjustments and holds; recording payments and fee
+// setup stay with the bursar (the fees screens hide those actions without the permissions)
+const FEES_REVIEW = (fees: NavArea): NavArea => ({
+  ...fees,
+  tabs: fees.tabs.filter((t) => !['/finance/expenditure', '/finance/settings'].includes(t.path)),
+});
 
 const FEES: NavArea = {
   key: 'fees', label: 'Fees', icon: Receipt, feature: 'enable_finance',
@@ -161,18 +188,25 @@ const ADMIN: RoleNavigation = {
   settings: SCHOOL_SETTINGS,
 };
 
+// The admin dashboard is for school admins (it sends anyone else away), so the principal and
+// registrar land on a page of their own.
 const ROLES: Record<string, RoleNavigation> = {
   admin: ADMIN,
   'tenant-admin': ADMIN,
   'academic-admin': {
-    home: '/admin-dashboard',
+    home: '/academics/grades/publish',
     signs: true,
-    areas: [HOME('/admin-dashboard'), STUDENTS, STAFF, CLASSES, ATTENDANCE, GRADES, MESSAGES],
+    areas: [
+      STUDENTS, STAFF, CLASSES, ATTENDANCE_READ_ONLY,
+      // Assignments is the teachers' tool
+      { ...GRADES, tabs: GRADES.tabs.filter((t) => t.path !== '/academics/assignments') },
+      FEES_REVIEW(FEES), MESSAGES,
+    ],
   },
   registrar: {
-    home: '/admin-dashboard',
+    home: '/students',
     signs: true,
-    areas: [HOME('/admin-dashboard'), STUDENTS, CLASSES, ATTENDANCE, MESSAGES],
+    areas: [STUDENTS_REGISTRAR, CLASSES_REGISTRAR, ATTENDANCE_READ_ONLY, MESSAGES],
   },
   accountant: { home: '/finance', areas: [{ ...FEES, feature: undefined }, STUDENTS_READ_ONLY, MESSAGES] },
   'financial-admin': { home: '/finance', areas: [{ ...FEES, feature: undefined }, STUDENTS_READ_ONLY, MESSAGES] },
@@ -203,7 +237,10 @@ const ROLES: Record<string, RoleNavigation> = {
     areas: [
       HOME('/student/dashboard'),
       { key: 'timetable', label: 'Timetable', icon: CalendarDays, tabs: [tab('Timetable', '/student/timetable')] },
-      { key: 'courses', label: 'Courses', icon: BookOpen, tabs: [tab('My courses', '/student/courses')] },
+      {
+        key: 'courses', label: 'Courses', icon: BookOpen,
+        tabs: [tab('My courses', '/student/courses'), tab('Assignments', '/academics/assignments')],
+      },
       {
         key: 'results', label: 'Results', icon: Award,
         tabs: [tab('My results', '/student/grades')],
@@ -263,12 +300,8 @@ export const PLATFORM_NAVIGATION: RoleNavigation = {
     { key: 'audit', label: 'Audit', icon: History, tabs: [tab('Security and audit', '/platform/security')] },
     {
       key: 'system', label: 'System', icon: Settings,
-      tabs: [
-        tab('Settings', '/platform/settings'),
-        tab('Health', '/platform/health'),
-        tab('Database', '/platform/database'),
-        tab('API docs', '/platform/api-docs'),
-      ],
+      // Settings and Database come back when they have a backend
+      tabs: [tab('Health', '/platform/health'), tab('API docs', '/platform/api-docs')],
     },
   ],
 };

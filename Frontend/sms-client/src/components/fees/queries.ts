@@ -256,6 +256,16 @@ export function useDeleteAdjustment() {
   return useMutation({ mutationFn: (id: string) => service.deleteAdjustment(id), onSuccess: invalidate });
 }
 
+/** Voids a semester bill; refused (409) while payments still count against it. */
+export function useVoidInvoice() {
+  const service = useFeesService();
+  const invalidate = useInvalidateFees();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => service.voidInvoice(id, reason),
+    onSuccess: invalidate,
+  });
+}
+
 export function useResetCurrency() {
   const service = useFeesService();
   const invalidate = useInvalidateFees();

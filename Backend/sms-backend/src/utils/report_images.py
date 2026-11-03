@@ -122,6 +122,11 @@ def normalise_seal(raw: bytes) -> CleanImage:
     return _finish(img, SEAL_BOX)
 
 
+def normalise_logo(raw: bytes) -> CleanImage:
+    """The school logo: handled like the seal (transparent margins trimmed, fits 400x400)."""
+    return normalise_seal(raw)
+
+
 async def read_upload(file) -> bytes:
     """Read an UploadFile, refusing more than MAX_UPLOAD_BYTES without reading it all."""
     raw = await file.read(MAX_UPLOAD_BYTES + 1)

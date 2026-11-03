@@ -124,6 +124,7 @@ class SchoolProfileService:
     def out(self) -> Dict[str, Any]:
         row = self.row()
         principal = self._user(row.principal_user_id) if row and row.principal_user_id else None
+        logo = self._tenant().logo
         return {
             "address": row.address if row else None,
             "motto": row.motto if row else None,
@@ -135,6 +136,8 @@ class SchoolProfileService:
             "principal_has_signature": principal is not None and current_signature(
                 self.db, self.tenant_id, principal.id) is not None,
             "seal": report_images.data_url(row.seal_image) if row else None,
+            "logo": logo,
+            "logo_uploaded": logo.startswith(self._logo_url()) if logo else False,
             "updated_at": row.updated_at if row else None,
         }
 
@@ -169,6 +172,37 @@ class SchoolProfileService:
         row.seal_image = clean.data
         row.updated_at = datetime.now(UTC)
         self.db.flush()
+        return self.out()
+
+    # The logo lives on the tenant (shown on the sign-in page, the app header, receipts and report
+    # cards through tenants.logo); an upload makes tenants.logo point at GET /tenants/{id}/logo.
+
+    def _tenant(self) -> Tenant:
+        return self.db.query(Tenant).filter(Tenant.id == self.tenant_id).one()
+
+    def _logo_url(self, version: Optional[datetime] = None) -> str:
+        url = f"/api/v1/tenants/{self.tenant_id}/logo"
+        return f"{url}?v={int(version.timestamp())}" if version else url
+
+    def set_logo(self, raw: bytes) -> Dict[str, Any]:
+        try:
+            clean = report_images.normalise_logo(raw)
+        except report_images.ImageRejected as err:
+            raise image_error(err)
+        tenant = self._tenant()
+        tenant.logo_image = clean.data
+        tenant.logo = self._logo_url(datetime.now(UTC))  # a new address, so browsers don't show the old one
+        self.db.flush()
+        return self.out()
+
+    def clear_logo(self) -> Dict[str, Any]:
+        """Removes an uploaded logo; a logo given as a web address (School settings) stays."""
+        tenant = self._tenant()
+        if tenant.logo_image is not None or (tenant.logo or "").startswith(self._logo_url()):
+            tenant.logo_image = None
+            if (tenant.logo or "").startswith(self._logo_url()):
+                tenant.logo = None
+            self.db.flush()
         return self.out()
 
     def clear_seal(self) -> Dict[str, Any]:

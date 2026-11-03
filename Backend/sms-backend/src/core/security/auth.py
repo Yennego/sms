@@ -42,6 +42,7 @@ PUBLIC_ROUTES = {
     ("GET", "/api/v1/tenants/"),
     ("GET", "/api/v1/tenants/by-domain/"),
     ("GET", "/api/v1/tenants/{tenant_id}"),
+    ("GET", "/api/v1/tenants/{tenant_id}/logo"),  # the uploaded logo image, shown on the sign-in page
     # Report card check from a printed QR (rate-limited; returns only that card's listed fields)
     ("GET", "/api/v1/verify/report-cards/{code}"),
     # Online payment notifications (the provider's signature is checked; 404 while none is configured)

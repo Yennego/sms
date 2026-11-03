@@ -1,5 +1,6 @@
 // The school's Users page (GET /auth/users/directory): everyone in this school, paged on the
-// server, and the office password reset (POST /auth/admin/reset-password/{id}).
+// server, the office password reset (POST /auth/admin/reset-password/{id}) and new staff accounts
+// (GET /auth/staff-roles, POST /auth/staff-accounts).
 
 import { useMemo } from 'react';
 import { useApiClientWithLoading, createWaitForApiClientReady } from './api-client';
@@ -39,6 +40,33 @@ export interface OfficeResetResult {
   email: string | null;
 }
 
+/** A role the caller may give a new staff account (admin only for school admins). */
+export interface StaffRoleOption {
+  id: string;
+  name: string;
+  description: string | null;
+  is_system: boolean;
+}
+
+export interface StaffAccountCreate {
+  first_name: string;
+  last_name: string;
+  email?: string;
+  username?: string;
+  phone_number?: string;
+  role_id: string;
+}
+
+export interface StaffAccountCreated {
+  id: string;
+  name: string;
+  username: string;
+  email: string | null;
+  role: string;
+  /** Shown once: the password is never stored in readable form or emailed. */
+  credentials: { who: string; name: string; username: string; password: string }[];
+}
+
 export function useUserDirectoryService() {
   const { apiClient } = useApiClientWithLoading();
   const ready = useMemo(() => createWaitForApiClientReady(apiClient), [apiClient]);
@@ -58,6 +86,17 @@ export function useUserDirectoryService() {
       resetPassword: async (userId: string): Promise<OfficeResetResult> => {
         const client = await ready();
         return client.post<OfficeResetResult>(`/auth/admin/reset-password/${userId}`, {});
+      },
+
+      staffRoles: async (): Promise<StaffRoleOption[]> => {
+        const client = await ready();
+        return client.get<StaffRoleOption[]>('/auth/staff-roles');
+      },
+
+      /** Creates the account with a generated password; they choose their own at first sign-in. */
+      createStaffAccount: async (data: StaffAccountCreate): Promise<StaffAccountCreated> => {
+        const client = await ready();
+        return client.post<StaffAccountCreated>('/auth/staff-accounts', data);
       },
     }),
     [ready]

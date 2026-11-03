@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from uuid import UUID
 
 from src.schemas.academics.promotion import (
@@ -12,7 +12,8 @@ from src.services.academics.promotion_service import PromotionService
 from src.services.academics.promotion_status_service import PromotionStatusService
 from src.db.session import get_db
 from sqlalchemy.orm import Session
-from src.core.auth.dependencies import has_any_role, has_any_permission
+from src.core.auth.dependencies import has_any_permission, has_permission
+from src.core.exceptions.business import BusinessRuleViolationError
 
 # Reading promotion rules and decisions is staff-only
 CAN_READ = [Depends(has_any_permission(["promote_students", "view_academic_data", "manage_academic_data"]))]
@@ -39,7 +40,7 @@ async def list_criteria(
 async def create_criteria(
     obj_in: PromotionCriteriaCreate,
     service: PromotionCriteriaService = Depends(),
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_academic_year"))
 ):
     return await service.create(obj_in=obj_in)
 
@@ -48,7 +49,7 @@ async def update_criteria(
     id: UUID,
     obj_in: PromotionCriteriaUpdate,
     service: PromotionCriteriaService = Depends(),
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_academic_year"))
 ):
     return await service.update(id=id, obj_in=obj_in)
 
@@ -56,7 +57,7 @@ async def update_criteria(
 async def delete_criteria(
     id: UUID,
     service: PromotionCriteriaService = Depends(),
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_academic_year"))
 ):
     deleted = await service.delete(id=id)
     return {"deleted": bool(deleted)}
@@ -66,7 +67,7 @@ async def evaluate(
     payload: PromotionEvaluationRequest,
     db: Session = Depends(get_db),
     service: PromotionService = Depends(),
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_academic_year"))
 ):
     results: List[PromotionEvaluationResult] = []
     enrollment_ids: List[UUID] = payload.enrollment_ids or []
@@ -121,7 +122,7 @@ async def get_status_by_student_year(
 async def create_status(
     obj_in: PromotionStatusCreate,
     service: PromotionStatusService = Depends(),
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_academic_year"))
 ):
     return await service.create(obj_in=obj_in)
 
@@ -130,7 +131,7 @@ async def update_status(
     id: UUID,
     obj_in: PromotionStatusUpdate,
     service: PromotionStatusService = Depends(),
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_academic_year"))
 ):
     return await service.update(id=id, obj_in=obj_in.model_dump(exclude_unset=True))
 
@@ -138,10 +139,15 @@ async def update_status(
 async def start_transition(
     current_year_id: UUID,
     target_year_name: str,
+    grade_id: Optional[UUID] = None,
     service: PromotionService = Depends(),
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_academic_year"))
 ):
-    return await service.process_year_end_transition(current_year_id, target_year_name)
+    """Year-end transition from one school year into a later one, for one grade level or all."""
+    try:
+        return await service.process_year_end_transition(current_year_id, target_year_name, grade_id)
+    except BusinessRuleViolationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/scaling")
 async def apply_scaling(
@@ -149,7 +155,7 @@ async def apply_scaling(
     scaling_points: float,
     notes: Optional[str] = None,
     service: PromotionService = Depends(),
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_academic_year"))
 ):
     return await service.apply_manual_scaling(enrollment_id, scaling_points, notes)
 

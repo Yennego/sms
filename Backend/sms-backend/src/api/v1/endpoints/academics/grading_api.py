@@ -11,7 +11,7 @@ from src.schemas.academics.grading_schema import (
     GradingCategoryWithStatus
 )
 from src.db.crud.academics.grading_crud import grading_schema, grading_category
-from src.core.auth.dependencies import has_any_role, get_current_user
+from src.core.auth.dependencies import get_current_user, has_permission, has_role_or_permission
 from src.schemas.auth import User
 from src.services.academics.grading_service import GradingService
 from src.core.exceptions.business import DuplicateEntityError, EntityNotFoundError
@@ -23,7 +23,7 @@ async def create_schema(
     *,
     db: Session = Depends(get_db),
     schema_in: GradingSchemaCreate,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_academic_data"))
 ) -> Any:
     """Create a new grading schema with categories (Admin only)."""
     # Validate sum of weights is 100
@@ -52,7 +52,7 @@ async def get_schemas(
     db: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 100,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student"], ["view_academic_data"]))
 ) -> Any:
     """Get all grading schemas for the tenant."""
     tenant_id = current_user.tenant_id if hasattr(current_user, 'tenant_id') else None
@@ -63,7 +63,7 @@ async def get_schema(
     *,
     db: Session = Depends(get_db),
     schema_id: UUID,
-    current_user: User = Depends(has_any_role(["admin", "teacher", "student"]))
+    current_user: User = Depends(has_role_or_permission(["teacher", "student"], ["view_academic_data"]))
 ) -> Any:
     """Get a specific grading schema by ID."""
     tenant_id = current_user.tenant_id if hasattr(current_user, 'tenant_id') else None
@@ -78,7 +78,7 @@ async def update_schema(
     db: Session = Depends(get_db),
     schema_id: UUID,
     schema_in: GradingSchemaUpdate,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_academic_data"))
 ) -> Any:
     """Update a grading schema."""
     tenant_id = current_user.tenant_id if hasattr(current_user, 'tenant_id') else None
@@ -92,7 +92,7 @@ async def delete_schema(
     *,
     db: Session = Depends(get_db),
     schema_id: UUID,
-    current_user: User = Depends(has_any_role(["admin"]))
+    current_user: User = Depends(has_permission("manage_academic_data"))
 ) -> Any:
     """Delete a grading schema."""
     tenant_id = current_user.tenant_id if hasattr(current_user, 'tenant_id') else None

@@ -65,21 +65,21 @@ export default function TenantList({
     switch (modalAction) {
       case 'activate':
         return {
-          title: 'Activate Tenant',
+          title: 'Activate school',
           message: `Are you sure you want to activate ${selectedTenant.name}?`,
           confirmButtonText: 'Activate',
           confirmButtonColor: 'green',
         };
       case 'deactivate':
         return {
-          title: 'Deactivate Tenant',
+          title: 'Deactivate school',
           message: `Are you sure you want to deactivate ${selectedTenant.name}?`,
           confirmButtonText: 'Deactivate',
           confirmButtonColor: 'yellow',
         };
       case 'delete':
         return {
-          title: 'Delete Tenant',
+          title: 'Delete school',
           message: `Are you sure you want to delete ${selectedTenant.name}? This action cannot be undone.`,
           confirmButtonText: 'Delete',
           confirmButtonColor: 'red',
@@ -157,7 +157,7 @@ export default function TenantList({
       }
     } catch (err) {
       console.error(`Activation error:`, err);
-      setError(err instanceof Error ? err.message : 'Failed to activate tenant');
+      setError(err instanceof Error ? err.message : "Couldn't activate the school");
       throw err; // Rethrow to let handleModalConfirm handle it
     }
     console.log(`Activation process completed`);
@@ -178,7 +178,7 @@ export default function TenantList({
         await onRefresh();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to deactivate tenant');
+      setError(err instanceof Error ? err.message : "Couldn't deactivate the school");
       throw err; // Rethrow to let handleModalConfirm handle it
     }
   };
@@ -191,7 +191,7 @@ export default function TenantList({
       await tenantService.deleteTenant(id);
       await onRefresh();
     } catch (err: Error | unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to delete tenant');
+      setError(err instanceof Error ? err.message : "Couldn't delete the school");
     } finally {
       setIsLoading(false);
     }
@@ -212,7 +212,7 @@ export default function TenantList({
               Name
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Domain/Subdomain
+              School address
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               Status
@@ -224,7 +224,7 @@ export default function TenantList({
               Amount due
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Created At
+              Created
             </th>
             <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider sticky right-0 bg-gray-50 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.05)]">
               Actions
@@ -235,7 +235,7 @@ export default function TenantList({
           {!tenants || tenants.length === 0 ? (
             <tr>
               <td colSpan={7} className="px-6 py-4 text-center text-sm text-gray-500">
-                No tenants found
+                No schools yet
               </td>
             </tr>
           ) : (
@@ -260,7 +260,7 @@ export default function TenantList({
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {tenant.domain || tenant.subdomain || '-'}
+                  {tenant.domain || tenant.subdomain ? `/${(tenant.domain || tenant.subdomain || '').toLowerCase()}` : '-'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span

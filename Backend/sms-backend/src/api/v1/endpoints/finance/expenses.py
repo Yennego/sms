@@ -14,13 +14,19 @@ from src.db.crud.finance import expense_category, expenditure
 
 router = APIRouter()
 
+
+def _check_category(db: Session, tenant_id: UUID, category_id) -> None:
+    """The category must be one of this school's."""
+    if category_id is not None and not expense_category.get_by_id(db, tenant_id=tenant_id, id=category_id):
+        raise HTTPException(status_code=404, detail="Expense category not found")
+
 @router.get("/summary")
 def get_expenditure_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
     tenant_id: UUID = Depends(get_tenant_id_from_request)
 ) -> Any:
-    """Get expenditure summary."""
+    """Total spent per currency (USD and LRD are never added together)."""
     return finance_service.get_expenditure_summary(db=db, tenant_id=tenant_id)
 
 @router.get("/categories", response_model=List[ExpenseCategory])
@@ -94,6 +100,7 @@ def create_expenditure(
     tenant_id: UUID = Depends(get_tenant_id_from_request)
 ) -> Any:
     """Record an expenditure."""
+    _check_category(db, tenant_id, expenditure_in.expense_category_id)
     return expenditure.create(db=db, obj_in=expenditure_in, tenant_id=tenant_id)
 
 @router.put("/{expenditure_id}", response_model=Expenditure)
@@ -109,6 +116,7 @@ def update_expenditure(
     db_obj = expenditure.get_by_id(db, tenant_id=tenant_id, id=expenditure_id)
     if not db_obj:
         raise HTTPException(status_code=404, detail="Expenditure not found")
+    _check_category(db, tenant_id, expenditure_in.expense_category_id)
     return expenditure.update(db=db, tenant_id=tenant_id, db_obj=db_obj, obj_in=expenditure_in)
 
 @router.delete("/{expenditure_id}", response_model=Expenditure)
