@@ -234,7 +234,7 @@ The wizard has five steps. It saves as you go, so you can stop and come back lat
    - For each level, tap **Choose subjects**, tick the subjects, and tap **Apply to N classes**.
    - Then choose a teacher for each class subject.
    - Subjects you need must exist first. Add them under **Classes → Subjects** (**Add Subject**).
-7. **Step 5, Enroll students:** see Step 6 below.
+7. **Step 5, Enroll students:** admit or import the students into these classes (see Step 7 below). Teachers, sponsors and subjects can come before or after.
 
 **Check:** the top of the page says **All 5 steps done**. Tap **See summary**: it lists what the year has and the next steps (grading, fees and ID cards).
 
