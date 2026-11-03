@@ -65,7 +65,6 @@ function LevelRow({ level, mutations }: { level: YearSetupLevel; mutations: Year
         {level.sections.map((s) => (
           <span key={s.id} className="inline-flex items-center gap-1 rounded-full border bg-muted/40 px-3 py-1 text-sm">
             <span className="font-medium">{s.name}</span>
-            <span className="text-muted-foreground">· {s.capacity} seats</span>
           </span>
         ))}
         {!adding ? (
@@ -92,23 +91,20 @@ function nextSectionName(level: YearSetupLevel): string {
 
 function AddSectionForm({ level, mutations, onDone }: { level: YearSetupLevel; mutations: YearSetupMutations; onDone: () => void }) {
   const [name, setName] = React.useState(() => nextSectionName(level));
-  const [capacity, setCapacity] = React.useState(String(level.sections[0]?.capacity ?? 30));
-  const [errors, setErrors] = React.useState<{ name?: string; capacity?: string }>({});
+  const [errors, setErrors] = React.useState<{ name?: string }>({});
   const { createSection } = mutations;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cap = Number(capacity);
     const next: typeof errors = {};
     if (!name.trim()) next.name = 'Enter a section name, for example A.';
     else if (level.sections.some((s) => s.name.toLowerCase() === name.trim().toLowerCase())) {
       next.name = `${level.name} already has section ${name.trim()}.`;
     }
-    if (!Number.isInteger(cap) || cap < 1) next.capacity = 'Enter the number of seats, 1 or more.';
     setErrors(next);
     if (Object.keys(next).length) return;
     try {
-      await createSection.mutateAsync({ grade_id: level.id, name: name.trim(), capacity: cap });
+      await createSection.mutateAsync({ grade_id: level.id, name: name.trim() });
       notify.success(`Section ${name.trim()} added to ${level.name}.`);
       onDone();
     } catch (err) {
@@ -117,12 +113,9 @@ function AddSectionForm({ level, mutations, onDone }: { level: YearSetupLevel; m
   };
 
   return (
-    <form onSubmit={submit} className="mt-3 grid gap-3 rounded-lg bg-muted/40 p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-start" noValidate>
+    <form onSubmit={submit} className="mt-3 grid gap-3 rounded-lg bg-muted/40 p-3 sm:grid-cols-[1fr_auto] sm:items-start" noValidate>
       <FormField label="Section name" error={errors.name} required>
         <Input value={name} onChange={(e) => setName(e.target.value)} className="h-11 bg-background" autoFocus />
-      </FormField>
-      <FormField label="Seats" error={errors.capacity} required>
-        <Input type="number" inputMode="numeric" min={1} value={capacity} onChange={(e) => setCapacity(e.target.value)} className="h-11 bg-background" />
       </FormField>
       <div className="flex gap-2 sm:pt-[1.375rem]">
         <Button type="button" variant="outline" className="min-h-11 flex-1 sm:flex-none" onClick={onDone}>

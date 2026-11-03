@@ -31,7 +31,6 @@ export interface TermsStep {
 export interface YearSetupSection {
   id: string;
   name: string;
-  capacity: number;
 }
 
 export interface YearSetupLevel {
@@ -157,8 +156,8 @@ export function useYearSetupService() {
     copyFrom: async (yearId: string, sourceYearId: string, options: CopyFromOptions) =>
       (await ready()).post<CopyFromResult>(`${BASE}/${yearId}/copy-from/${sourceYearId}`, options),
 
-    generateClasses: async (yearId: string, gradeIds?: string[]) =>
-      (await ready()).post<ClassesStep>(`${BASE}/${yearId}/classes/generate`, gradeIds ? { grade_ids: gradeIds } : {}),
+    generateClasses: async (yearId: string, capacity: number) =>
+      (await ready()).post<ClassesStep>(`${BASE}/${yearId}/classes/generate`, { capacity }),
 
     setSponsor: async (classId: string, teacherId: string | null) =>
       (await ready()).put<YearSetupClass>(`${BASE}/classes/${classId}/sponsor`, { teacher_id: teacherId }),
@@ -179,7 +178,7 @@ export function useYearSetupService() {
     createLevel: async (payload: { name: string; sequence: number }) =>
       (await ready()).post<unknown>('/academics/academic-grades', { ...payload, is_active: true }),
 
-    createSection: async (payload: { grade_id: string; name: string; capacity: number }) =>
+    createSection: async (payload: { grade_id: string; name: string }) =>
       (await ready()).post<unknown>('/academics/sections', { ...payload, is_active: true }),
 
     listTeachers: async (): Promise<TeacherOption[]> => {

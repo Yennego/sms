@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from src.core.auth.dependencies import has_permission
@@ -29,6 +29,7 @@ class CopyOptions(BaseModel):
 
 class GenerateClasses(BaseModel):
     grade_ids: Optional[List[UUID]] = None
+    capacity: int = Field(30, ge=1, le=500)  # seats per new class; each class can be changed later
 
 
 class TeacherChoice(BaseModel):
@@ -68,7 +69,7 @@ def generate_classes(
     _=CAN_SET_UP, service: YearSetupService = Depends(_service),
 ) -> Any:
     """Create one class per grade level and section that has none this year."""
-    return service.generate_classes(year_id, body.grade_ids)
+    return service.generate_classes(year_id, body.grade_ids, body.capacity)
 
 
 @router.put("/classes/{class_id}/sponsor")

@@ -33,7 +33,7 @@ export default function SectionsPage() {
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingSection, setEditingSection] = useState<any | null>(null);
-  const [formData, setFormData] = useState({ name: '', capacity: '', description: '' });
+  const [formData, setFormData] = useState({ name: '', description: '' });
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [sectionToDelete, setSectionToDelete] = useState<any | null>(null);
 
@@ -42,7 +42,6 @@ export default function SectionsPage() {
     name: s.name,
     gradeId: s.grade_id,
     gradeName: s.grade_name,
-    capacity: s.capacity,
     description: s.description,
     studentCount: s.student_count || 0,
     classCount: s.class_count || 0
@@ -57,7 +56,6 @@ export default function SectionsPage() {
     const payload = {
       name: formData.name,
       grade_id: selectedGradeId,
-      capacity: formData.capacity ? parseInt(formData.capacity, 10) : undefined,
       description: formData.description || undefined
     };
 
@@ -71,7 +69,7 @@ export default function SectionsPage() {
       }
       setIsDialogOpen(false);
       setEditingSection(null);
-      setFormData({ name: '', capacity: '', description: '' });
+      setFormData({ name: '', description: '' });
     } catch (err: any) {
       toast.error(err.message || 'Failed to save section');
     }
@@ -81,7 +79,6 @@ export default function SectionsPage() {
     setEditingSection(section);
     setFormData({
       name: section.name,
-      capacity: section.capacity ? String(section.capacity) : '',
       description: section.description ?? ''
     });
     setIsDialogOpen(true);
@@ -133,7 +130,7 @@ export default function SectionsPage() {
           </div>
           <Button onClick={() => {
             setEditingSection(null);
-            setFormData({ name: '', capacity: '', description: '' });
+            setFormData({ name: '', description: '' });
             setIsDialogOpen(true);
           }}>
             <Plus className="w-4 h-4 mr-2" />
@@ -191,9 +188,6 @@ export default function SectionsPage() {
                       {section.gradeName}
                     </CardDescription>
                   </div>
-                  <Badge variant="outline" className="font-mono text-[10px]">
-                    CAP: {section.capacity ?? '∞'}
-                  </Badge>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -228,10 +222,6 @@ export default function SectionsPage() {
             <div className="grid gap-2">
               <Label htmlFor="name">Section Name</Label>
               <Input id="name" value={formData.name} onChange={(e) => setFormData(p => ({ ...p, name: e.target.value }))} placeholder="e.g., Alpha, A, or Blue" required />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="capacity">Capacity (Optional)</Label>
-              <Input id="capacity" type="number" value={formData.capacity} onChange={(e) => setFormData(p => ({ ...p, capacity: e.target.value }))} placeholder="30" />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="description">Description</Label>
