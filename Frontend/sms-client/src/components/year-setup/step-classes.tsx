@@ -6,6 +6,8 @@ import { Loader2, School, UserPlus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
+import { FormField } from '@/components/ui/form-field';
+import { Input } from '@/components/ui/input';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { notify } from '@/components/ui/toaster';
 import type { YearSetup } from '@/services/api/year-setup-service';
@@ -27,10 +29,18 @@ export function StepClasses({ data, mutations, school, onGoToLevels }: StepClass
   const { generateClasses, setSponsor } = mutations;
   const hasSections = data.steps.levels.levels.some((l) => l.sections.length > 0);
   const withoutSponsor = classes.filter((c) => !c.sponsor_id).length;
+  const [seats, setSeats] = React.useState('30');
+  const [seatsError, setSeatsError] = React.useState<string>();
 
   const generate = async () => {
+    const capacity = Number(seats);
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 500) {
+      setSeatsError('Enter the number of seats, from 1 to 500.');
+      return;
+    }
+    setSeatsError(undefined);
     try {
-      await generateClasses.mutateAsync(undefined);
+      await generateClasses.mutateAsync(capacity);
       notify.success(`Created ${plural(missing.length, 'class', 'classes')}.`);
     } catch (err) {
       notify.error(errorText(err, 'The classes were not created.'));
@@ -71,10 +81,24 @@ export function StepClasses({ data, mutations, school, onGoToLevels }: StepClass
             {missing.slice(0, 8).map((m) => `${m.grade_name} - ${m.section_name}`).join(', ')}
             {missing.length > 8 ? ` and ${missing.length - 8} more` : ''}
           </p>
-          <Button className="mt-3 min-h-11 w-full sm:w-auto" onClick={generate} disabled={generateClasses.isPending}>
-            {generateClasses.isPending ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
-            Create {plural(missing.length, 'class', 'classes')}
-          </Button>
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+            <FormField label="Seats in each class" error={seatsError} required>
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={500}
+                value={seats}
+                onChange={(e) => setSeats(e.target.value)}
+                className="h-11 bg-background sm:w-32"
+              />
+            </FormField>
+            <Button className="min-h-11 w-full sm:w-auto" onClick={generate} disabled={generateClasses.isPending}>
+              {generateClasses.isPending ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+              Create {plural(missing.length, 'class', 'classes')}
+            </Button>
+          </div>
+          <p className="mt-2 text-sm text-amber-900">You can change the seats of any class later under Classes → Classes.</p>
         </div>
       ) : null}
 

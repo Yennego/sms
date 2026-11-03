@@ -240,15 +240,6 @@ export default function ClassesPage() {
   const configured = classes?.length || 0;
   const completionPercentage = total > 0 ? Math.round((configured / total) * 100) : 0;
 
-  // Grade/Section Map for faster lookup
-  const sectionCapacityMap = useMemo(() => {
-    const map: Record<string, number> = {};
-    sections.forEach(s => {
-      map[s.id] = s.capacity || 35;
-    });
-    return map;
-  }, [sections]);
-
   // Helper for Section generation if they don't exist
   const syncSectionsForGrade = async () => {
     if (selectedGrade === 'all') {
@@ -266,8 +257,7 @@ export default function ClassesPage() {
         if (!exists) {
           return sectionService.createSection({
             grade_id: selectedGrade,
-            name: name,
-            capacity: 35
+            name: name
           });
         }
       });
@@ -576,9 +566,9 @@ export default function ClassesPage() {
         <Alert className="border-red-100 bg-red-50/50 rounded-xl">
           <AlertTriangle className="h-5 w-5 text-red-500" />
           <AlertDescription className="text-red-700 font-medium flex items-center justify-between w-full">
-            <span>Unable to load full class list: {error}</span>
+            <span>Some classes couldn&apos;t be loaded. Check your internet connection and try again.</span>
             <Button variant="outline" size="sm" className="bg-white border-red-200 text-red-700 hover:bg-red-50 rounded-lg font-bold" onClick={() => window.location.reload()}>
-              Retry Connection
+              Try again
             </Button>
           </AlertDescription>
         </Alert>
@@ -586,14 +576,14 @@ export default function ClassesPage() {
 
       {/* Main Content Area */}
       <div className="space-y-6">
-        {/* Teacher Debug Alert */}
         {teachers.length === 0 && !loading && (
           <Alert className="border-yellow-200 bg-yellow-50 mb-4">
             <AlertTriangle className="h-4 w-4 text-yellow-600" />
             <AlertDescription className="text-yellow-800">
-              <strong>No teachers loaded!</strong>
+              <strong>No teachers yet.</strong>
               <br />
-              Teachers count: {teachers.length}. Check the browser console for API errors.
+              You can still create classes. Add teachers under Teachers → Add teacher when you&apos;re ready to
+              choose class sponsors.
             </AlertDescription>
           </Alert>
         )}
@@ -603,10 +593,10 @@ export default function ClassesPage() {
           <Alert className="border-red-200 bg-red-50">
             <AlertTriangle className="h-4 w-4 text-red-600" />
             <AlertDescription className="text-red-800">
-              <strong>No classes configured for the current academic year!</strong>
+              <strong>This school year has no classes yet.</strong>
               <br />
-              This is why you&apos;re seeing &quot;No subject assignments available&quot; in Teacher Assignments.
-              You need to create classes first before teachers can be assigned to subjects.
+              Create them under Classes → Setup (Step 3, Create classes). Students are admitted into classes,
+              and teachers are given subjects in them.
             </AlertDescription>
           </Alert>
         )}
@@ -649,7 +639,7 @@ export default function ClassesPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {(filteredClasses || []).reduce((sum, c) => sum + (sectionCapacityMap[(c as any).section_id] ?? 0), 0)}
+                {(filteredClasses || []).reduce((sum, c) => sum + (c.capacity || 0), 0)}
               </div>
               <p className="text-xs text-muted-foreground">
                 Student seats available

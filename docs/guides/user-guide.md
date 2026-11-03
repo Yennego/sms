@@ -226,15 +226,15 @@ The wizard has five steps. It saves as you go, so you can stop and come back lat
 3. **Step 1, Terms:** tap **Add 2 semesters × 3 periods**. Check the dates and use **Change dates** where needed.
 4. **Step 2, Levels and sections:**
    - Tap **Add a grade level** for each grade (for example "Grade 1"), with its **Order**.
-   - For each level, tap **Add section** (A, B, …) and give the number of **Seats**.
+   - For each level, tap **Add section** (A, B, …).
 5. **Step 3, Classes and sponsors:**
-   - Tap **Create N classes**. This makes one class for each level and section.
+   - Enter the **Seats in each class** (30 unless you change it), then tap **Create N classes**. This makes one class for each level and section. Change one class's seats later under **Classes → Classes** (Edit).
    - Choose a sponsor for each class. If a teacher is missing, use **Add a teacher**.
 6. **Step 4, Subjects and teachers:**
    - For each level, tap **Choose subjects**, tick the subjects, and tap **Apply to N classes**.
    - Then choose a teacher for each class subject.
    - Subjects you need must exist first. Add them under **Classes → Subjects** (**Add Subject**).
-7. **Step 5, Enroll students:** see Step 6 below.
+7. **Step 5, Enroll students:** admit or import the students into these classes (see Step 7 below). Teachers, sponsors and subjects can come before or after.
 
 **Check:** the top of the page says **All 5 steps done**. Tap **See summary**: it lists what the year has and the next steps (grading, fees and ID cards).
 
@@ -286,7 +286,7 @@ Guardians sign in with their username or email. The phone number is for school m
 1. Open **Students → Import** and tap **Download template**.
 2. Fill in one student per row, with their class (for example "Grade 1 - A") and guardian.
 3. Tap **Choose a spreadsheet** and pick the file (Excel or CSV, up to 500 rows).
-4. Check that each column is matched, then tap **Check rows**. Fix any row marked with a problem, and upload again.
+4. Check that each column is matched. If the whole file is one class, leave the class column empty and choose the class under **Class for rows without one**. Then tap **Check rows**. Fix any row marked with a problem, and upload again.
 5. When it says **All rows are ready**, tap **Import N students**.
 6. Tap **Print sign-in slips** or **Download as CSV**. The passwords are shown only once.
 
@@ -698,7 +698,7 @@ After signing in, you land on **Students → Directory**.
   1. Tick **Show only rows with problems**.
   2. Fix those rows in the file.
   3. Upload it again and tap **Check rows**.
-- **A class is over its seats:** move some students, or raise the section's **Capacity (Optional)** under **Classes → Sections**.
+- **A class is over its seats:** move some students, or raise the class's **Class Capacity** under **Classes → Classes** (Edit).
 
 ### 4.5 Accountant and financial admin
 

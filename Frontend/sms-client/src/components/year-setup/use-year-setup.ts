@@ -106,7 +106,7 @@ export function useYearSetupMutations(yearId: string) {
   const copyFrom = useYearMutation(yearId,
     (vars: { sourceYearId: string; options: CopyFromOptions }) => service.copyFrom(yearId, vars.sourceYearId, vars.options));
 
-  const generateClasses = useYearMutation(yearId, (gradeIds?: string[]) => service.generateClasses(yearId, gradeIds),
+  const generateClasses = useYearMutation(yearId, (capacity: number) => service.generateClasses(yearId, capacity),
     (data, classes) => ({ ...data, steps: { ...data.steps, classes } }));
 
   const setSponsor = useYearMutation(yearId,
@@ -150,7 +150,7 @@ export function useYearSetupMutations(yearId: string) {
   const createLevel = useYearMutation(yearId, (vars: { name: string; sequence: number }) => service.createLevel(vars));
 
   const createSection = useYearMutation(yearId,
-    (vars: { grade_id: string; name: string; capacity: number }) => service.createSection(vars));
+    (vars: { grade_id: string; name: string }) => service.createSection(vars));
 
   return {
     createDefaultTerms,

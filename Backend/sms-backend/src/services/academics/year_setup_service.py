@@ -112,7 +112,7 @@ class YearSetupService:
         by_grade: Dict[UUID, list] = {}
         for section in self._sections(l.id for l in levels):
             by_grade.setdefault(section.grade_id, []).append(
-                {"id": section.id, "name": section.name, "capacity": section.capacity}
+                {"id": section.id, "name": section.name}
             )
         rows = [{"id": l.id, "name": l.name, "sequence": l.sequence, "sections": by_grade.get(l.id, [])} for l in levels]
         return {"complete": any(r["sections"] for r in rows), "levels": rows}
@@ -230,17 +230,16 @@ class YearSetupService:
         self._add_terms(year, layout)
         return self.terms_step(year.id)
 
-    def generate_classes(self, year_id: UUID, grade_ids: Optional[List[UUID]] = None) -> Dict[str, Any]:
+    def generate_classes(self, year_id: UUID, grade_ids: Optional[List[UUID]] = None,
+                         capacity: int = 30) -> Dict[str, Any]:
+        """Seats belong to the class, not the section: every new class gets `capacity`."""
         year = self._year(year_id)
-        missing = self.classes_step(year.id)["missing"]
-        sections = {s.id: s for s in self._sections({m["grade_id"] for m in missing})}
-        for m in missing:
+        for m in self.classes_step(year.id)["missing"]:
             if grade_ids and m["grade_id"] not in grade_ids:
                 continue
-            section = sections.get(m["section_id"])
             self.db.add(Class(
                 tenant_id=self.tenant_id, academic_year_id=year.id, grade_id=m["grade_id"], section_id=m["section_id"],
-                name=f"{m['grade_name']} - {m['section_name']}", capacity=section.capacity if section else 30,
+                name=f"{m['grade_name']} - {m['section_name']}", capacity=capacity,
                 start_date=year.start_date, end_date=year.end_date, is_active=True,
             ))
         self.db.flush()
