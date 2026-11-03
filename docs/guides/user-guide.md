@@ -290,13 +290,15 @@ Guardians sign in with their username or email. The phone number is for school m
 5. When it says **All rows are ready**, tap **Import N students**.
 6. Tap **Print sign-in slips** or **Download as CSV**. The passwords are shown only once.
 
-**Check:** **Students → Directory** lists the students with their class.
+Admitting or importing a student also enrolls them in the class you chose. There is nothing more to do for them in **Class placement**.
+
+**Check:** **Students → Directory** lists the students with their class, and **Students → Enrollments** lists them under that year, grade and section.
 
 ### Step 8. Place students in classes
 
 **Who:** the school admin, the principal or the registrar. **Where:** **Students → Class placement**.
 
-Students admitted with a class are already placed. Use this page for anyone who is not placed yet, or to move a student.
+Students admitted or imported with a class are already placed (and enrolled). Use this page only for anyone who is not placed yet, or to move a student to another class.
 
 1. Open the **Not placed** tab.
 2. Tick the students. A bar appears at the bottom.
