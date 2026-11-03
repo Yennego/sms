@@ -63,8 +63,18 @@ export default function RemedialPanel({ enrollmentId }: { enrollmentId: string }
         toast.error("Please enter a new score");
         return;
       }
-      await recordRemedialResult(sessionId, { status: 'completed', new_score: payload.new_score, passed: payload.passed });
-      toast.success('Remedial session completed successfully');
+      const result = await recordRemedialResult(sessionId, { status: 'completed', new_score: payload.new_score, passed: payload.passed });
+      const moved = result?.moved_up;
+      if (moved?.type === 'moved_up') {
+        toast.success(`All remedial work passed: moved up to ${moved.class_name}.`);
+        if (moved.fees_need_review) {
+          toast.warning("Their bill already has a payment, so it still shows the old grade's fees. Check their fee statement.");
+        }
+      } else if (moved?.type === 'error') {
+        toast.error(`Remedial work passed, but they couldn't be moved up: ${moved.error}`);
+      } else {
+        toast.success('Remedial result saved');
+      }
       await load();
     } catch (err) {
       console.error('Failed to update remedial session', err);

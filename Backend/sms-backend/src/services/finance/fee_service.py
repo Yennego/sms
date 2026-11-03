@@ -668,7 +668,47 @@ class FeeService:
         self.db.flush()
         return result
 
-    def bill_new_enrollment(self, student_ids, academic_year_id) -> int:
+    def reprice_after_grade_change(self, student_id, academic_year_id, new_grade_id) -> Dict[str, Any]:
+        """A student moved to another grade level within a school year (e.g. moved up after passing
+        remedial work): their unpaid bills drop the old grade's own fees and take the new grade's.
+        Fees for every grade stay. A bill with a payment on it is left as it is and reported, so
+        the office reviews it (a discount or a void is an approval decision). Nothing while the
+        school's finance switch is off."""
+        from src.services.tenant.features import feature_enabled
+        if not feature_enabled(self.db, self.tenant_id, "enable_finance"):
+            return {"repriced": 0, "needs_review": False}
+        account = self._account(student_id, academic_year_id)
+        if account is None:
+            return {"repriced": 0, "needs_review": False}
+        new_grade_id = _uuid(new_grade_id)
+        repriced, needs_review, paid_semesters = 0, False, set()
+        invoices = self.db.query(Invoice).filter(Invoice.tenant_id == self.tenant_id, Invoice.account_id == account.id,
+                                                 Invoice.status == "issued").all()
+        for invoice in invoices:
+            paid = (self.db.query(PaymentAllocation.id)
+                    .join(Payment, and_(Payment.id == PaymentAllocation.payment_id,
+                                        Payment.tenant_id == PaymentAllocation.tenant_id))
+                    .filter(PaymentAllocation.tenant_id == self.tenant_id, PaymentAllocation.invoice_id == invoice.id,
+                            Payment.voided_at.is_(None)).first())
+            if paid:
+                needs_review = True
+                paid_semesters.add(invoice.semester_id)
+                continue
+            stale = (self.db.query(InvoiceLine)
+                     .join(FeeSchedule, and_(FeeSchedule.id == InvoiceLine.schedule_id,
+                                             FeeSchedule.tenant_id == InvoiceLine.tenant_id))
+                     .filter(InvoiceLine.tenant_id == self.tenant_id, InvoiceLine.invoice_id == invoice.id,
+                             FeeSchedule.grade_id.isnot(None), FeeSchedule.grade_id != new_grade_id).all())
+            for line in stale:
+                self.db.delete(line)
+            if stale:
+                repriced += 1
+        self.db.flush()
+        # The new grade's fees are added like for any newcomer, except to bills already paid on
+        self.bill_new_enrollment([student_id], academic_year_id, skip_semester_ids=paid_semesters)
+        return {"repriced": repriced, "needs_review": needs_review}
+
+    def bill_new_enrollment(self, student_ids, academic_year_id, skip_semester_ids=()) -> int:
         """Bill students placed in a class after the school started billing (admission, placement,
         import): each semester of the year that already has invoices issued and hasn't ended gets
         the same invoice as their classmates, from their grade's schedule. Past semesters are never
@@ -687,6 +727,8 @@ class FeeService:
         created = 0
         savepoints = self.db.get_bind().dialect.name == "postgresql"  # as in notify(): SQLite tests run without
         for semester in sorted(billed_semesters, key=lambda x: x.start_date):
+            if semester.id in skip_semester_ids:
+                continue
             try:
                 if savepoints:
                     with self.db.begin_nested():

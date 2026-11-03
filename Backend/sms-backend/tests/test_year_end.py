@@ -211,3 +211,81 @@ def test_transition_needs_this_schools_years(env):
     r = client.post(f"{A}/promotions/transition", headers=headers(ids, "admin_b"),
                     params={"current_year_id": s["year"], "target_year_name": "2026/2027"})
     assert r.status_code in (400, 403)  # another school's year is never found
+
+
+def _year_with_repeater(client, ids, s, h):
+    """Last year's results with pupil 1 Conditional (failed one subject), the new year copied from
+    last year, and Grade 1 moved on: pupil 1 is placed again in next year's Grade 1 class."""
+    _publish_exam(ids, s, {0: 90, 1: 40, 3: 85})
+    new = client.post(f"{A}/academic-years", headers=h, json={
+        "name": "2027/2028", "start_date": "2027-09-01", "end_date": "2028-07-15", "is_current": False}).json()["id"]
+    client.post(f"{A}/year-setup/{new}/copy-from/{s['year']}", headers=h, json={})
+    classes = {c["grade_id"]: c["id"] for c in
+               client.get(f"{A}/year-setup/{new}", headers=h).json()["steps"]["classes"]["classes"]}
+    return new, classes
+
+
+def test_conditional_student_moves_up_after_passing_remedial_work(env, clock):
+    """Passing remedial work in every failed subject moves a Conditional student up to the next
+    grade's class in the new year, and their unpaid bill takes the new grade's fees."""
+    client, ids = env
+    s = _seed_school(ids)
+    h = headers(ids, "admin_a")
+    pupil = s["pupils"]
+    new, classes = _year_with_repeater(client, ids, s, h)
+    client.post(f"{A}/promotions/transition", headers=h,
+                params={"current_year_id": s["year"], "target_year_name": "2027/2028", "grade_id": s["g1"]})
+
+    # New-year fees: tuition for everyone, plus a fee for each of Grade 1 and Grade 2
+    clock(2027, 9, 10, 9, 0)
+    gen, db = _db()
+    sem1 = str(db.query(Semester).filter(Semester.academic_year_id == UUID(new), Semester.semester_number == 1).one().id)
+    next(gen, None)
+    cats = {c: client.post(f"{F}/categories", headers=h, json={"name": c}).json()["id"] for c in ("Tuition", "G1 books", "G2 lab")}
+    for cat, grade, usd in (("Tuition", None, "100"), ("G1 books", s["g1"], "10"), ("G2 lab", s["g2"], "30")):
+        body = {"academic_year_id": new, "semester_id": sem1, "category_id": cats[cat], "amount_usd": usd}
+        if grade:
+            body["grade_id"] = grade
+        assert client.post(f"{F}/schedules", headers=h, json=body).status_code == 200
+    client.post(f"{F}/invoices/issue", headers=h, json={"academic_year_id": new, "semester_id": sem1})
+    owed = lambda: client.get(f"{F}/accounts/{pupil[1]}", headers=h, params={"academic_year_id": new}).json()["owed"]
+    assert owed() == {"USD": "110.00"}  # tuition + Grade 1 books
+
+    # Passing the remedial session moves them up and re-prices the unpaid bill
+    gen, db = _db()
+    session_id = str(db.query(RemedialSession).filter(RemedialSession.student_id == ids["pupil1"]).one().id)
+    next(gen, None)
+    r = client.put(f"{A}/remedial/sessions/{session_id}", headers=h,
+                   json={"status": "completed", "new_score": 75, "passed": True})
+    assert r.status_code == 200, r.text
+    moved = r.json()["moved_up"]
+    assert moved["type"] == "moved_up" and moved["class_id"] == classes[s["g2"]] and moved["fees_need_review"] is False
+    gen, db = _db()
+    now = db.query(Enrollment).filter(Enrollment.student_id == ids["pupil1"], Enrollment.academic_year_id == UUID(new)).one()
+    assert str(now.class_id) == classes[s["g2"]] and str(now.grade_id) == s["g2"]
+    next(gen, None)
+    assert owed() == {"USD": "130.00"}  # tuition + Grade 2 lab
+    # Recording it again moves nothing more
+    again = client.put(f"{A}/remedial/sessions/{session_id}", headers=h, json={"passed": True}).json()
+    assert again["moved_up"] is None
+
+
+def test_conditional_student_who_passed_remedial_work_is_promoted_at_year_end(env, clock):
+    """Remedial work passed before the transition: promoted, not placed back in the same grade."""
+    client, ids = env
+    s = _seed_school(ids)
+    h = headers(ids, "admin_a")
+    new, classes = _year_with_repeater(client, ids, s, h)
+    # The first evaluation books the remedial session (as the transition would); mark it passed
+    gen, db = _db()
+    from src.db.models.academics.subject import Subject as SubjectModel
+    maths = db.query(SubjectModel).filter(SubjectModel.code == "MATH").one()
+    e1 = db.query(Enrollment).filter(Enrollment.student_id == ids["pupil1"]).one()
+    db.add(RemedialSession(tenant_id=ids["tenant_a"], student_id=ids["pupil1"], enrollment_id=e1.id,
+                           subject_id=maths.id, academic_year_id=UUID(s["year"]), scheduled_date=date(2027, 6, 1),
+                           status="completed", new_score=72, passed=True))
+    next(gen, None)
+    result = client.post(f"{A}/promotions/transition", headers=h, params={
+        "current_year_id": s["year"], "target_year_name": "2027/2028", "grade_id": s["g1"]}).json()
+    promoted = {p["student_id"]: p["class_id"] for p in result["promoted"]}
+    assert promoted[s["pupils"][1]] == classes[s["g2"]] and result["remedial"] == []

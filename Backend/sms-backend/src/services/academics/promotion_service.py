@@ -75,6 +75,9 @@ class PromotionService(TenantBaseService):
 
         for en in enrollments:
             eval_res = await self.evaluate_eligibility(en.id)
+            # A Conditional student who already passed remedial work in every failed subject moves up
+            if eval_res["status"] == "Conditional" and self._remedial_cleared(en.id, eval_res.get("failed_subject_ids", [])):
+                eval_res = {**eval_res, "status": "Eligible"}
             if eval_res["status"] == NOT_GRADED:
                 results["skipped"].append({"student_id": en.student_id, "reason": eval_res["notes"]})
             elif eval_res["status"] == "Eligible" and en.grade_id == final_grade_id:
@@ -118,6 +121,77 @@ class PromotionService(TenantBaseService):
         from src.services.finance.fee_service import FeeService
         FeeService(self.db, self.tenant_id, None).bill_new_enrollment(billed_ids, target.id)
         return results
+
+    def _remedial_cleared(self, enrollment_id, failed_subject_ids) -> bool:
+        """Every failed subject has a remedial session recorded as passed."""
+        from src.db.models.academics.remedial_session import RemedialSession
+        if not failed_subject_ids:
+            return False
+        passed = {sid for (sid,) in self.db.query(RemedialSession.subject_id).filter(
+            RemedialSession.tenant_id == self.tenant_id, RemedialSession.enrollment_id == enrollment_id,
+            RemedialSession.passed == True,  # noqa: E712
+        )}
+        return all(sid in passed for sid in failed_subject_ids)
+
+    async def apply_remedial_outcome(self, enrollment_id: UUID) -> Optional[Dict[str, Any]]:
+        """After a remedial result is recorded: a Conditional student who has now passed remedial
+        work in every failed subject, and who was already placed again in the same grade for the
+        next school year, moves up to the next grade's class in that year (same section when there
+        is one, else the class with the most free places). Their unpaid bills there are re-priced
+        for the new grade. Returns what happened, or None when nothing moves."""
+        from sqlalchemy import func
+        from src.db.models.academics.academic_year import AcademicYear
+        from src.db.models.academics.class_model import Class
+        from src.db.models.academics.enrollment import Enrollment as EnrollmentModel
+
+        old = self.db.query(EnrollmentModel).filter(
+            EnrollmentModel.tenant_id == self.tenant_id, EnrollmentModel.id == enrollment_id).first()
+        if old is None:
+            return None
+        evaluation = await self.evaluate_eligibility(old.id)
+        if evaluation["status"] != "Conditional" or not self._remedial_cleared(old.id, evaluation.get("failed_subject_ids", [])):
+            return None
+        old_year = self.db.query(AcademicYear).filter(AcademicYear.id == old.academic_year_id).first()
+        # Their place in a later school year, still in the grade they were held back in
+        repeat = (self.db.query(EnrollmentModel)
+                  .join(AcademicYear, AcademicYear.id == EnrollmentModel.academic_year_id)
+                  .filter(EnrollmentModel.tenant_id == self.tenant_id, EnrollmentModel.student_id == old.student_id,
+                          EnrollmentModel.grade_id == old.grade_id, EnrollmentModel.status == "active",
+                          AcademicYear.start_date > old_year.start_date)
+                  .order_by(AcademicYear.start_date).first())
+        if repeat is None:
+            return None  # not placed again yet: the year-end transition promotes them instead
+        grades = self._grades_in_order()
+        current_grade = next((g for g in grades if g.id == old.grade_id), None)
+        next_grade = next((g for g in grades if current_grade and g.sequence > current_grade.sequence), None)
+        if next_grade is None:
+            return None  # final grade: graduation is its own step
+
+        classes = self.db.query(Class).filter(
+            Class.tenant_id == self.tenant_id, Class.academic_year_id == repeat.academic_year_id,
+            Class.grade_id == next_grade.id,
+        ).all()
+        section_name = repeat.section_obj.name if repeat.section_obj else None
+        klass = next((c for c in classes if c.section is not None and c.section.name == section_name), None)
+        if klass is None and classes:
+            enrolled = dict(self.db.query(EnrollmentModel.class_id, func.count(EnrollmentModel.id)).filter(
+                EnrollmentModel.tenant_id == self.tenant_id, EnrollmentModel.class_id.in_([c.id for c in classes]),
+                EnrollmentModel.status == "active",
+            ).group_by(EnrollmentModel.class_id).all())
+            klass = max(classes, key=lambda c: ((c.capacity or 0) - enrolled.get(c.id, 0), c.name or ""))
+        if klass is None:
+            return {"student_id": old.student_id, "type": "error",
+                    "error": f"No {next_grade.name} class in that school year. Create it in the year setup."}
+
+        repeat.class_id = klass.id
+        repeat.grade_id, repeat.section_id = klass.grade_id, klass.section_id
+        repeat.comments = f"Moved up to {next_grade.name} after passing remedial work ({date.today()})"
+        self.db.flush()
+        from src.services.finance.fee_service import FeeService
+        fees = FeeService(self.db, self.tenant_id, None).reprice_after_grade_change(
+            old.student_id, repeat.academic_year_id, next_grade.id)
+        return {"student_id": old.student_id, "type": "moved_up", "to_grade": next_grade.name,
+                "class_id": klass.id, "class_name": klass.name, "fees_need_review": fees["needs_review"]}
 
     def _repeat_grade(self, current_enrollment, target_year) -> Dict[str, Any]:
         """Enroll a student who stays in their grade in that grade's class in target_year: the same
