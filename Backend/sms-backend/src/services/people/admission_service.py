@@ -263,7 +263,11 @@ class AdmissionService:
                     errors.append("Date of birth must look like 2018-03-02")
             klass = classes.get((row.get("class_name") or "").lower())
             if row.get("class_name") and not klass:
-                errors.append(f"No class named '{row['class_name']}' this school year")
+                if not classes:
+                    errors.append(f"{year.name} has no classes yet: create them under Classes → Setup first")
+                else:
+                    errors.append(f"No class named '{row['class_name']}' in {year.name}. "
+                                  f"Classes: {', '.join(sorted(c.name for c in classes.values()))}")
             for key, label in (("email", "email"), ("username", "username"), ("admission_number", "admission number")):
                 value = row.get(key)
                 if not value:
