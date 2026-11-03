@@ -286,7 +286,7 @@ Guardians sign in with their username or email. The phone number is for school m
 1. Open **Students → Import** and tap **Download template**.
 2. Fill in one student per row, with their class (for example "Grade 1 - A") and guardian.
 3. Tap **Choose a spreadsheet** and pick the file (Excel or CSV, up to 500 rows).
-4. Check that each column is matched, then tap **Check rows**. Fix any row marked with a problem, and upload again.
+4. Check that each column is matched. If the whole file is one class, leave the class column empty and choose the class under **Class for rows without one**. Then tap **Check rows**. Fix any row marked with a problem, and upload again.
 5. When it says **All rows are ready**, tap **Import N students**.
 6. Tap **Print sign-in slips** or **Download as CSV**. The passwords are shown only once.
 
