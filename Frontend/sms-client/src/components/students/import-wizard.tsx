@@ -23,8 +23,8 @@ import {
 } from "@/services/api/admissions-service"
 import { selectClass } from "./admission-form"
 import { CredentialsActions } from "./credentials"
-import { errorMessage } from "./format"
-import { useImportAdmissions } from "./queries"
+import { errorMessage, yearClassName } from "./format"
+import { useCurrentYearClasses, useImportAdmissions } from "./queries"
 
 type Field = keyof AdmissionRow
 
@@ -126,6 +126,7 @@ function Step({ n, title, children, done }: { n: number; title: string; children
 
 export function ImportWizard({ school }: { school: string }) {
   const importer = useImportAdmissions()
+  const { classes } = useCurrentYearClasses()
   const fileInput = React.useRef<HTMLInputElement>(null)
   const [parsed, setParsed] = React.useState<ParsedFile | null>(null)
   const [mapping, setMapping] = React.useState<Mapping | null>(null)
@@ -133,6 +134,16 @@ export function ImportWizard({ school }: { school: string }) {
   const [done, setDone] = React.useState<ImportResponse | null>(null)
   const [onlyProblems, setOnlyProblems] = React.useState(false)
   const [reading, setReading] = React.useState(false)
+  // A sheet often holds one class: this class fills every row whose class cell is empty.
+  const [defaultClass, setDefaultClass] = React.useState("")
+
+  const namedClasses = React.useMemo(
+    () =>
+      classes
+        .filter((c) => c.name)
+        .sort((a, b) => yearClassName(a).localeCompare(yearClassName(b), undefined, { numeric: true })),
+    [classes]
+  )
 
   const rows: AdmissionRow[] = React.useMemo(() => {
     if (!parsed || !mapping) return []
@@ -143,9 +154,10 @@ export function ImportWizard({ school }: { school: string }) {
         const i = mapping[f] ? index[mapping[f]] : undefined
         row[f] = i === undefined ? "" : (cells[i] ?? "").trim()
       }
+      if (!row.class_name) row.class_name = defaultClass
       return row
     })
-  }, [parsed, mapping])
+  }, [parsed, mapping, defaultClass])
 
   // Server row numbers count our list (header = 1); map them back to the file's rows.
   const errorsByIndex = React.useMemo(() => {
@@ -157,10 +169,16 @@ export function ImportWizard({ school }: { school: string }) {
   }, [check])
 
   const missingRequired = mapping
-    ? ADMISSION_ROW_FIELDS.filter((f) => FIELD_INFO[f].required && !mapping[f])
+    ? ADMISSION_ROW_FIELDS.filter((f) => FIELD_INFO[f].required && !mapping[f] && !(f === "class_name" && defaultClass))
     : []
+  const classCellsEmpty =
+    Boolean(parsed && mapping?.class_name) &&
+    !defaultClass &&
+    parsed!.rows.every(({ cells }) => !(cells[parsed!.headers.indexOf(mapping!.class_name)] ?? "").trim())
   const tooMany = rows.length > MAX_IMPORT_ROWS
-  const mappedFields = mapping ? ADMISSION_ROW_FIELDS.filter((f) => mapping[f]) : []
+  const mappedFields = mapping
+    ? ADMISSION_ROW_FIELDS.filter((f) => mapping[f] || (f === "class_name" && defaultClass))
+    : []
 
   const onFile = async (file: File | undefined) => {
     if (!file) return
@@ -196,6 +214,7 @@ export function ImportWizard({ school }: { school: string }) {
       setCheck(null)
       setDone(null)
       setOnlyProblems(false)
+      setDefaultClass("")
     } catch {
       notify.error("This file couldn't be read. Save it again as .xlsx or .csv and try once more.")
     } finally {
@@ -238,6 +257,7 @@ export function ImportWizard({ school }: { school: string }) {
     setMapping(null)
     setCheck(null)
     setDone(null)
+    setDefaultClass("")
   }
 
   const back = (
@@ -391,6 +411,36 @@ export function ImportWizard({ school }: { school: string }) {
               )
             })}
           </div>
+          <div className="mt-4 grid gap-2 border-t pt-4 sm:max-w-sm">
+            <label htmlFor="map-default-class" className="text-sm font-medium">
+              Class for rows without one
+            </label>
+            <select
+              id="map-default-class"
+              className={selectClass}
+              value={defaultClass}
+              onChange={(e) => {
+                setDefaultClass(e.target.value)
+                setCheck(null)
+              }}
+            >
+              <option value="">None: every row names its class</option>
+              {namedClasses.map((c) => (
+                <option key={c.id} value={c.name!}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-sm text-muted-foreground">
+              If the whole file is one class, choose it here instead of filling in a class column.
+            </p>
+          </div>
+          {classCellsEmpty ? (
+            <p role="alert" className="mt-4 text-sm font-medium text-destructive">
+              The class column &quot;{mapping.class_name}&quot; is empty in every row. Choose the class for these
+              students above, or fill in the column and upload the file again.
+            </p>
+          ) : null}
           {missingRequired.length > 0 ? (
             <p role="alert" className="mt-4 text-sm font-medium text-destructive">
               Choose the column for {missingRequired.map((f) => FIELD_INFO[f].label.toLowerCase()).join(", ")}.
