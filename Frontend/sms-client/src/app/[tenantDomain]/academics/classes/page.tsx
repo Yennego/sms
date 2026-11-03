@@ -240,15 +240,6 @@ export default function ClassesPage() {
   const configured = classes?.length || 0;
   const completionPercentage = total > 0 ? Math.round((configured / total) * 100) : 0;
 
-  // Grade/Section Map for faster lookup
-  const sectionCapacityMap = useMemo(() => {
-    const map: Record<string, number> = {};
-    sections.forEach(s => {
-      map[s.id] = s.capacity || 35;
-    });
-    return map;
-  }, [sections]);
-
   // Helper for Section generation if they don't exist
   const syncSectionsForGrade = async () => {
     if (selectedGrade === 'all') {
@@ -266,8 +257,7 @@ export default function ClassesPage() {
         if (!exists) {
           return sectionService.createSection({
             grade_id: selectedGrade,
-            name: name,
-            capacity: 35
+            name: name
           });
         }
       });
@@ -649,7 +639,7 @@ export default function ClassesPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {(filteredClasses || []).reduce((sum, c) => sum + (sectionCapacityMap[(c as any).section_id] ?? 0), 0)}
+                {(filteredClasses || []).reduce((sum, c) => sum + (c.capacity || 0), 0)}
               </div>
               <p className="text-xs text-muted-foreground">
                 Student seats available

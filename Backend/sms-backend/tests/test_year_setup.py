@@ -56,8 +56,9 @@ def test_wizard_builds_a_year_step_by_step(env):
     assert [len(x["periods"]) for x in terms["semesters"]] == [3, 3] and terms["complete"]
     assert client.post(f"{base}/terms/default", headers=h).status_code == 409
 
-    classes = client.post(f"{base}/classes/generate", json={}, headers=h).json()
+    classes = client.post(f"{base}/classes/generate", json={"capacity": 40}, headers=h).json()
     assert {c["name"] for c in classes["classes"]} == {"Grade 1 - A", "Grade 1 - B", "Grade 2 - A"}
+    assert {c["capacity"] for c in classes["classes"]} == {40}
     assert not classes["missing"] and not classes["complete"]  # no sponsors yet
 
     class_id = classes["classes"][0]["id"]

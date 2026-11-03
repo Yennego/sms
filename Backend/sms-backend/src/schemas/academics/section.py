@@ -10,7 +10,7 @@ class SectionBase(BaseModel):
     name: str
     description: Optional[str] = None
     is_active: bool = True
-    capacity: int
+    capacity: int = 30  # unused: seats are set on each class
     grade_id: UUID
     class_teacher_id: Optional[UUID] = None
 
