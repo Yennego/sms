@@ -29,6 +29,16 @@ export default function EnrollmentFiltersComponent({
   grades,
   sections,
 }: Props) {
+  // Sections belong to a grade: list only the chosen grade's, or name the grade when none is chosen
+  const gradeNames = Object.fromEntries(grades.map((g) => [g.id, g.name]));
+  const sectionOptions = sections
+    .filter((s) => !filters.grade_id || s.grade_id === filters.grade_id)
+    .map((s) => ({
+      id: s.id,
+      label: filters.grade_id || !s.grade_id ? s.name : `${gradeNames[s.grade_id] ?? ''} - ${s.name}`,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+
   return (
     <div className="rounded-md border p-4 mb-6">
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
@@ -94,8 +104,8 @@ export default function EnrollmentFiltersComponent({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="__all__">All</SelectItem>
-              {sections.map(s => (
-                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+              {sectionOptions.map(s => (
+                <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
               ))}
             </SelectContent>
           </Select>

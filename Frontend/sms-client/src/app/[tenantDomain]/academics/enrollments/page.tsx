@@ -118,6 +118,7 @@ export default function EnrollmentManagementPage() {
       } else {
         delete next[key];
       }
+      if (key === 'grade_id') delete next.section_id; // the section belongs to the old grade
       return next;
     });
     if (key === 'academic_year_id') {

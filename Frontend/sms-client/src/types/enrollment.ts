@@ -36,6 +36,7 @@ export interface Grade {
 export interface Section {
   id: string;
   name: string;
+  grade_id?: string;
   capacity?: number;
   description?: string;
   created_at: string;
