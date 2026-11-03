@@ -163,3 +163,14 @@ def test_students_cannot_list_staff(env):
     client, ids = env
     assert client.get("/api/v1/people/teachers", headers=headers(ids, "student_a")).status_code == 403
     assert client.get("/api/v1/people/teachers", headers=headers(ids, "admin_a")).status_code == 200
+
+
+def test_school_dashboard_for_admin_and_principal(env):
+    """The school dashboard summary is for the admin and the principal, not other office roles."""
+    client, ids = env
+    _people(ids)
+    url = "/api/v1/tenants/dashboard/stats"
+    assert _get(client, ids, "admin_a", url) == 200
+    assert _get(client, ids, "academic-admin", url) == 200
+    for who in ("registrar", "counselor", "accountant", "teacher", "student_a"):
+        assert _get(client, ids, who, url) == 403, who
