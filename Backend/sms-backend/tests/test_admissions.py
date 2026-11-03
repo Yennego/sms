@@ -116,6 +116,7 @@ def test_import_checks_rows_then_saves_all_or_nothing(env):
     checked = client.post("/api/v1/people/admissions/import", headers=h, json={"dry_run": True, "rows": rows}).json()
     assert checked["valid"] is False and [r["ok"] for r in checked["rows"]] == [True, True, False]
     assert checked["rows"][2]["row"] == 4 and len(checked["rows"][2]["errors"]) == 3
+    assert any("Classes: Grade 1 - A" in e for e in checked["rows"][2]["errors"])  # names what does exist
 
     refused = client.post("/api/v1/people/admissions/import", headers=h, json={"dry_run": False, "rows": rows}).json()
     assert refused["created"] == 0
