@@ -3,6 +3,7 @@ from src.db.models.auth.user import User
 from src.db.models.auth import username as _username  # noqa: F401  registers the username hook
 from src.db.models.auth.user_role import UserRole
 from src.db.models.auth.permission import Permission
+from src.db.models.auth.role_override import RolePermissionOverride
 from src.db.models.auth.admin import Admin
 
 

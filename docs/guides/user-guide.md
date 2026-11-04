@@ -441,9 +441,15 @@ Schools add their own staff under **Users → Add staff member** (section 3, Ste
 
 Only you create roles and change what they allow. Schools see their roles read only, and ask you when someone needs more.
 
+**For one school only** (for example, School A's accountant should also see student records):
+
 1. Open **Users → Roles and permissions**.
-2. Choose the role and tick or untick its permissions. They are grouped by area, with plain names.
-3. Save. A built-in role (such as **accountant**) changes for **every** school.
+2. Under **School**, choose the school.
+3. Choose the role and tick or untick its permissions. They are grouped by area, with plain names.
+4. Tap **Save for** (school). Every other school keeps the role as it is. The role shows **Adjusted for** (school), and on the school's **Roles** page it says "Set up for your school by the platform operator".
+5. To undo, tap **Reset to built-in**.
+
+**For every school:** leave **School** on **Every school (built-in roles)**, change the role, and tap **Save for every school**. A school that has its own version keeps the permissions you adjusted for it; the rest follow the change.
 
 Whatever a role allows, a school never gets an area you turned off for it (section 3, Step 2).
 

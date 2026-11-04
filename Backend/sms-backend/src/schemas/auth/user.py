@@ -117,3 +117,5 @@ class UserCreateResponse(User):
 class UserWithRole(UserWithRoles):
     """Schema for User model response with role field."""
     role: Optional[str] = None
+    # Everything the user's roles allow in their school (with the school's role adjustments)
+    permissions: List[str] = []

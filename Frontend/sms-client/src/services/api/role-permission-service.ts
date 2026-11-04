@@ -17,6 +17,8 @@ export interface Role {
   name: string;
   description?: string;
   permissions: Permission[];
+  /** The platform operator gave this role a different set of permissions at this school */
+  adjusted_for_school?: boolean;
   created_at: string;
   updated_at: string;
 }

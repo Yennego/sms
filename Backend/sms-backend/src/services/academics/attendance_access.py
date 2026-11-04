@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from src.core.exceptions.business import BusinessRuleViolationError, PermissionDeniedError
+from src.core.security.effective import effective_permission_names
 
 ADMIN_ROLE_NAMES = {"admin", "superadmin", "super-admin", "super_admin"}
 # Run attendance for the whole school (mark any class, excuses, calendar, ID cards, close the day)
@@ -19,7 +20,7 @@ def role_names(user: Any) -> Set[str]:
 
 
 def _holds(user: Any, permission: str) -> bool:
-    return any(p.name == permission for role in getattr(user, "roles", []) for p in role.permissions)
+    return permission in effective_permission_names(user)
 
 
 def is_admin(user: Any) -> bool:

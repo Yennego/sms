@@ -41,6 +41,7 @@ from src.db.models.people.student import Student
 from src.services.finance import ledger as L
 from src.services.finance.ledger import CURRENCIES, ZERO, money, money_map, q
 from src.services.notification import alerts
+from src.core.security.effective import effective_permission_names
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +151,7 @@ def amount_in_words(amount, currency: str) -> str:
 
 
 def user_permissions(user: Any) -> set:
-    return {p.name for role in getattr(user, "roles", []) for p in role.permissions}
+    return set(effective_permission_names(user))
 
 
 def mark_next_due(installments: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
