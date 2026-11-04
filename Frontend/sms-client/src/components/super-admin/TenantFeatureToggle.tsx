@@ -24,6 +24,7 @@ import {
     CalendarDays,
     Megaphone,
     MessageSquare,
+    Users,
 } from 'lucide-react';
 import { FEATURE_DEFAULTS } from '@/config/school-areas';
 
@@ -120,6 +121,12 @@ export default function TenantFeatureToggle({
             label: 'Timetable',
             icon: CalendarDays,
             description: 'Class timetables for staff, students and parents.'
+        },
+        {
+            key: 'enable_parent_portal',
+            label: 'Parent portal',
+            icon: Users,
+            description: "Parents sign in to follow their children's attendance, results, fees and messages. Off: parents can't sign in."
         },
         {
             key: 'enable_announcements',
