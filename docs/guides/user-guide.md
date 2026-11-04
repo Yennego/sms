@@ -276,7 +276,7 @@ To change a person's roles later, use **Role assignment** in the user menu: tick
 - You can only give roles that allow nothing more than your own roles do.
 - A role whose area is turned off for the school is greyed out with a lock.
 
-**Roles** in the user menu shows what each role allows, read only. Roles and what they allow are set by the platform operator. If someone needs access that no role gives, ask the operator.
+**Roles** in the user menu shows what each role allows, read only, grouped by area (Students, Fees, Attendance and so on) in plain words. The technical name is in small print underneath. Roles show their everyday names too: **Principal** for `academic-admin`, **Gate scanner** for `attendance-scanner`, **Accountant (bursar)** for `accountant`. Roles and what they allow are set by the platform operator. If someone needs access that no role gives, ask the operator.
 
 **Check:** under **Staff → Directory**, the **Sponsor of** column shows each sponsor's class.
 
@@ -442,7 +442,7 @@ Schools add their own staff under **Users → Add staff member** (section 3, Ste
 Only you create roles and change what they allow. Schools see their roles read only, and ask you when someone needs more.
 
 1. Open **Users → Roles and permissions**.
-2. Choose the role and tick or untick its permissions.
+2. Choose the role and tick or untick its permissions. They are grouped by area, with plain names.
 3. Save. A built-in role (such as **accountant**) changes for **every** school.
 
 Whatever a role allows, a school never gets an area you turned off for it (section 3, Step 2).

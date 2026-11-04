@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
 import { Loader2, Lock } from 'lucide-react';
 import { useSchoolAreas } from '@/hooks/use-tenant-features';
+import { roleLabel } from '@/config/permission-catalogue';
 import { useQuery } from '@tanstack/react-query';
 import { useUserService } from '@/services/api/user-service';
 import {
@@ -192,9 +193,10 @@ export default function AdminRoleAssignmentPage() {
                       />
                       <div>
                         <div className="flex items-center gap-1 font-medium">
-                          {r.name}
+                          {roleLabel(r.name)}
                           {locked ? <Lock className="h-3.5 w-3.5" aria-hidden="true" /> : null}
                         </div>
+                        <div className="font-mono text-xs text-muted-foreground">{r.name}</div>
                         {r.description && <div className="text-xs text-muted-foreground">{r.description}</div>}
                         {off.length > 0 ? (
                           <div className="text-xs text-muted-foreground">
