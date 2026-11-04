@@ -12,6 +12,7 @@ import { useDashboardService } from '@/services/api/dashboard-service';
 import { useTeacherService } from '@/services/api/teacher-service';
 import { useTimetableService, type Timetable } from '@/services/api/timetable-service';
 import { useQuery } from '@tanstack/react-query';
+import { useTenantFeatures } from '@/hooks/use-tenant-features';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SponsorTodayCard } from '@/components/attendance/SponsorTodayCard';
 
@@ -54,6 +55,9 @@ export default function TeacherDashboard() {
     const dashboardService = useDashboardService();
     const { getTeacherAssignments } = useTeacherService();
     const { getTimetables } = useTimetableService();
+    const features = useTenantFeatures();
+    const timetableOn = !features.isLoading && features.isFeatureEnabled('enable_timetable');
+    const attendanceOn = !features.isLoading && features.isFeatureEnabled('enable_attendance');
 
     const { data: statsData, isLoading: statsLoading } = useQuery({
         queryKey: ['dashboard-stats', user?.id],
@@ -72,7 +76,7 @@ export default function TeacherDashboard() {
             ]);
             return lessonsToday(timetables, new Set(assignments.map((a: { id: string }) => a.id)), teacherId);
         },
-        enabled: !!user?.id
+        enabled: !!user?.id && timetableOn // the school may have Timetable switched off
     });
 
     const teacherName = user?.firstName || 'Teacher';
@@ -168,7 +172,7 @@ export default function TeacherDashboard() {
 
                     {/* Sidebar - Quick Actions & Information */}
                     <div className="lg:col-span-4 space-y-6">
-                        {user?.id && <SponsorTodayCard teacherId={user.id} attendanceHref="./attendance" />}
+                        {user?.id && attendanceOn && <SponsorTodayCard teacherId={user.id} attendanceHref="./attendance" />}
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                             <h3 className="text-lg font-bold text-slate-900 mb-6 font-display">Hub Actions</h3>
                             <div className="grid grid-cols-2 gap-4">

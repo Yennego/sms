@@ -169,17 +169,26 @@ Follow these steps in order. Each step says who does it, where to find it in the
 
 **Check:** the school is in the **Schools** list as **Active**. Open the **Login URL**: it should show the school's name.
 
-### Step 2. The operator turns features on
+### Step 2. The operator chooses the school's areas
 
 **Who:** the platform operator. **Where:** **Schools**.
 
-1. In the **Schools** list, find the school and tap **Modules**.
-2. Tick **Finance & Billing** if the school will use the app for school fees.
+The areas are what a school can use. Students, classes, the school year, grades and staff are always on. These can be switched off:
+
+| Area | What it covers | New schools |
+|---|---|---|
+| **Fees** | Fee setup, invoices, payments, receipts, expenses, the families' fee pages | Off |
+| **Attendance** | Daily attendance, scanning, excuses, attendance reports, ID cards | On |
+| **Homework** | Assignments teachers set and students hand in | On |
+| **Timetable** | Class timetables | On |
+| **Announcements** | Announcements to staff, students and families (the inbox and school alerts stay on) | On |
+| **SMS alerts** | Text-message copies of alerts | Off (not connected yet) |
+
+1. In the **Schools** list, find the school and tap **Areas**.
+2. Tick the areas the school will use. Tick **Fees** if it will use the app for school fees.
 3. Tap **Save Changes**.
 
-**Check:** the school admin now sees **Fees** in the menu. If **Finance & Billing** is off, the Fees pages say "Fees is turned off".
-
-Only **Finance & Billing** changes the school's menu today. The other switches in **Modules** (**Transportation**, **Cafeteria / Canteen**, **Health & Clinic**, **Parent Portal**, **SMS Notifications**) do nothing yet. SMS is not available yet.
+**Check:** the school's menus show only the areas that are on. An area that is off is refused for everyone at the school, admins included: its pages say "(Area) is turned off", and on **Roles** and **Role assignment** its permissions and roles are greyed out with a lock.
 
 ### Step 3. The operator enters the price list and payment details
 
@@ -400,11 +409,11 @@ Everyone also has:
 
 See Steps 1 to 3 in section 3.
 
-#### Turn a feature on or off for a school
+#### Turn an area on or off for a school
 
 1. Open **Schools**.
-2. Find the school and tap **Modules**.
-3. Tick or untick **Finance & Billing**.
+2. Find the school and tap **Areas**.
+3. Tick or untick the areas (see Step 2 in section 3).
 4. Tap **Save Changes**.
 
 #### Switch a school off or on

@@ -1,6 +1,11 @@
 """School feature switches (tenant_settings.settings["features"]), set by the platform operator.
 
 A switch the school's settings don't mention takes TenantSettings.DEFAULT_SETTINGS.
+
+The switchable school areas form the school's ceiling: an area that is off is refused by the
+server (require_feature on its routes) for everyone in the school, admins included, and the
+role screens show its permissions greyed out. Students, classes, the school year, grades and
+staff are always on: report cards, promotion and year end depend on them.
 """
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
@@ -10,7 +15,31 @@ from src.db.models.auth import User
 from src.db.models.tenant import TenantSettings
 from src.db.session import get_db
 
-FEATURE_LABELS = {"enable_finance": "Fees"}
+# key, switch, label, what it covers, the permissions that only make sense with the area on
+SCHOOL_AREAS = [
+    {"key": "fees", "feature": "enable_finance", "label": "Fees",
+     "description": "Fee setup, invoices, payments, receipts, expenses and the families' fee pages.",
+     "permissions": ["approve_financial_transactions", "create_invoices", "generate_financial_reports",
+                     "issue_refunds", "manage_budgets", "manage_financial_data", "record_payments",
+                     "view_budget_reports", "view_financial_data", "view_payment_history",
+                     "view_child_financial_data", "view_own_financial_data"]},
+    {"key": "attendance", "feature": "enable_attendance", "label": "Attendance",
+     "description": "Daily attendance, scanning, excuses, attendance reports and ID cards.",
+     "permissions": ["mark_attendance", "manage_attendance", "view_attendance", "view_school_attendance",
+                     "manage_school_attendance"]},
+    {"key": "homework", "feature": "enable_homework", "label": "Homework",
+     "description": "Assignments teachers set and students hand in.",
+     "permissions": ["create_assignments", "update_assignments", "delete_assignments", "view_assignments",
+                     "submit_assignments", "grade_assignments"]},
+    {"key": "timetable", "feature": "enable_timetable", "label": "Timetable",
+     "description": "Class timetables for staff, students and parents.",
+     "permissions": []},
+    {"key": "announcements", "feature": "enable_announcements", "label": "Announcements",
+     "description": "Announcements from the school to staff, students and families. The inbox and school alerts stay on.",
+     "permissions": ["send_announcements"]},
+]
+
+FEATURE_LABELS = {a["feature"]: a["label"] for a in SCHOOL_AREAS}
 
 
 def feature_enabled(db: Session, tenant_id, key: str) -> bool:
@@ -19,6 +48,11 @@ def feature_enabled(db: Session, tenant_id, key: str) -> bool:
     if key in features:
         return features[key] is True
     return TenantSettings.DEFAULT_SETTINGS["features"].get(key) is True
+
+
+def school_areas(db: Session, tenant_id) -> list:
+    """The switchable areas with whether this school has each one."""
+    return [{**area, "enabled": feature_enabled(db, tenant_id, area["feature"])} for area in SCHOOL_AREAS]
 
 
 def require_feature(key: str):

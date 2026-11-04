@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Lock } from 'lucide-react';
+import { useSchoolAreas } from '@/hooks/use-tenant-features';
 import { useQuery } from '@tanstack/react-query';
 import { useUserService } from '@/services/api/user-service';
 import {
@@ -39,6 +40,15 @@ export default function AdminRoleAssignmentPage() {
 
   // Assign roles mutation
   const assignMutation = useAssignRolesToUser();
+
+  // A role whose every permission is in an area switched off for this school can't be given
+  const { offAreaFor } = useSchoolAreas();
+  const offAreasOf = (role: { permissions?: { name: string }[] }) => {
+    const perms = role.permissions ?? [];
+    const areas = perms.map((p) => offAreaFor(p.name));
+    if (perms.length === 0 || areas.some((a) => !a)) return [];
+    return Array.from(new Set(areas.map((a) => a!.label)));
+  };
 
   // Filter out students and super-admin role for non-super-admins
   const users = useMemo(() => {
@@ -137,20 +147,35 @@ export default function AdminRoleAssignmentPage() {
                 {selectedUserId ? 'Select roles to assign to the chosen user.' : 'Select a user to begin.'}
               </div>
               <div className="rounded-md border p-2 max-h-[400px] overflow-auto">
-                {roles.map(r => (
-                  <label key={r.id} className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted rounded">
-                    <input
-                      type="checkbox"
-                      checked={selectedRoleIds.includes(r.id)}
-                      onChange={() => toggleRoleSelection(r.id)}
-                      disabled={!selectedUserId}
-                    />
-                    <div>
-                      <div className="font-medium">{r.name}</div>
-                      {r.description && <div className="text-xs text-muted-foreground">{r.description}</div>}
-                    </div>
-                  </label>
-                ))}
+                {roles.map(r => {
+                  const off = offAreasOf(r);
+                  const locked = off.length > 0;
+                  return (
+                    <label
+                      key={r.id}
+                      className={`flex items-center gap-2 px-3 py-2 rounded ${locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-muted'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedRoleIds.includes(r.id)}
+                        onChange={() => toggleRoleSelection(r.id)}
+                        disabled={!selectedUserId || (locked && !selectedRoleIds.includes(r.id))}
+                      />
+                      <div>
+                        <div className="flex items-center gap-1 font-medium">
+                          {r.name}
+                          {locked ? <Lock className="h-3.5 w-3.5" aria-hidden="true" /> : null}
+                        </div>
+                        {r.description && <div className="text-xs text-muted-foreground">{r.description}</div>}
+                        {locked ? (
+                          <div className="text-xs text-muted-foreground">
+                            {off.join(' and ')} {off.length === 1 ? 'is' : 'are'} turned off for this school. Ask the platform operator.
+                          </div>
+                        ) : null}
+                      </div>
+                    </label>
+                  );
+                })}
                 {roles.length === 0 && <div className="text-sm text-muted-foreground">No roles available.</div>}
               </div>
               <div className="mt-4 flex gap-2">

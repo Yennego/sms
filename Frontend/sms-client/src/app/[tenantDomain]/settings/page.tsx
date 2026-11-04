@@ -2,12 +2,14 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useTenantFeatures } from '@/hooks/use-tenant-features';
 
 export default function SettingsPage() {
   // Inside the school's address (/{school}/settings/...), not the bare /settings/...
   const params = useParams();
   const school = params?.tenantDomain as string;
-  const settingsCategories = [
+  const { isFeatureEnabled } = useTenantFeatures();
+  const settingsCategories: { title: string; description: string; href: string; feature?: string }[] = [
     {
       title: 'System Settings',
       description: 'Configure global system settings and defaults',
@@ -36,12 +38,14 @@ export default function SettingsPage() {
     {
       title: 'Timetable Settings',
       description: 'Configure timetable generation and display',
-      href: '/settings/timetable'
+      href: '/settings/timetable',
+      feature: 'enable_timetable'
     },
     {
       title: 'Attendance Settings',
       description: 'School days, late and cut-off times, holidays',
-      href: '/settings/attendance'
+      href: '/settings/attendance',
+      feature: 'enable_attendance'
     },
     {
       title: 'Notification settings',
@@ -65,7 +69,7 @@ export default function SettingsPage() {
       <h1 className="text-3xl font-bold mb-6">Settings</h1>
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {settingsCategories.map((category) => (
+        {settingsCategories.filter((c) => !c.feature || isFeatureEnabled(c.feature)).map((category) => (
           <Link key={category.href} href={`/${school}${category.href}`}>
             <div className="bg-white shadow-md rounded-lg p-6 hover:shadow-lg transition-shadow cursor-pointer h-full">
               <h2 className="text-xl font-semibold mb-2">{category.title}</h2>

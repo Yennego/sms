@@ -13,6 +13,7 @@ import { useAssignmentService } from '@/services/api/assignment-service';
 import { useSubmissionService } from '@/services/api/submission-service';
 import { useEnrollmentService } from '@/services/api/enrollment-service';
 import { useQuery } from '@tanstack/react-query';
+import { useTenantFeatures } from '@/hooks/use-tenant-features';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export default function StudentDashboard() {
@@ -22,6 +23,8 @@ export default function StudentDashboard() {
     const assignmentService = useAssignmentService();
     const { getMySubmissions } = useSubmissionService();
     const { getCurrentEnrollment } = useEnrollmentService();
+    const features = useTenantFeatures();
+    const homeworkOn = !features.isLoading && features.isFeatureEnabled('enable_homework');
 
     const { data: statsData, isLoading: statsLoading } = useQuery({
         queryKey: ['dashboard-stats', user?.id],
@@ -53,7 +56,7 @@ export default function StudentDashboard() {
                     due: new Date(a.due_date).toLocaleDateString(),
                 }));
         },
-        enabled: !!user?.id
+        enabled: !!user?.id && homeworkOn // the school may have Homework switched off
     });
 
     const studentName = user?.firstName || 'Student';

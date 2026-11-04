@@ -285,5 +285,10 @@ export function useTenantService() {
     getSettings: async (tenantId: string) => {
       return await apiClient.get<any>(`/tenants/${tenantId}/settings`);
     },
+
+    // The switchable areas (the school's ceiling) and whether this school has each one
+    getAreas: async () => {
+      return await apiClient.get<import('@/config/school-areas').SchoolArea[]>('/tenants/self/areas');
+    },
   };
 }

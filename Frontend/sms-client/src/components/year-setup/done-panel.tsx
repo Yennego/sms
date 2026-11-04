@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { ArrowRight, CheckCircle2, CreditCard, IdCard, ListChecks } from 'lucide-react';
 
+import { useTenantFeatures } from '@/hooks/use-tenant-features';
 import type { YearSetup } from '@/services/api/year-setup-service';
 import { plural } from './use-year-setup';
 
@@ -26,11 +27,12 @@ export function DonePanel({ data, school }: DonePanelProps) {
     `${plural(enrollment.total, 'student')} enrolled`,
   ];
 
+  const { isFeatureEnabled } = useTenantFeatures();
   const next = [
     { href: `/${school}/academics/grading-schemas`, label: 'Set up the grading schema', hint: 'How tests, quizzes and exams count towards grades.', icon: ListChecks },
-    { href: `/${school}/finance/structures`, label: 'Set up fees', hint: 'Fee amounts and due dates for this year.', icon: CreditCard },
-    { href: `/${school}/attendance/id-cards`, label: 'Print ID cards', hint: 'Student cards for gate scanning.', icon: IdCard },
-  ];
+    { href: `/${school}/finance/structures`, label: 'Set up fees', hint: 'Fee amounts and due dates for this year.', icon: CreditCard, feature: 'enable_finance' },
+    { href: `/${school}/attendance/id-cards`, label: 'Print ID cards', hint: 'Student cards for gate scanning.', icon: IdCard, feature: 'enable_attendance' },
+  ].filter((n) => !n.feature || isFeatureEnabled(n.feature));
 
   return (
     <section className="space-y-6 rounded-xl border border-green-200 bg-green-50/50 p-4 sm:p-6" aria-labelledby="setup-done-title">
