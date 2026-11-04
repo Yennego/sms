@@ -284,7 +284,10 @@ function ParentHomeScreen() {
   const { tenantDomain } = useParams<{ tenantDomain: string }>();
   const { query, kids, childId, child, setChildId } = useSelectedChild();
   const year = useCurrentAcademicYearDetail();
-  const financeOn = useTenantFeatures().isFeatureEnabled('enable_finance');
+  const features = useTenantFeatures();
+  const financeOn = features.isFeatureEnabled('enable_finance');
+  // Attendance cards wait for the switches: a school may have Attendance off
+  const attendanceOn = !features.isLoading && features.isFeatureEnabled('enable_attendance');
   const yearId = year.data?.id;
 
   const base = `/${tenantDomain}/parent`;
@@ -298,11 +301,15 @@ function ParentHomeScreen() {
     content = (
       <>
         <ChildSwitcher items={kids} value={childId} onChange={setChildId} />
-        <section aria-label="Alerts" className="empty:hidden">
-          <AbsenceAlert key={`alert-${childId}`} childId={childId} href={withChild('/attendance')} />
-        </section>
+        {attendanceOn ? (
+          <section aria-label="Alerts" className="empty:hidden">
+            <AbsenceAlert key={`alert-${childId}`} childId={childId} href={withChild('/attendance')} />
+          </section>
+        ) : null}
         <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-          <TodayCard key={`today-${childId}`} childId={childId} href={withChild('/attendance')} />
+          {attendanceOn ? (
+            <TodayCard key={`today-${childId}`} childId={childId} href={withChild('/attendance')} />
+          ) : null}
           <ResultsCard
             key={`results-${childId}`}
             childId={childId}

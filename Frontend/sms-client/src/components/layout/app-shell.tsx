@@ -295,7 +295,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
     { label: 'Change password', href: linkFor('/change-password'), icon: KeyRound },
     { label: 'Notification settings', href: linkFor('/settings/notifications'), icon: Bell },
     ...(nav.signs ? [{ label: 'My signature', href: linkFor('/settings/signature'), icon: PenLine }] : []),
-    ...(nav.settings ?? []).map((s) => ({ label: s.label, href: linkFor(s.path), icon: Settings })),
+    ...(nav.settings ?? [])
+      .filter((s) => !s.feature || isFeatureEnabled(s.feature))
+      .map((s) => ({ label: s.label, href: linkFor(s.path), icon: Settings })),
   ];
 
   return (

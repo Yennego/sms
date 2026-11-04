@@ -24,6 +24,8 @@ from src.services.academics.attendance_report_service import AttendanceReportSer
 from src.services.academics.daily_attendance_service import DailyAttendanceService
 
 router = APIRouter()
+# Routes that stay on when the school's Attendance area is off (mounted without its switch)
+always_on_router = APIRouter()
 
 
 # --- Settings & calendar -------------------------------------------------------------
@@ -155,7 +157,8 @@ def get_class_daily_report(
     return service.class_report(class_id, start_date, end_date, current_user)
 
 
-@router.get("/attendance/daily/my-children", response_model=List[ChildSummary])
+# The parent's children list also feeds the results and fees pages
+@always_on_router.get("/attendance/daily/my-children", response_model=List[ChildSummary])
 def get_my_children(
     *,
     service: AttendanceExcuseService = Depends(),

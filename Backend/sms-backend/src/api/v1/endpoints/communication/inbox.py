@@ -17,6 +17,7 @@ from src.core.auth.dependencies import get_current_active_user, has_permission
 from src.core.middleware.tenant import get_tenant_id_from_request
 from src.db.session import get_db
 from src.services.communication.communication_service import MAX_PAGE_SIZE, CommunicationService
+from src.services.tenant.features import require_feature
 
 router = APIRouter()
 
@@ -79,23 +80,26 @@ def put_preferences(body: List[PreferenceIn], service: CommunicationService = De
 
 # --- announcements -------------------------------------------------------------------------------
 
-@router.get("/announcements")
+ANNOUNCEMENTS_ON = [Depends(require_feature("enable_announcements"))]
+
+
+@router.get("/announcements", dependencies=ANNOUNCEMENTS_ON)
 def list_announcements(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=MAX_PAGE_SIZE),
                        service: CommunicationService = Depends(_service)) -> Any:
     return service.list_announcements(page=page, page_size=page_size)
 
 
-@router.get("/announcements/audiences")
+@router.get("/announcements/audiences", dependencies=ANNOUNCEMENTS_ON)
 def announcement_audiences(service: CommunicationService = Depends(_service)) -> Any:
     return service.audiences()
 
 
-@router.post("/announcements")
+@router.post("/announcements", dependencies=ANNOUNCEMENTS_ON)
 def send_announcement(body: AnnouncementIn, service: CommunicationService = Depends(_service)) -> Any:
     return service.send(body.model_dump())
 
 
-@router.post("/announcements/{announcement_id}/withdraw")
+@router.post("/announcements/{announcement_id}/withdraw", dependencies=ANNOUNCEMENTS_ON)
 def withdraw_announcement(announcement_id: UUID, service: CommunicationService = Depends(_service)) -> Any:
     return service.withdraw(announcement_id)
 

@@ -47,6 +47,11 @@ class TenantSettings(Base, TimestampMixin, UUIDMixin):
             "enable_parent_portal": True,
             "enable_sms_notifications": False,
             "enable_finance": False,
+            # School areas the operator can switch off (all on unless a school's plan says otherwise)
+            "enable_attendance": True,
+            "enable_homework": True,
+            "enable_timetable": True,
+            "enable_announcements": True,
             "enable_transportation": False,
             "enable_cafeteria": False,
             "enable_health": False

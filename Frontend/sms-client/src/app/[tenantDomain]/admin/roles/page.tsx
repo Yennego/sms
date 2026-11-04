@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import React, { useEffect, useMemo, useState } from 'react';
 import ConfirmationModal from '@/components/common/ConfirmationModal';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Lock } from 'lucide-react';
+import { useSchoolAreas } from '@/hooks/use-tenant-features';
 import {
   useRoles,
   useCreateRole,
@@ -45,6 +46,9 @@ export default function AdminRolesPage() {
   // Delete confirmation modal
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmTargetRoleId, setConfirmTargetRoleId] = useState<string | null>(null);
+
+  // Permissions of an area switched off for this school are shown greyed out, and can't be ticked
+  const { offAreaFor } = useSchoolAreas();
 
   // Fetch role permissions when a role is selected
   const { data: currentRolePermissions = [] } = useRolePermissions(selectedRoleId);
@@ -241,20 +245,34 @@ export default function AdminRolesPage() {
                 {selectedRoleId ? 'Toggle permissions for the selected role.' : 'Select a role to begin.'}
               </div>
               <div className="rounded-md border p-2 max-h-[400px] overflow-auto">
-                {permissions.map(p => (
-                  <label key={p.id} className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted rounded">
-                    <input
-                      type="checkbox"
-                      checked={selectedPermissionNames.includes(p.name)}
-                      onChange={() => togglePermission(p.name)}
-                      disabled={!selectedRoleId}
-                    />
-                    <div>
-                      <div className="font-medium">{p.name}</div>
-                      {p.description && <div className="text-xs text-muted-foreground">{p.description}</div>}
-                    </div>
-                  </label>
-                ))}
+                {permissions.map(p => {
+                  const offArea = offAreaFor(p.name);
+                  return (
+                    <label
+                      key={p.id}
+                      className={`flex items-center gap-2 px-3 py-2 rounded ${offArea ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-muted'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedPermissionNames.includes(p.name)}
+                        onChange={() => togglePermission(p.name)}
+                        disabled={!selectedRoleId || Boolean(offArea)}
+                      />
+                      <div>
+                        <div className="flex items-center gap-1 font-medium">
+                          {p.name}
+                          {offArea ? <Lock className="h-3.5 w-3.5" aria-hidden="true" /> : null}
+                        </div>
+                        {p.description && <div className="text-xs text-muted-foreground">{p.description}</div>}
+                        {offArea ? (
+                          <div className="text-xs text-muted-foreground">
+                            Part of {offArea.label}, which is turned off for this school. Ask the platform operator.
+                          </div>
+                        ) : null}
+                      </div>
+                    </label>
+                  );
+                })}
                 {permissions.length === 0 && <div className="text-sm text-muted-foreground">No permissions available.</div>}
               </div>
               <div className="mt-4 flex gap-2">

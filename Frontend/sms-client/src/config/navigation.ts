@@ -90,7 +90,7 @@ const CLASSES: NavArea = {
     tab('Grade levels', '/academics/grades'),
     tab('Years and terms', '/academics/academic-years'),
     tab('Semesters', '/academics/semesters'),
-    tab('Timetable', '/academics/timetables'),
+    tab('Timetable', '/academics/timetables', 'enable_timetable'),
     tab('Setup', '/academics/setup'),
   ],
 };
@@ -102,7 +102,7 @@ const CLASSES_REGISTRAR: NavArea = {
 };
 
 const ATTENDANCE: NavArea = {
-  key: 'attendance', label: 'Attendance', icon: ClipboardCheck,
+  key: 'attendance', label: 'Attendance', icon: ClipboardCheck, feature: 'enable_attendance',
   tabs: [
     tab('Today', '/attendance'),
     tab('Mark', '/attendance/daily'),
@@ -127,7 +127,7 @@ const GRADES: NavArea = {
     tab('Gradebook', '/academics/gradebook'),
     tab('Review and publish', '/academics/grades/publish'),
     tab('Report cards', '/academics/report-cards'),
-    tab('Assignments', '/academics/assignments'),
+    tab('Assignments', '/academics/assignments', 'enable_homework'),
     tab('Grading settings', '/academics/grading-schemas'),
     tab('Remedial', '/academics/remedial'),
   ],
@@ -158,12 +158,12 @@ const FEES: NavArea = {
 // server (GET /communication/announcements/audiences), so the same area serves every role.
 const MESSAGES: NavArea = {
   key: 'messages', label: 'Messages', icon: Megaphone,
-  tabs: [tab('Announcements', '/communication/announcements'), tab('Inbox', '/inbox')],
+  tabs: [tab('Announcements', '/communication/announcements', 'enable_announcements'), tab('Inbox', '/inbox')],
 };
 
 const MESSAGES_FAMILY: NavArea = {
   ...MESSAGES,
-  tabs: [tab('Inbox', '/inbox'), tab('Announcements', '/communication/announcements')],
+  tabs: [tab('Inbox', '/inbox'), tab('Announcements', '/communication/announcements', 'enable_announcements')],
 };
 
 const SCHOOL_SETTINGS: NavTab[] = [
@@ -172,7 +172,7 @@ const SCHOOL_SETTINGS: NavTab[] = [
   tab('Users', '/admin/users'),
   tab('Roles', '/admin/roles'),
   tab('Role assignment', '/admin/role-assignment'),
-  tab('Attendance rules', '/settings/attendance'),
+  tab('Attendance rules', '/settings/attendance', 'enable_attendance'),
   tab('Delivery log', '/settings/deliveries'),
   tab('Audit log', '/admin/activity-logs'),
   // The school's platform account (phase7-design.md section 6); billing reminders link here
@@ -218,17 +218,17 @@ const ROLES: Record<string, RoleNavigation> = {
       HOME('/teacher/dashboard'),
       { key: 'my-classes', label: 'My classes', icon: BookOpen, tabs: [tab('My classes', '/teacher/classes')] },
       {
-        key: 'attendance', label: 'Attendance', icon: ClipboardCheck,
+        key: 'attendance', label: 'Attendance', icon: ClipboardCheck, feature: 'enable_attendance',
         tabs: [tab('My class', '/teacher/attendance'), tab('Scan', '/attendance/scan')],
       },
       {
         key: 'gradebook', label: 'Gradebook', icon: Award,
         tabs: [
           tab('Gradebook', '/academics/gradebook'),
-          tab('Assignments', '/academics/assignments'),
+          tab('Assignments', '/academics/assignments', 'enable_homework'),
         ],
       },
-      { key: 'timetable', label: 'Timetable', icon: CalendarDays, tabs: [tab('Timetable', '/academics/timetables')] },
+      { key: 'timetable', label: 'Timetable', icon: CalendarDays, feature: 'enable_timetable', tabs: [tab('Timetable', '/academics/timetables')] },
       MESSAGES,
     ],
   },
@@ -236,16 +236,16 @@ const ROLES: Record<string, RoleNavigation> = {
     home: '/student/dashboard',
     areas: [
       HOME('/student/dashboard'),
-      { key: 'timetable', label: 'Timetable', icon: CalendarDays, tabs: [tab('Timetable', '/student/timetable')] },
+      { key: 'timetable', label: 'Timetable', icon: CalendarDays, feature: 'enable_timetable', tabs: [tab('Timetable', '/student/timetable')] },
       {
         key: 'courses', label: 'Courses', icon: BookOpen,
-        tabs: [tab('My courses', '/student/courses'), tab('Assignments', '/academics/assignments')],
+        tabs: [tab('My courses', '/student/courses'), tab('Assignments', '/academics/assignments', 'enable_homework')],
       },
       {
         key: 'results', label: 'Results', icon: Award,
         tabs: [tab('My results', '/student/grades')],
       },
-      { key: 'attendance', label: 'Attendance', icon: ClipboardCheck, tabs: [tab('Attendance', '/student/attendance')] },
+      { key: 'attendance', label: 'Attendance', icon: ClipboardCheck, feature: 'enable_attendance', tabs: [tab('Attendance', '/student/attendance')] },
       MESSAGES_FAMILY,
     ],
   },
@@ -253,7 +253,7 @@ const ROLES: Record<string, RoleNavigation> = {
     home: '/parent',
     areas: [
       HOME('/parent'),
-      { key: 'attendance', label: 'Attendance', icon: ClipboardCheck, tabs: [tab('Attendance', '/parent/attendance')] },
+      { key: 'attendance', label: 'Attendance', icon: ClipboardCheck, feature: 'enable_attendance', tabs: [tab('Attendance', '/parent/attendance')] },
       { key: 'results', label: 'Results', icon: Award, tabs: [tab('Results', '/parent/results')] },
       { key: 'fees', label: 'Fees', icon: Receipt, feature: 'enable_finance', tabs: [tab('Fees', '/parent/fees')] },
       MESSAGES_FAMILY,
@@ -262,7 +262,7 @@ const ROLES: Record<string, RoleNavigation> = {
   'attendance-scanner': {
     home: '/attendance/scan',
     bare: true,
-    areas: [{ key: 'scan', label: 'Scan', icon: ScanLine, tabs: [tab('Scan', '/attendance/scan')] }],
+    areas: [{ key: 'scan', label: 'Scan', icon: ScanLine, feature: 'enable_attendance', tabs: [tab('Scan', '/attendance/scan')] }],
   },
 };
 
