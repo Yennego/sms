@@ -4,6 +4,7 @@ from fastapi import Depends, HTTPException, status
 from src.db.models.auth import User, Permission
 # Change this import to avoid circular dependency
 from src.core.security.auth import get_current_user, get_current_active_user, is_super_admin as _is_super_admin
+from src.core.security.effective import effective_permission_names
 
 
 def _system_role_names(user: User) -> set:
@@ -17,17 +18,8 @@ def has_permission(required_permission: str):
         if _is_super_admin(current_user):
             return current_user
 
-        # Check if user has the required permission through any of their roles
-        has_perm = False
-        for role in current_user.roles:
-            for permission in role.permissions:
-                if permission.name == required_permission:
-                    has_perm = True
-                    break
-            if has_perm:
-                break
-                
-        if not has_perm:
+        # Through any of their roles, as adjusted for their school
+        if required_permission not in effective_permission_names(current_user):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"User does not have permission: {required_permission}"
@@ -41,8 +33,7 @@ def has_any_permission(permissions: List[str]):
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
         if _is_super_admin(current_user):
             return current_user
-        held = {p.name for role in current_user.roles for p in role.permissions}
-        if not held & set(permissions):
+        if not effective_permission_names(current_user) & set(permissions):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"User needs one of these permissions: {', '.join(permissions)}"
@@ -72,7 +63,7 @@ def has_role_or_permission(roles: List[str], permissions: List[str]):
 def holds_any_permission(user: User, permissions: List[str]) -> bool:
     if _is_super_admin(user):
         return True
-    return bool({p.name for role in user.roles for p in role.permissions} & set(permissions))
+    return bool(effective_permission_names(user) & set(permissions))
 
 
 def has_role(required_role: str):

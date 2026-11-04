@@ -75,12 +75,13 @@ export async function GET(request: NextRequest) {
     if (!user.role && roles.length) user.role = roles[0].name;
     if (user.role === 'tenant-admin') user.role = 'admin';
 
-    // Permissions from all roles, merged with any the backend sent directly
+    // The backend sends what the user's roles allow in their school, with the platform operator's
+    // adjustments for that school applied; only an older backend leaves it out
     const fromRoles = roles.flatMap(r =>
       Array.isArray(r.permissions)
         ? r.permissions.map(p => (typeof p === 'string' ? p : p?.name)).filter((p): p is string => !!p)
         : []);
-    user.permissions = Array.from(new Set([...(Array.isArray(user.permissions) ? user.permissions : []), ...fromRoles]));
+    user.permissions = Array.isArray(user.permissions) ? user.permissions : Array.from(new Set(fromRoles));
 
     return NextResponse.json(user);
   } catch (error) {

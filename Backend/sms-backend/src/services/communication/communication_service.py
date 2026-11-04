@@ -36,6 +36,7 @@ from src.services.academics.attendance_access import class_sponsor_id
 from src.services.notification.alerts import parents_of
 from src.services.notification.notify import EVENT_LABELS, notify
 from src.services.notification.senders import SmtpEmailSender
+from src.core.security.effective import effective_permission_names
 
 MAX_PAGE_SIZE = 100
 ROLE_LABELS = {"parents": "Parents", "students": "Students", "teachers": "Teachers", "staff": "Staff"}
@@ -94,7 +95,7 @@ def _paged(items: List[Any], total: int, page: int, page_size: int) -> Dict[str,
 
 
 def user_permissions(user: Any) -> set:
-    return {p.name for role in getattr(user, "roles", []) for p in role.permissions}
+    return set(effective_permission_names(user))
 
 
 class CommunicationService:

@@ -72,6 +72,9 @@ export default function AdminRolesPage() {
                       >
                         <div className="font-medium">{roleLabel(r.name)}</div>
                         <div className="font-mono text-xs text-muted-foreground">{r.name}</div>
+                        {r.adjusted_for_school ? (
+                          <div className="text-xs text-blue-800">Set up for your school by the platform operator</div>
+                        ) : null}
                         {r.description && <div className="text-xs text-muted-foreground">{r.description}</div>}
                       </button>
                     ))

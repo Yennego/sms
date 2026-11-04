@@ -19,6 +19,7 @@ from src.schemas.auth.token import Token
 from src.core.config import settings
 from src.core.security.jwt import create_access_token, create_refresh_token, verify_token
 from src.core.security.permissions import has_role, has_any_role, has_permission, require_super_admin
+from src.core.security.effective import effective_permission_names, role_permission_names, school_adjustments
 from src.core.middleware.tenant import get_tenant_id_from_request, get_optional_tenant_id_from_request
 from src.core.security.auth import get_current_active_user, get_current_user, is_super_admin
 from src.core.security.password import verify_password, get_password_hash
@@ -184,9 +185,7 @@ SCHOOL_KEPT_NAME_TYPES = {"student", "parent"}
 
 
 def _has_perm(user: User, permission: str) -> bool:
-    return is_super_admin(user) or any(
-        p.name == permission for role in user.roles for p in role.permissions
-    )
+    return is_super_admin(user) or permission in effective_permission_names(user)
 
 
 def _require_permission(user: User, permission: str) -> None:
@@ -418,6 +417,24 @@ def create_role(
     return role
 
 
+def _roles_for_school(db: Session, roles, tenant_id) -> List[dict]:
+    """Roles as one school sees them: the platform operator's adjustments for that school applied."""
+    adjustments = school_adjustments(db, tenant_id, [r.id for r in roles])
+    extra = {name for added, _ in adjustments.values() for name in added}
+    by_name = {p.name: p for p in permission_crud.get_multi_by_names(db, names=sorted(extra))} if extra else {}
+    out = []
+    for role in roles:
+        added, removed = adjustments.get(role.id, (set(), set()))
+        perms = [p for p in role.permissions if p.name not in removed]
+        perms += [by_name[n] for n in sorted(added) if n in by_name and n not in {p.name for p in perms}]
+        out.append({
+            "id": role.id, "name": role.name, "description": role.description, "tenant_id": role.tenant_id,
+            "is_system": role.is_system, "created_at": role.created_at, "updated_at": role.updated_at,
+            "permissions": perms, "adjusted_for_school": bool(added or removed),
+        })
+    return out
+
+
 @router.get("/roles", response_model=List[UserRole])
 def get_roles(
     *,
@@ -427,11 +444,13 @@ def get_roles(
     limit: int = 100,
     current_user: User = Depends(get_current_user)
 ) -> Any:
-    """Built-in roles plus the caller's school's custom roles."""
-    roles = user_role_crud.list_visible(db, tenant_id=_role_tenant(request))
+    """Built-in roles plus the caller's school's own roles, as that school sees them (with the
+    platform operator's adjustments for it)."""
+    tenant_id = _role_tenant(request)
+    roles = user_role_crud.list_visible(db, tenant_id=tenant_id)
     if not is_super_admin(current_user):
         roles = [r for r in roles if r.name not in ("super-admin", "superadmin")]
-    return roles[skip:skip + limit]
+    return _roles_for_school(db, roles[skip:skip + limit], tenant_id)
 
 
 @router.delete("/roles/{role_id}", response_model=UserRole)
@@ -679,6 +698,7 @@ async def read_users_me(current_user: User = Depends(get_current_active_user)):
         user_dict["role"] = current_user.roles[0].name
     else:
         user_dict["role"] = None
+    user_dict["permissions"] = sorted(effective_permission_names(current_user))
     
     # The tenant_id comes directly from the database user record
     # No hardcoding needed - it's already in current_user.tenant_id
@@ -900,8 +920,9 @@ def get_role_permissions(
     role_id: UUID,
     current_user: User = Depends(has_permission("manage_roles"))
 ) -> Any:
-    """Get permissions assigned to a role."""
-    return _visible_role(db, request, role_id, current_user).permissions
+    """What a role allows in the caller's school (with that school's adjustments)."""
+    role = _visible_role(db, request, role_id, current_user)
+    return _roles_for_school(db, [role], _role_tenant(request))[0]["permissions"]
 
 
 # Add these endpoints to your existing auth.py
@@ -930,8 +951,8 @@ def _check_role_change(db: Session, user: User, role, current_user: User, adding
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                                 detail="Only the platform operator gives or removes the admin role.")
         if adding:
-            held = {p.name for r in current_user.roles for p in r.permissions}
-            missing = sorted({p.name for p in role.permissions} - held)
+            held = effective_permission_names(current_user)
+            missing = sorted(role_permission_names(role, user.tenant_id, db) - held)
             if missing:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                                     detail=f"You can only give roles whose permissions you hold yourself ({role.name}).")
