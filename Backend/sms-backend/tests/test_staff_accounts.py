@@ -91,22 +91,24 @@ def test_only_staff_roles_of_this_school(env):
     assert client.post(CREATE, json={**person, "role_id": roles["teacher"]}, headers=h).status_code == 400
 
     names = {r["name"] for r in client.get(ROLES, headers=h).json()}
-    assert {"admin", "registrar", "accountant", "academic-admin"} <= names
-    assert not names & {"super-admin", "student", "parent", "teacher", "bursar"}
+    assert {"registrar", "accountant", "academic-admin"} <= names
+    # admin accounts come from the platform operator
+    assert not names & {"admin", "super-admin", "student", "parent", "teacher", "bursar"}
     assert "bursar" in {r["name"] for r in client.get(ROLES, headers=headers(ids, "admin_b")).json()}
 
 
-def test_only_a_school_admin_creates_an_admin(env):
+def test_only_the_operator_creates_an_admin(env):
     client, ids = env
     roles = _roles(ids)
     person = {"first_name": "Ama", "last_name": "Kollie"}
     r = client.post(CREATE, json={**person, "role_id": roles["admin"]}, headers=headers(ids, "registrar"))
     assert r.status_code == 403 and "admin" in r.json()["detail"]
     assert "admin" not in {r["name"] for r in client.get(ROLES, headers=headers(ids, "registrar")).json()}
-    # the registrar may still add other staff; the admin may add an admin
+    # the registrar may still add other staff; a school admin can't add an admin, the operator can
     assert client.post(CREATE, json={**person, "role_id": roles["accountant"]},
                        headers=headers(ids, "registrar")).status_code == 201
-    assert client.post(CREATE, json={**person, "role_id": roles["admin"]}, headers=headers(ids, "admin_a")).status_code == 201
+    assert client.post(CREATE, json={**person, "role_id": roles["admin"]}, headers=headers(ids, "admin_a")).status_code == 403
+    assert client.post(CREATE, json={**person, "role_id": roles["admin"]}, headers=headers(ids, "super")).status_code == 201
     # without manage_users: nothing
     assert client.post(CREATE, json={**person, "role_id": roles["accountant"]},
                        headers=headers(ids, "student_a")).status_code == 403
