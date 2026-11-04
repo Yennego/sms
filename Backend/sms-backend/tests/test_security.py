@@ -400,3 +400,17 @@ def test_deactivated_student_can_no_longer_sign_in(env):
     assert client.get("/api/v1/auth/me", headers=h_student).status_code == 401  # existing session ends
     client.put(f"/api/v1/people/students/{ids['student_a']}/status?status=active", headers=h_admin)
     assert client.get("/api/v1/auth/me", headers=h_student).status_code == 200
+
+
+def test_school_sets_a_custom_roles_permissions_but_not_a_built_in_one(env):
+    """The role editor sends a plain list of permission names."""
+    client, ids = env
+    h = headers(ids, "admin_a")
+    role = client.post("/api/v1/auth/roles", json={"name": "Bursar helper"}, headers=h)
+    assert role.status_code == 201, role.text
+    saved = client.put(f"/api/v1/auth/roles/{role.json()['id']}/permissions", json=["view_students"], headers=h)
+    assert saved.status_code == 200, saved.text
+    assert [p["name"] for p in saved.json()["permissions"]] == ["view_students"]
+    built_in = next(r for r in client.get("/api/v1/auth/roles", headers=h).json() if r["name"] == "admin")
+    refused = client.put(f"/api/v1/auth/roles/{built_in['id']}/permissions", json=["view_students"], headers=h)
+    assert refused.status_code == 403 and "Built-in roles" in refused.json()["detail"]

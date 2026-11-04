@@ -71,11 +71,6 @@ export class RolePermissionService {
     return this.apiClient.get<Permission[]>(`/auth/roles/${roleId}/permissions`);
   }
 
-  // Note: backend expects permission names
-  async assignPermissionsToRole(roleId: string, permissionNames: string[]): Promise<void> {
-    return this.apiClient.post<void>(`/auth/roles/${roleId}/permissions`, { permission_names: permissionNames });
-  }
-
   // User role assignment
   async getUserRoles(userId: string): Promise<Role[]> {
     return this.apiClient.get<Role[]>(`/auth/users/${userId}/roles`);
@@ -89,7 +84,8 @@ export class RolePermissionService {
     return this.apiClient.delete<void>(`/auth/users/${userId}/roles/${roleId}`);
   }
 
+  // Replaces the role's permissions; the body is the plain list of permission names
   async setRolePermissions(roleId: string, permissionNames: string[]): Promise<void> {
-    return this.apiClient.put<void>(`/auth/roles/${roleId}/permissions`, { permission_names: permissionNames });
+    return this.apiClient.put<void>(`/auth/roles/${roleId}/permissions`, permissionNames);
   }
 }
