@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import case, func, or_, text
 from sqlalchemy.exc import IntegrityError
@@ -934,6 +935,106 @@ def add_permissions_to_role(
     # Add permissions to role
     permission_ids = [p.id for p in permissions]
     return user_role_crud.set_permissions_to_role(db, role_id=role_id, permission_ids=permission_ids)
+
+# --- A built-in role adjusted for one school (role_permission_overrides) -------------------------
+
+class SchoolRolePermissionsIn(BaseModel):
+    # What the role should allow in this school; the difference from the built-in role is stored
+    permission_names: List[str]
+
+
+def _school_and_role(db: Session, tenant_id: UUID, role_id: UUID):
+    if not tenant_crud.get(db, id=tenant_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="School not found")
+    role = user_role_crud.get(db, id=role_id)
+    if not role or role.name in ("super-admin", "superadmin"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
+    if role.tenant_id is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="This is a school's own role: change its permissions directly.")
+    return role
+
+
+def _school_role_view(db: Session, tenant_id: UUID, role) -> Dict[str, Any]:
+    from src.core.security.effective import school_adjustments
+    built_in = sorted(p.name for p in role.permissions)
+    added, removed = school_adjustments(db, tenant_id, [role.id]).get(role.id, (set(), set()))
+    return {
+        "tenant_id": tenant_id, "role_id": role.id, "built_in": built_in,
+        "added": sorted(added), "removed": sorted(removed),
+        "permissions": sorted((set(built_in) | added) - removed),
+        "adjusted": bool(added or removed),
+    }
+
+
+@router.get("/tenants/{tenant_id}/role-adjustments")
+def list_school_role_adjustments(
+    tenant_id: UUID, db: Session = Depends(get_super_admin_db), _: User = Depends(require_super_admin())
+) -> Any:
+    """The built-in roles adjusted for this school, with what was added and taken away."""
+    from src.core.security.effective import school_adjustments
+    from src.db.models.auth.role_override import RolePermissionOverride
+    role_ids = [r for (r,) in db.query(RolePermissionOverride.role_id)
+                .filter(RolePermissionOverride.tenant_id == tenant_id).distinct()]
+    adjustments = school_adjustments(db, tenant_id, role_ids)
+    return [{"role_id": rid, "added": sorted(a), "removed": sorted(r)} for rid, (a, r) in adjustments.items()]
+
+
+@router.get("/tenants/{tenant_id}/roles/{role_id}/permissions")
+def get_school_role_permissions(
+    tenant_id: UUID, role_id: UUID,
+    db: Session = Depends(get_super_admin_db), _: User = Depends(require_super_admin())
+) -> Any:
+    """What a built-in role allows in one school: built in, added, taken away, and the result."""
+    return _school_role_view(db, tenant_id, _school_and_role(db, tenant_id, role_id))
+
+
+@router.put("/tenants/{tenant_id}/roles/{role_id}/permissions")
+def set_school_role_permissions(
+    tenant_id: UUID, role_id: UUID, body: SchoolRolePermissionsIn,
+    db: Session = Depends(get_super_admin_db), _: User = Depends(require_super_admin())
+) -> Any:
+    """Set what a built-in role allows in this school only; every other school keeps it as it is.
+    The difference from the built-in role is stored, so later changes to the built-in role still
+    reach this school for the permissions it didn't adjust."""
+    from src.api.v1.endpoints.auth.auth import PLATFORM_PERMISSIONS
+    from src.db.models.auth.role_override import RolePermissionOverride
+    role = _school_and_role(db, tenant_id, role_id)
+    wanted = set(body.permission_names)
+    platform = sorted(wanted & PLATFORM_PERMISSIONS)
+    if platform:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"These permissions are platform-only: {', '.join(platform)}")
+    found = {p.name: p for p in permission_crud.get_multi_by_names(db, names=sorted(wanted))}
+    unknown = sorted(wanted - set(found))
+    if unknown:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Unknown permissions: {', '.join(unknown)}")
+    built_in = {p.name: p for p in role.permissions}
+    db.query(RolePermissionOverride).filter(RolePermissionOverride.tenant_id == tenant_id,
+                                            RolePermissionOverride.role_id == role.id).delete()
+    for name in sorted(wanted - set(built_in)):
+        db.add(RolePermissionOverride(tenant_id=tenant_id, role_id=role.id, permission_id=found[name].id, effect="grant"))
+    for name in sorted(set(built_in) - wanted):
+        db.add(RolePermissionOverride(tenant_id=tenant_id, role_id=role.id, permission_id=built_in[name].id,
+                                      effect="revoke"))
+    db.flush()
+    return _school_role_view(db, tenant_id, role)
+
+
+@router.delete("/tenants/{tenant_id}/roles/{role_id}/permissions")
+def reset_school_role_permissions(
+    tenant_id: UUID, role_id: UUID,
+    db: Session = Depends(get_super_admin_db), _: User = Depends(require_super_admin())
+) -> Any:
+    """Back to the built-in role for this school."""
+    from src.db.models.auth.role_override import RolePermissionOverride
+    role = _school_and_role(db, tenant_id, role_id)
+    db.query(RolePermissionOverride).filter(RolePermissionOverride.tenant_id == tenant_id,
+                                            RolePermissionOverride.role_id == role.id).delete()
+    db.flush()
+    return _school_role_view(db, tenant_id, role)
+
 
 @router.get("/permissions", response_model=List[Permission])
 def get_all_permissions(

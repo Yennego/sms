@@ -297,7 +297,7 @@ export default function TenantList({
                       className="text-blue-600 hover:text-blue-900 transition-colors duration-200"
                       disabled={isLoading}
                     >
-                      Modules
+                      Areas
                     </button>
                     {tenant.isActive ? (
                       <button

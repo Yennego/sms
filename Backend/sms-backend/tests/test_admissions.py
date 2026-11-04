@@ -129,6 +129,11 @@ def test_import_checks_rows_then_saves_all_or_nothing(env):
     assert db.query(Parent).filter(Parent.last_name == "Dahn").count() == 1  # one guardian for both children
     assert {c["who"] for c in done["credentials"]} == {"student", "guardian"} and len(done["credentials"]) == 3
 
+    # the enrollments list shows them (it once failed on the empty legacy year name)
+    listed = client.get("/api/v1/academics/enrollments", headers=h)
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["total"] == 2 and all(i["academic_year"] for i in listed.json()["items"])
+
 
 def test_guardians_added_to_and_removed_from_an_existing_student(env):
     """A student already admitted gets a guardian later: one who already has children here

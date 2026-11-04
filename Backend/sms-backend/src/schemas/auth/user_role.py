@@ -29,6 +29,8 @@ class UserRole(UserRoleBase, TimestampSchema):
     tenant_id: Optional[UUID] = None
     is_system: bool = False
     permissions: List[Permission] = []
+    # True when the platform operator adjusted this role for the school being viewed
+    adjusted_for_school: bool = False
 
     class Config:
         from_attributes = True

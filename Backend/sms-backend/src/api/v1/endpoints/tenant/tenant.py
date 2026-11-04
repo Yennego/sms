@@ -14,6 +14,7 @@ from src.schemas.tenant import Tenant, TenantCreate, TenantUpdate
 from src.schemas.tenant import TenantSettings, TenantSettingsCreate, TenantSettingsUpdate
 from src.schemas.tenant.tenant import TenantPublic, TenantSelfUpdate
 from src.core.security.permissions import has_permission, require_super_admin
+from src.core.security.auth import get_current_active_user
 from src.db.models.auth import User
 from src.db.models.tenant.tenant import Tenant as TenantModel
 from src.core.middleware.tenant import get_tenant_id_from_request
@@ -126,6 +127,14 @@ def _profile(db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant
              current_user: User = Depends(has_permission("manage_tenant_settings"))):
     from src.services.academics.report_identity_service import SchoolProfileService
     return SchoolProfileService(db, tenant_id)
+
+
+@router.get("/self/areas")
+def get_school_areas(db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request),
+                     _: User = Depends(get_current_active_user)) -> Any:
+    """The switchable areas (the school's ceiling) and whether this school has each one."""
+    from src.services.tenant.features import school_areas
+    return school_areas(db, tenant_id)
 
 
 @router.get("/self/profile")

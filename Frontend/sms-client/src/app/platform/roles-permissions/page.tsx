@@ -14,6 +14,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Edit, Users, Shield, Save } from 'lucide-react';
 import { useSuperAdminApiClient } from '@/services/api/super-admin-api-client';
 import { useToast } from '@/hooks/use-toast';
+import { GroupedPermissions } from '@/components/roles/grouped-permissions';
+import { useSuperAdminTenants } from '@/hooks/queries/super-admin';
+import { PERMISSIONS, PERMISSION_GROUPS, permissionLabel, roleLabel } from '@/config/permission-catalogue';
 
 interface Role {
   id: string;
@@ -43,6 +46,15 @@ interface User {
   updated_at: string;
 }
 
+/** A built-in role as one school has it (GET /super-admin/tenants/{school}/roles/{role}/permissions) */
+interface SchoolRoleView {
+  built_in: string[];
+  added: string[];
+  removed: string[];
+  permissions: string[];
+  adjusted: boolean;
+}
+
 interface RoleCreate {
   name: string;
   description?: string;
@@ -70,6 +82,71 @@ export default function RolePermissionManagementPage() {
 
   const apiClient = useSuperAdminApiClient();
   const { toast } = useToast();
+
+  // '' edits the built-in role (every school); a school id edits that school's version only
+  const [schoolId, setSchoolId] = useState('');
+  const [schoolView, setSchoolView] = useState<SchoolRoleView | null>(null);
+  const [adjustedRoleIds, setAdjustedRoleIds] = useState<string[]>([]);
+  const { data: tenantPage } = useSuperAdminTenants({ limit: 100 });
+  const schools = tenantPage?.items ?? [];
+  const schoolName = schools.find((t) => t.id === schoolId)?.name ?? 'this school';
+
+  const loadSchoolAdjustments = async (tenantId: string) => {
+    if (!tenantId) {
+      setAdjustedRoleIds([]);
+      return;
+    }
+    const rows = await apiClient.get<{ role_id: string }[]>(`/super-admin/tenants/${tenantId}/role-adjustments`);
+    setAdjustedRoleIds(rows.map((r) => r.role_id));
+  };
+
+  const loadRolePermissions = async (role: Role, tenantId: string) => {
+    if (tenantId) {
+      const view = await apiClient.get<SchoolRoleView>(`/super-admin/tenants/${tenantId}/roles/${role.id}/permissions`);
+      setSchoolView(view);
+      setSelectedPermissions(view.permissions);
+    } else {
+      setSchoolView(null);
+      const rolePermissions = await apiClient.get<Permission[]>(`/super-admin/roles/${role.id}/permissions`);
+      setSelectedPermissions(rolePermissions.map((p) => p.name));
+    }
+  };
+
+  const changeSchool = async (tenantId: string) => {
+    setSchoolId(tenantId);
+    try {
+      await loadSchoolAdjustments(tenantId);
+      if (selectedRole) await loadRolePermissions(selectedRole, tenantId);
+    } catch (error) {
+      console.error('Error loading the school roles:', error);
+    }
+  };
+
+  const saveSchoolRole = async (reset: boolean) => {
+    if (!selectedRole || !schoolId) return;
+    const url = `/super-admin/tenants/${schoolId}/roles/${selectedRole.id}/permissions`;
+    try {
+      const view = reset
+        ? await apiClient.delete<SchoolRoleView>(url)
+        : await apiClient.put<SchoolRoleView>(url, { permission_names: selectedPermissions });
+      setSchoolView(view);
+      setSelectedPermissions(view.permissions);
+      await loadSchoolAdjustments(schoolId);
+      toast({
+        title: 'Saved',
+        description: reset
+          ? `${roleLabel(selectedRole.name)} is back to the built-in role for ${schoolName}.`
+          : `${roleLabel(selectedRole.name)} saved for ${schoolName} only.`,
+      });
+    } catch (error) {
+      console.error('Error saving the school role:', error);
+      toast({
+        title: 'Error',
+        description: error instanceof Error && error.message ? error.message : 'The role was not saved for this school',
+        variant: 'destructive'
+      });
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -191,8 +268,7 @@ export default function RolePermissionManagementPage() {
   const handleRoleSelect = async (role: Role) => {
     setSelectedRole(role);
     try {
-      const rolePermissions = await apiClient.get<Permission[]>(`/super-admin/roles/${role.id}/permissions`);  // Changed from /auth/roles
-      setSelectedPermissions(rolePermissions.map(p => p.name));
+      await loadRolePermissions(role, schoolId);
     } catch (error) {
       console.error('Error loading role permissions:', error);
     }
@@ -320,6 +396,25 @@ export default function RolePermissionManagementPage() {
                 <CardTitle>System Roles ({roles.length})</CardTitle>
               </CardHeader>
               <CardContent>
+                <div className="mb-4 grid gap-1">
+                  <Label htmlFor="role-school">School</Label>
+                  <select
+                    id="role-school"
+                    className="h-10 rounded-md border bg-background px-3 text-sm"
+                    value={schoolId}
+                    onChange={(e) => changeSchool(e.target.value)}
+                  >
+                    <option value="">Every school (built-in roles)</option>
+                    {schools.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500">
+                    Choose a school to give a role a different set of permissions there only.
+                  </p>
+                </div>
                 <div className="space-y-2">
                   {roles.map((role) => (
                     <div
@@ -330,7 +425,11 @@ export default function RolePermissionManagementPage() {
                         }`}
                       onClick={() => handleRoleSelect(role)}
                     >
-                      <div className="font-medium">{role.name}</div>
+                      <div className="flex flex-wrap items-center gap-2 font-medium">
+                        {roleLabel(role.name)}
+                        {adjustedRoleIds.includes(role.id) ? <Badge variant="outline">Adjusted for {schoolName}</Badge> : null}
+                      </div>
+                      <div className="font-mono text-xs text-gray-500">{role.name}</div>
                       {role.description && (
                         <div className="text-sm text-gray-500 mt-1">{role.description}</div>
                       )}
@@ -349,7 +448,9 @@ export default function RolePermissionManagementPage() {
             <Card className="lg:col-span-2">
               <CardHeader>
                 <CardTitle>
-                  {selectedRole ? `${selectedRole.name} Permissions` : 'Select a Role'}
+                  {selectedRole
+                    ? `What ${roleLabel(selectedRole.name)} allows${schoolId ? ` at ${schoolName}` : ' (every school)'}`
+                    : 'Select a Role'}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -361,34 +462,52 @@ export default function RolePermissionManagementPage() {
                     </div>
 
                     <div>
-                      <h4 className="font-medium mb-2">Assign Permissions</h4>
-                      <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
-                        {permissions.map((permission) => (
-                          <div key={permission.id} className="flex items-center space-x-2">
-                            <Checkbox
-                              id={permission.id}
-                              checked={selectedPermissions.includes(permission.name)}
-                              onCheckedChange={(checked) => {
-                                if (checked) {
-                                  setSelectedPermissions([...selectedPermissions, permission.name]);
-                                } else {
-                                  setSelectedPermissions(selectedPermissions.filter(p => p !== permission.name));
-                                }
-                              }}
-                            />
-                            <Label htmlFor={permission.id} className="text-sm">
-                              {permission.name}
-                            </Label>
-                          </div>
-                        ))}
+                      <h4 className="font-medium mb-1">Permissions</h4>
+                      <p className="mb-2 text-sm text-gray-600">
+                        {schoolId
+                          ? `Changes here apply to ${schoolName} only. Every other school keeps the built-in role.`
+                          : 'This is the built-in role: changes apply to every school, except where a school has its own version.'}{' '}
+                        A school never gets an area you turned off for it.
+                      </p>
+                      {schoolView?.adjusted ? (
+                        <p className="mb-2 text-sm text-amber-800">
+                          {schoolName} has its own version:
+                          {schoolView.added.length ? ` adds ${schoolView.added.map(permissionLabel).join(', ')}.` : ''}
+                          {schoolView.removed.length ? ` Takes away ${schoolView.removed.map(permissionLabel).join(', ')}.` : ''}
+                        </p>
+                      ) : null}
+                      <div className="max-h-[28rem] overflow-y-auto rounded-md border p-2">
+                        <GroupedPermissions
+                          permissions={permissions}
+                          selected={selectedPermissions}
+                          onToggle={(name) =>
+                            setSelectedPermissions(
+                              selectedPermissions.includes(name)
+                                ? selectedPermissions.filter((p) => p !== name)
+                                : [...selectedPermissions, name]
+                            )
+                          }
+                        />
                       </div>
-                      <Button
-                        className="mt-4"
-                        onClick={() => handleAssignPermissionsToRole(selectedRole.id, selectedPermissions)}
-                      >
-                        <Save className="h-4 w-4 mr-2" />
-                        Save Permissions
-                      </Button>
+                      {schoolId ? (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <Button onClick={() => saveSchoolRole(false)}>
+                            <Save className="h-4 w-4 mr-2" />
+                            Save for {schoolName}
+                          </Button>
+                          <Button variant="outline" onClick={() => saveSchoolRole(true)} disabled={!schoolView?.adjusted}>
+                            Reset to built-in
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          className="mt-4"
+                          onClick={() => handleAssignPermissionsToRole(selectedRole.id, selectedPermissions)}
+                        >
+                          <Save className="h-4 w-4 mr-2" />
+                          Save for every school
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -410,7 +529,8 @@ export default function RolePermissionManagementPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
+                    <TableHead>Permission</TableHead>
+                    <TableHead>Area</TableHead>
                     <TableHead>Description</TableHead>
                     <TableHead>Created</TableHead>
                     <TableHead>Actions</TableHead>
@@ -419,7 +539,13 @@ export default function RolePermissionManagementPage() {
                 <TableBody>
                   {permissions.map((permission) => (
                     <TableRow key={permission.id}>
-                      <TableCell className="font-medium">{permission.name}</TableCell>
+                      <TableCell>
+                        <div className="font-medium">{permissionLabel(permission.name)}</div>
+                        <div className="font-mono text-xs text-gray-500">{permission.name}</div>
+                      </TableCell>
+                      <TableCell>
+                        {PERMISSION_GROUPS.find((g) => g.key === (PERMISSIONS[permission.name]?.group ?? 'other'))?.label}
+                      </TableCell>
                       <TableCell>{permission.description || 'No description'}</TableCell>
                       <TableCell>{new Date(permission.created_at).toLocaleDateString()}</TableCell>
                       <TableCell>

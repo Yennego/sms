@@ -204,8 +204,13 @@ def test_student_cannot_edit_others_or_escalate_self(env):
     h = headers(ids, "student_a")
     assert client.put(f"/api/v1/auth/users/{ids['admin_a']}", json={"first_name": "X"}, headers=h).status_code == 403
     assert client.put(f"/api/v1/auth/users/{ids['student_a']}", json={"is_active": True}, headers=h).status_code == 403
-    ok = client.put(f"/api/v1/auth/users/{ids['student_a']}", json={"first_name": "Ama"}, headers=h)
-    assert ok.status_code == 200 and ok.json()["first_name"] == "Ama"
+    # the school keeps a student's name (report cards, receipts); the phone is theirs to change
+    assert client.put(f"/api/v1/auth/users/{ids['student_a']}", json={"first_name": "Ama"}, headers=h).status_code == 403
+    ok = client.put(f"/api/v1/auth/users/{ids['student_a']}", json={"phone_number": "0770000009"}, headers=h)
+    assert ok.status_code == 200 and ok.json()["phone_number"] == "0770000009"
+    staff = client.put(f"/api/v1/auth/users/{ids['admin_a']}", json={"first_name": "Ama"},
+                       headers=headers(ids, "admin_a"))
+    assert staff.status_code == 200 and staff.json()["first_name"] == "Ama"
 
 
 def test_school_admin_cannot_reach_super_admin(env):
@@ -214,8 +219,9 @@ def test_school_admin_cannot_reach_super_admin(env):
     assert client.get(f"/api/v1/auth/users/{ids['super']}", headers=h).status_code == 404
     assert client.post(f"/api/v1/auth/admin/reset-password/{ids['super']}", headers=h).status_code == 404
     assert client.get(f"/api/v1/auth/users/{ids['super']}/roles", headers=h).status_code == 404
-    assert client.put("/api/v1/auth/roles/" + str(uuid4()) + "/permissions", json=["view_users"], headers=h).status_code == 404
-    assert client.post("/api/v1/auth/roles", json={"name": "Super Admin"}, headers=h).status_code == 400
+    # roles are the operator's: a school can't make or edit one at all
+    assert client.put("/api/v1/auth/roles/" + str(uuid4()) + "/permissions", json=["view_users"], headers=h).status_code == 403
+    assert client.post("/api/v1/auth/roles", json={"name": "Super Admin"}, headers=h).status_code == 403
 
 
 # --- Roles: built-in (shared) and per-school custom roles ------------------------------------
@@ -224,37 +230,70 @@ def _role_id(client, h, name):
     return next(r["id"] for r in client.get("/api/v1/auth/roles", headers=h).json() if r["name"] == name)
 
 
-def test_school_admin_manages_only_own_custom_roles(env):
+def test_only_the_operator_makes_and_edits_roles(env):
+    """Schools ask the platform operator for the access they need; the operator makes a school's
+    own role, and the school can then hand it out."""
     client, ids = env
-    ha, hb = headers(ids, "admin_a"), headers(ids, "admin_b")
+    ha, hb, hs = headers(ids, "admin_a"), headers(ids, "admin_b"), headers(ids, "super")
 
-    # Built-in roles are shared and read-only to schools
     admin_role = _role_id(client, ha, "admin")
+    refused = client.post("/api/v1/auth/roles", json={"name": "Bursar"}, headers=ha)
+    assert refused.status_code == 403 and "platform operator" in refused.json()["detail"]
     assert client.put(f"/api/v1/auth/roles/{admin_role}/permissions", json=["view_users"], headers=ha).status_code == 403
-    for reserved in ("admin", "ADMIN", "student", "super_admin", "Principal"):
-        assert client.post("/api/v1/auth/roles", json={"name": reserved}, headers=ha).status_code == 400
+    assert client.delete(f"/api/v1/auth/roles/{admin_role}", headers=ha).status_code == 403
 
-    created = client.post("/api/v1/auth/roles", json={"name": "Bursar"}, headers=ha)
-    assert created.status_code == 201
+    # The operator, working in school A, makes school A's own role
+    for reserved in ("admin", "ADMIN", "student", "super_admin", "Principal"):
+        assert client.post("/api/v1/auth/roles", json={"name": reserved}, headers=hs).status_code == 400
+    created = client.post("/api/v1/auth/roles", json={"name": "Bursar"}, headers=hs)
+    assert created.status_code == 201, created.text
     bursar = created.json()
     assert bursar["tenant_id"] == str(ids["tenant_a"]) and bursar["is_system"] is False
+    ok = client.put(f"/api/v1/auth/roles/{bursar['id']}/permissions", json=["view_financial_data"], headers=hs)
+    assert ok.status_code == 200 and [p["name"] for p in ok.json()["permissions"]] == ["view_financial_data"]
+    assert client.put(f"/api/v1/auth/roles/{bursar['id']}/permissions", json=["manage_tenants"], headers=hs).status_code == 403
 
-    # Its permissions: school permissions yes, platform-only no
-    ok = client.put(f"/api/v1/auth/roles/{bursar['id']}/permissions", json=["view_financial_data"], headers=ha)
-    assert ok.status_code == 200
-    assert client.put(f"/api/v1/auth/roles/{bursar['id']}/permissions", json=["manage_tenants"], headers=ha).status_code == 403
-
-    # School B can't see, edit or hand out school A's custom role, and can reuse the name
+    # School B can't see or hand out school A's role
     assert "Bursar" not in {r["name"] for r in client.get("/api/v1/auth/roles", headers=hb).json()}
-    assert client.put(f"/api/v1/auth/roles/{bursar['id']}/permissions", json=[], headers=hb).status_code == 404
     assert client.post(f"/api/v1/auth/users/{ids['admin_b']}/roles", json=[bursar["id"]], headers=hb).status_code == 404
-    assert client.post("/api/v1/auth/roles", json={"name": "Bursar"}, headers=hb).status_code == 201
 
-    # Assigned in its own school; can't be deleted while held
+    # School A hands it out; only the operator deletes it, and not while someone holds it
     assert client.post(f"/api/v1/auth/users/{ids['student_a']}/roles", json=[bursar["id"]], headers=ha).status_code == 200
-    assert client.delete(f"/api/v1/auth/roles/{bursar['id']}", headers=ha).status_code == 409
+    assert client.delete(f"/api/v1/auth/roles/{bursar['id']}", headers=hs).status_code == 409
     assert client.delete(f"/api/v1/auth/users/{ids['student_a']}/roles/{bursar['id']}", headers=ha).status_code == 200
-    assert client.delete(f"/api/v1/auth/roles/{bursar['id']}", headers=ha).status_code == 200
+    assert client.delete(f"/api/v1/auth/roles/{bursar['id']}", headers=hs).status_code == 200
+
+
+def test_rules_for_handing_out_roles(env):
+    """Never your own roles, never the admin role, only roles whose permissions you hold, and a
+    school always keeps one admin (school A has two: admin_a and new_admin_a)."""
+    client, ids = env
+    ha, hs = headers(ids, "admin_a"), headers(ids, "super")
+    admin_role, student_role = _role_id(client, ha, "admin"), _role_id(client, ha, "student")
+    roles_url = lambda who: f"/api/v1/auth/users/{ids[who]}/roles"  # noqa: E731
+
+    own = client.post(roles_url("admin_a"), json=[student_role], headers=ha)
+    assert own.status_code == 403 and "your own roles" in own.json()["detail"]
+    give_admin = client.post(roles_url("student_a"), json=[admin_role], headers=ha)
+    assert give_admin.status_code == 403 and "admin role" in give_admin.json()["detail"]
+    take_admin = client.delete(f"{roles_url('new_admin_a')}/{admin_role}", headers=ha)
+    assert take_admin.status_code == 403
+    # re-sending a role someone already holds is not "giving" it
+    assert client.post(roles_url("new_admin_a"), json=[admin_role], headers=ha).status_code == 200
+
+    # a role with a permission the admin doesn't hold can't be handed out by them
+    counsel = client.post("/api/v1/auth/roles", json={"name": "Counsel notes"}, headers=hs).json()
+    client.post("/api/v1/auth/permissions", json={"name": "manage_counseling_notes"}, headers=hs)
+    assert client.put(f"/api/v1/auth/roles/{counsel['id']}/permissions", json=["manage_counseling_notes"],
+                      headers=hs).status_code == 200
+    beyond = client.post(roles_url("student_a"), json=[counsel["id"]], headers=ha)
+    assert beyond.status_code == 403 and "hold yourself" in beyond.json()["detail"]
+    assert client.post(roles_url("student_a"), json=[counsel["id"]], headers=hs).status_code == 200
+
+    # the operator may move the admin role, but never takes away the school's last admin
+    assert client.delete(f"{roles_url('new_admin_a')}/{admin_role}", headers=hs).status_code == 200
+    last = client.delete(f"{roles_url('admin_a')}/{admin_role}", headers=hs)
+    assert last.status_code == 409 and "last admin" in last.json()["detail"]
 
 
 def test_custom_role_named_like_super_admin_grants_nothing():

@@ -19,13 +19,14 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
     Wallet,
-    Bus,
-    Utensils,
-    Stethoscope,
-    SwitchCamera,
+    ClipboardCheck,
+    BookOpen,
+    CalendarDays,
+    Megaphone,
     MessageSquare,
-    Users
+    Users,
 } from 'lucide-react';
+import { FEATURE_DEFAULTS } from '@/config/school-areas';
 
 interface TenantFeatureToggleProps {
     tenantId: string;
@@ -44,11 +45,7 @@ export default function TenantFeatureToggle({
     const updateSettings = useSuperAdminUpdateTenantSettings();
 
     const [features, setFeatures] = useState<Record<string, boolean>>({
-        enable_finance: false,
-        enable_transportation: false,
-        enable_cafeteria: false,
-        enable_health: false,
-        enable_parent_portal: false,
+        ...FEATURE_DEFAULTS,
         enable_sms_notifications: false,
     });
 
@@ -98,42 +95,50 @@ export default function TenantFeatureToggle({
         });
     };
 
+    // The school's ceiling: an area that is off is refused by the server for everyone in the
+    // school (admins included) and greyed out on the school's role screens
     const featureList = [
         {
             key: 'enable_finance',
-            label: 'Finance & Billing',
+            label: 'Fees',
             icon: Wallet,
-            description: 'Manage student fees, installments, school revenue and expenditure.'
+            description: "Fee setup, invoices, payments, receipts, expenses and the families' fee pages."
         },
         {
-            key: 'enable_transportation',
-            label: 'Transportation',
-            icon: Bus,
-            description: 'Manage school buses, routes, and vehicle tracking.'
+            key: 'enable_attendance',
+            label: 'Attendance',
+            icon: ClipboardCheck,
+            description: 'Daily attendance, scanning, excuses, attendance reports and ID cards.'
         },
         {
-            key: 'enable_cafeteria',
-            label: 'Cafeteria / Canteen',
-            icon: Utensils,
-            description: 'Manage meal plans, inventory, and canteen sales.'
+            key: 'enable_homework',
+            label: 'Homework',
+            icon: BookOpen,
+            description: 'Assignments teachers set and students hand in.'
         },
         {
-            key: 'enable_health',
-            label: 'Health & Clinic',
-            icon: Stethoscope,
-            description: 'Manage student health records and clinic visits.'
+            key: 'enable_timetable',
+            label: 'Timetable',
+            icon: CalendarDays,
+            description: 'Class timetables for staff, students and parents.'
         },
         {
             key: 'enable_parent_portal',
-            label: 'Parent Portal',
+            label: 'Parent portal',
             icon: Users,
-            description: 'Allow parents to access student grades and attendance.'
+            description: "Parents sign in to follow their children's attendance, results, fees and messages. Off: parents can't sign in."
+        },
+        {
+            key: 'enable_announcements',
+            label: 'Announcements',
+            icon: Megaphone,
+            description: 'Announcements to staff, students and families. The inbox and school alerts stay on.'
         },
         {
             key: 'enable_sms_notifications',
-            label: 'SMS Notifications',
+            label: 'SMS alerts',
             icon: MessageSquare,
-            description: 'Enable automated SMS alerts for attendance and fees.'
+            description: 'Text-message copies of alerts (needs an SMS provider; not connected yet).'
         },
     ];
 
@@ -141,10 +146,10 @@ export default function TenantFeatureToggle({
         <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent className="sm:max-w-[500px]">
                 <DialogHeader>
-                    <DialogTitle>Modules: {tenantName}</DialogTitle>
+                    <DialogTitle>Areas: {tenantName}</DialogTitle>
                     <DialogDescription>
-                        Turn modules on or off for this school.
-                        Changes take effect immediately on the school portal sidebar.
+                        Choose what this school can use. An area that is off is hidden from everyone at the
+                        school, admins included. Students, classes, the school year, grades and staff are always on.
                     </DialogDescription>
                 </DialogHeader>
 

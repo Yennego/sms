@@ -52,7 +52,9 @@ export function StudentProfile({ school, studentId, tab }: { school: string; stu
   const enrollmentsQ = useStudentEnrollments(studentId)
   const setStatus = useSetStudentStatus(studentId)
   const resetPassword = useResetPassword()
-  const financeOn = useTenantFeatures().isFeatureEnabled("enable_finance")
+  const features = useTenantFeatures()
+  const financeOn = features.isFeatureEnabled("enable_finance")
+  const attendanceOn = features.isFeatureEnabled("enable_attendance") // attendance and ID cards
 
   const [editing, setEditing] = React.useState(false)
   const [confirmStatus, setConfirmStatus] = React.useState(false)
@@ -182,7 +184,9 @@ export function StudentProfile({ school, studentId, tab }: { school: string; stu
           }
         />
       }
-      tabs={PROFILE_TABS.filter((t) => t.key !== "fees" || financeOn).map((t) => ({
+      tabs={PROFILE_TABS.filter(
+        (t) => (t.key !== "fees" || financeOn) && ((t.key !== "attendance" && t.key !== "id-card") || attendanceOn)
+      ).map((t) => ({
         label: t.label,
         href: `/${school}/students/${studentId}?tab=${t.key}`,
         active: t.key === tab,
@@ -191,7 +195,11 @@ export function StudentProfile({ school, studentId, tab }: { school: string; stu
     >
       {tab === "overview" ? <OverviewTab student={student} current={current} /> : null}
       {tab === "enrollment" ? <EnrollmentTab studentId={studentId} school={school} /> : null}
-      {tab === "attendance" ? <AttendanceTab studentId={studentId} school={school} /> : null}
+      {tab === "attendance" ? (
+        <FeatureGate feature="enable_attendance" label="Attendance" page={false}>
+          <AttendanceTab studentId={studentId} school={school} />
+        </FeatureGate>
+      ) : null}
       {tab === "results" ? <ResultsTab studentId={studentId} /> : null}
       {tab === "fees" ? (
         <FeatureGate feature="enable_finance" label="Fees" page={false}>
@@ -205,7 +213,11 @@ export function StudentProfile({ school, studentId, tab }: { school: string; stu
           onResetPassword={(user) => setResetTarget({ ...user, who: "guardian" })}
         />
       ) : null}
-      {tab === "id-card" ? <IdCardTab student={student} school={school} /> : null}
+      {tab === "id-card" ? (
+        <FeatureGate feature="enable_attendance" label="Attendance" page={false}>
+          <IdCardTab student={student} school={school} />
+        </FeatureGate>
+      ) : null}
 
       <EditStudentSheet student={student} open={editing} onOpenChange={setEditing} />
 

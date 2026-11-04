@@ -136,6 +136,7 @@ The app works in the web browser of any smartphone. You do not need to install a
 - **The pages of a menu item** appear as tabs across the top. Slide them sideways to see more.
 - **The bell** at the top right is your inbox. A red number shows how many messages you haven't read.
 - **Your name or initials** at the top right open the user menu. It has **Your profile**, **Change password**, **Notification settings** and **Sign out**. Staff who sign report cards also see **My signature**.
+- **Your profile** changes your picture and phone number. Staff can also change their name there. Students and parents can't: their name, gender, date of birth and class are kept by the school office (**Edit details** on the student's profile).
 - **Shared phone:** when you finish, open the user menu and tap **Sign out**. Then the next person can't see your child's details.
 - **Saving data:** on a slow connection, wait for each page to finish loading before you tap again.
 
@@ -168,17 +169,27 @@ Follow these steps in order. Each step says who does it, where to find it in the
 
 **Check:** the school is in the **Schools** list as **Active**. Open the **Login URL**: it should show the school's name.
 
-### Step 2. The operator turns features on
+### Step 2. The operator chooses the school's areas
 
 **Who:** the platform operator. **Where:** **Schools**.
 
-1. In the **Schools** list, find the school and tap **Modules**.
-2. Tick **Finance & Billing** if the school will use the app for school fees.
+The areas are what a school can use. Students, classes, the school year, grades and staff are always on. These can be switched off:
+
+| Area | What it covers | New schools |
+|---|---|---|
+| **Fees** | Fee setup, invoices, payments, receipts, expenses, the families' fee pages | Off |
+| **Attendance** | Daily attendance, scanning, excuses, attendance reports, ID cards | On |
+| **Homework** | Assignments teachers set and students hand in | On |
+| **Timetable** | Class timetables | On |
+| **Parent portal** | Parents sign in to follow their children's attendance, results, fees and messages. Off: parents can't sign in (a teacher who is also a parent keeps their staff access) | On |
+| **Announcements** | Announcements to staff, students and families (the inbox and school alerts stay on) | On |
+| **SMS alerts** | Text-message copies of alerts | Off (not connected yet) |
+
+1. In the **Schools** list, find the school and tap **Areas**.
+2. Tick the areas the school will use. Tick **Fees** if it will use the app for school fees.
 3. Tap **Save Changes**.
 
-**Check:** the school admin now sees **Fees** in the menu. If **Finance & Billing** is off, the Fees pages say "Fees is turned off".
-
-Only **Finance & Billing** changes the school's menu today. The other switches in **Modules** (**Transportation**, **Cafeteria / Canteen**, **Health & Clinic**, **Parent Portal**, **SMS Notifications**) do nothing yet. SMS is not available yet.
+**Check:** the school's menus show only the areas that are on. An area that is off is refused for everyone at the school, admins included: its pages say "(Area) is turned off", and on **Roles** and **Role assignment** its permissions and roles are greyed out with a lock.
 
 ### Step 3. The operator enters the price list and payment details
 
@@ -255,11 +266,18 @@ You can also manage these items one at a time under the other **Classes** tabs: 
 1. Open **Users** from the user menu and tap **Add staff member**.
 2. Fill in **First name** and **Last name**, and choose the **Role**.
    - **Email**, **Username** and **Phone number** are optional. Without a username, the app makes one from the name, like `ama.kollie`.
-   - Only a school admin can create another admin.
+   - A school can't create an admin. Another admin comes from the platform operator.
 3. Tap **Create account**.
 4. The app shows the username and password once. Copy them, or tap **Print sign-in slips**, and hand them over. The person chooses a new password at their first sign-in.
 
-To change a person's roles later, use **Role assignment** in the user menu.
+To change a person's roles later, use **Role assignment** in the user menu: tick or untick the roles and tap **Save roles**. The rules:
+
+- You can't change your own roles.
+- Only the platform operator gives or removes the **admin** role.
+- You can only give roles that allow nothing more than your own roles do.
+- A role whose area is turned off for the school is greyed out with a lock.
+
+**Roles** in the user menu shows what each role allows, read only, grouped by area (Students, Fees, Attendance and so on) in plain words. The technical name is in small print underneath. Roles show their everyday names too: **Principal** for `academic-admin`, **Gate scanner** for `attendance-scanner`, **Accountant (bursar)** for `accountant`. Roles and what they allow are set by the platform operator. If someone needs access that no role gives, ask the operator.
 
 **Check:** under **Staff → Directory**, the **Sponsor of** column shows each sponsor's class.
 
@@ -290,13 +308,15 @@ Guardians sign in with their username or email. The phone number is for school m
 5. When it says **All rows are ready**, tap **Import N students**.
 6. Tap **Print sign-in slips** or **Download as CSV**. The passwords are shown only once.
 
-**Check:** **Students → Directory** lists the students with their class.
+Admitting or importing a student also enrolls them in the class you chose. There is nothing more to do for them in **Class placement**.
+
+**Check:** **Students → Directory** lists the students with their class, and **Students → Enrollments** lists them under that year, grade and section.
 
 ### Step 8. Place students in classes
 
 **Who:** the school admin, the principal or the registrar. **Where:** **Students → Class placement**.
 
-Students admitted with a class are already placed. Use this page for anyone who is not placed yet, or to move a student.
+Students admitted or imported with a class are already placed (and enrolled). Use this page only for anyone who is not placed yet, or to move a student to another class.
 
 1. Open the **Not placed** tab.
 2. Tick the students. A bar appears at the bottom.
@@ -397,11 +417,11 @@ Everyone also has:
 
 See Steps 1 to 3 in section 3.
 
-#### Turn a feature on or off for a school
+#### Turn an area on or off for a school
 
 1. Open **Schools**.
-2. Find the school and tap **Modules**.
-3. Tick or untick **Finance & Billing**.
+2. Find the school and tap **Areas**.
+3. Tick or untick the areas (see Step 2 in section 3).
 4. Tap **Save Changes**.
 
 #### Switch a school off or on
@@ -410,13 +430,29 @@ In **Schools**, tap **Deactivate** or **Activate** on the school's row, then con
 
 #### Create a staff account for a school
 
-Schools add their own staff under **Users → Add staff member** (section 3, Step 6). Use this only when a school asks for your help, for example when it has no admin who can sign in.
+Schools add their own staff under **Users → Add staff member** (section 3, Step 6). Use this when a school needs another **admin** (schools can't create admins), or when it has no admin who can sign in.
 
 1. Open **Users** and tap **Create User**.
 2. Fill in **First Name**, **Last Name** and **Email Address**.
 3. Choose the school under **School**, and the role under **Assigned Role**.
 4. Choose **Auto-generate secure password**.
 5. Tap **Create Account**. The password appears once, in the message at the corner of the screen. Copy it straight away.
+
+#### Change what a role allows
+
+Only you create roles and change what they allow. Schools see their roles read only, and ask you when someone needs more.
+
+**For one school only** (for example, School A's accountant should also see student records):
+
+1. Open **Users → Roles and permissions**.
+2. Under **School**, choose the school.
+3. Choose the role and tick or untick its permissions. They are grouped by area, with plain names.
+4. Tap **Save for** (school). Every other school keeps the role as it is. The role shows **Adjusted for** (school), and on the school's **Roles** page it says "Set up for your school by the platform operator".
+5. To undo, tap **Reset to built-in**.
+
+**For every school:** leave **School** on **Every school (built-in roles)**, change the role, and tap **Save for every school**. A school that has its own version keeps the permissions you adjusted for it; the rest follow the change.
+
+Whatever a role allows, a school never gets an area you turned off for it (section 3, Step 2).
 
 #### Reset a school user's password
 

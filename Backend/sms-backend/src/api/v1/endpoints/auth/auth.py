@@ -19,6 +19,8 @@ from src.schemas.auth.token import Token
 from src.core.config import settings
 from src.core.security.jwt import create_access_token, create_refresh_token, verify_token
 from src.core.security.permissions import has_role, has_any_role, has_permission, require_super_admin
+from src.services.tenant.features import check_parent_portal_sign_in
+from src.core.security.effective import effective_permission_names, role_permission_names, school_adjustments
 from src.core.middleware.tenant import get_tenant_id_from_request, get_optional_tenant_id_from_request
 from src.core.security.auth import get_current_active_user, get_current_user, is_super_admin
 from src.core.security.password import verify_password, get_password_hash
@@ -179,12 +181,12 @@ def get_user(
 
 # Fields a user may change on their own account; everything else is admin-managed
 SELF_EDITABLE_FIELDS = {"first_name", "last_name", "phone_number", "profile_picture", "preferences", "address"}
+# Students and parents keep the name the school recorded (report cards, receipts, ID cards)
+SCHOOL_KEPT_NAME_TYPES = {"student", "parent"}
 
 
 def _has_perm(user: User, permission: str) -> bool:
-    return is_super_admin(user) or any(
-        p.name == permission for role in user.roles for p in role.permissions
-    )
+    return is_super_admin(user) or permission in effective_permission_names(user)
 
 
 def _require_permission(user: User, permission: str) -> None:
@@ -196,7 +198,8 @@ def _require_permission(user: User, permission: str) -> None:
 def update_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), user_id: UUID, user_in: UserUpdate, current_user: User = Depends(get_current_active_user)) -> Any:
     """Update a user.
 
-    - Your own account: profile fields only (name, phone, picture, preferences, address).
+    - Your own account: profile fields only (name, phone, picture, preferences, address);
+      students and parents can't change their name: the school office does.
     - Someone else: needs manage_users, same school, and never a super-admin unless you are one.
     - Passwords never change here: use /change-password or /admin/reset-password.
     """
@@ -211,6 +214,8 @@ def update_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_
     actor_is_super_admin = is_super_admin(current_user)
     if is_self_update:
         forbidden = set(changes) - SELF_EDITABLE_FIELDS
+        if current_user.type in SCHOOL_KEPT_NAME_TYPES:
+            forbidden |= set(changes) & {"first_name", "last_name"}
         if forbidden and not actor_is_super_admin:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -348,6 +353,15 @@ def _visible_role(db: Session, request: Request, role_id: UUID, current_user: Us
     return role
 
 
+def _require_operator(current_user: User) -> None:
+    """Roles and what they allow are set by the platform operator; schools ask for what they need."""
+    if not is_super_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Roles are set by the platform operator. Ask them for the access your school needs.",
+        )
+
+
 def _editable_role(db: Session, request: Request, role_id: UUID, current_user: User):
     """System roles change only on the platform; a school edits its own custom roles."""
     role = _visible_role(db, request, role_id, current_user)
@@ -373,9 +387,10 @@ def create_role(
 ) -> Any:
     """Create a role.
 
-    A school admin creates a custom role for their own school; a super-admin with no school
-    chosen creates a system role shared by every school.
+    Only the platform operator creates roles: a system role shared by every school (no school
+    chosen) or a role for the school they have chosen.
     """
+    _require_operator(current_user)
     tenant_id = _role_tenant(request)
     name = " ".join(role_in.name.split())
     if not name:
@@ -403,6 +418,24 @@ def create_role(
     return role
 
 
+def _roles_for_school(db: Session, roles, tenant_id) -> List[dict]:
+    """Roles as one school sees them: the platform operator's adjustments for that school applied."""
+    adjustments = school_adjustments(db, tenant_id, [r.id for r in roles])
+    extra = {name for added, _ in adjustments.values() for name in added}
+    by_name = {p.name: p for p in permission_crud.get_multi_by_names(db, names=sorted(extra))} if extra else {}
+    out = []
+    for role in roles:
+        added, removed = adjustments.get(role.id, (set(), set()))
+        perms = [p for p in role.permissions if p.name not in removed]
+        perms += [by_name[n] for n in sorted(added) if n in by_name and n not in {p.name for p in perms}]
+        out.append({
+            "id": role.id, "name": role.name, "description": role.description, "tenant_id": role.tenant_id,
+            "is_system": role.is_system, "created_at": role.created_at, "updated_at": role.updated_at,
+            "permissions": perms, "adjusted_for_school": bool(added or removed),
+        })
+    return out
+
+
 @router.get("/roles", response_model=List[UserRole])
 def get_roles(
     *,
@@ -412,11 +445,13 @@ def get_roles(
     limit: int = 100,
     current_user: User = Depends(get_current_user)
 ) -> Any:
-    """Built-in roles plus the caller's school's custom roles."""
-    roles = user_role_crud.list_visible(db, tenant_id=_role_tenant(request))
+    """Built-in roles plus the caller's school's own roles, as that school sees them (with the
+    platform operator's adjustments for it)."""
+    tenant_id = _role_tenant(request)
+    roles = user_role_crud.list_visible(db, tenant_id=tenant_id)
     if not is_super_admin(current_user):
         roles = [r for r in roles if r.name not in ("super-admin", "superadmin")]
-    return roles[skip:skip + limit]
+    return _roles_for_school(db, roles[skip:skip + limit], tenant_id)
 
 
 @router.delete("/roles/{role_id}", response_model=UserRole)
@@ -424,7 +459,8 @@ def delete_role(
     *, request: Request, db: Session = Depends(get_db), role_id: UUID,
     current_user: User = Depends(has_permission("manage_roles"))
 ) -> Any:
-    """Delete a role nobody holds (a school deletes its custom roles; built-in: super-admin only)."""
+    """Delete a role nobody holds (the platform operator only)."""
+    _require_operator(current_user)
     role = _editable_role(db, request, role_id, current_user)
     if role.users:
         raise HTTPException(
@@ -539,6 +575,7 @@ async def login_for_access_token(
     await _clear_login_failures(form_data.username)
     # A suspended school (platform billing) lets only its admins in
     billing_access.check_sign_in(db, user)
+    check_parent_portal_sign_in(db, user)
 
     # Cache super-admin status before commit (which expires the object)
     super_admin = is_super_admin(user)
@@ -617,6 +654,7 @@ async def refresh_access_token(
         super_admin = is_super_admin(user)
         final_tenant_id = user.tenant_id
         billing_access.check_sign_in(db, user)
+        check_parent_portal_sign_in(db, user)
         billing_access.record_activity(db, user)
 
         # Rotate: the presented refresh token can't be used again
@@ -663,6 +701,7 @@ async def read_users_me(current_user: User = Depends(get_current_active_user)):
         user_dict["role"] = current_user.roles[0].name
     else:
         user_dict["role"] = None
+    user_dict["permissions"] = sorted(effective_permission_names(current_user))
     
     # The tenant_id comes directly from the database user record
     # No hardcoding needed - it's already in current_user.tenant_id
@@ -813,7 +852,8 @@ class StaffAccountIn(BaseModel):
 
 def _staff_accounts(db: Session, tenant_id: UUID, current_user: User):
     from src.services.auth.staff_accounts import StaffAccountService
-    return StaffAccountService(db, tenant_id, _is_school_admin(current_user) or is_super_admin(current_user))
+    # Admin accounts come from the platform operator: a school admin can't make another admin
+    return StaffAccountService(db, tenant_id, is_super_admin(current_user))
 
 
 @router.get("/staff-roles")
@@ -822,7 +862,7 @@ def staff_roles(
     tenant_id: UUID = Depends(get_tenant_id_from_request),
     current_user: User = Depends(has_permission("manage_users"))
 ) -> Any:
-    """The roles you may give a new staff account (admin only if you are a school admin)."""
+    """The roles you may give a new staff account (admin only for the platform operator)."""
     return [{"id": r.id, "name": r.name, "description": r.description, "is_system": r.tenant_id is None}
             for r in _staff_accounts(db, tenant_id, current_user).roles()]
 
@@ -837,7 +877,7 @@ def create_staff_account(
     """Create a staff account in your own school with one staff role.
 
     The password is returned once to hand over in person (never emailed); they choose their own at
-    first sign-in. Only a school admin may create an admin account.
+    first sign-in. Only the platform operator creates an admin account.
     """
     return _staff_accounts(db, tenant_id, current_user).create(body.model_dump())
 
@@ -851,11 +891,9 @@ def set_role_permissions(
     permission_names: List[str] = Body(..., description="List of permission names to set for the role"),
     current_user: User = Depends(has_permission("manage_roles"))
 ) -> Any:
-    """Replace a role's permissions.
-
-    Schools edit their own custom roles, without platform permissions; built-in roles apply
-    in every school, so only a super-admin changes them.
-    """
+    """Replace a role's permissions (the platform operator only; a school's own role never gets
+    platform permissions)."""
+    _require_operator(current_user)
     role = _editable_role(db, request, role_id, current_user)
     names = sorted(set(permission_names))
     if role.tenant_id is not None:
@@ -885,8 +923,9 @@ def get_role_permissions(
     role_id: UUID,
     current_user: User = Depends(has_permission("manage_roles"))
 ) -> Any:
-    """Get permissions assigned to a role."""
-    return _visible_role(db, request, role_id, current_user).permissions
+    """What a role allows in the caller's school (with that school's adjustments)."""
+    role = _visible_role(db, request, role_id, current_user)
+    return _roles_for_school(db, [role], _role_tenant(request))[0]["permissions"]
 
 
 # Add these endpoints to your existing auth.py
@@ -903,6 +942,31 @@ def get_user_roles(
     return _school_user_for_roles(db, tenant_id, user_id, current_user).roles
 
 
+def _check_role_change(db: Session, user: User, role, current_user: User, adding: bool) -> None:
+    """The rules for giving and taking roles in a school (the platform operator is exempt):
+    never your own roles, never the admin role, only roles whose permissions you hold yourself,
+    and a school always keeps one active admin."""
+    if not is_super_admin(current_user):
+        if user.id == current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                detail="You can't change your own roles. Ask another admin or the platform operator.")
+        if role.name in SCHOOL_ADMIN_ROLE_NAMES:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                detail="Only the platform operator gives or removes the admin role.")
+        if adding:
+            held = effective_permission_names(current_user)
+            missing = sorted(role_permission_names(role, user.tenant_id, db) - held)
+            if missing:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                    detail=f"You can only give roles whose permissions you hold yourself ({role.name}).")
+    if not adding and role.name in SCHOOL_ADMIN_ROLE_NAMES:
+        admins = [u for u in user_crud.list_with_filters(db, tenant_id=user.tenant_id, role_id=role.id, skip=0, limit=1000)
+                  if u.is_active and u.id != user.id]
+        if not admins:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                detail="This is the school's last admin. Give the admin role to someone else first.")
+
+
 @router.post("/users/{user_id}/roles")
 def assign_roles_to_user(
     request: Request,
@@ -912,7 +976,8 @@ def assign_roles_to_user(
     tenant_id: UUID = Depends(get_tenant_id_from_request),
     current_user: User = Depends(has_permission("manage_users"))
 ):
-    """Assign built-in roles or this school's custom roles to a user of this school."""
+    """Add built-in roles or this school's own roles to a user of this school (roles they already
+    hold are left as they are). See _check_role_change for who may give what."""
     user = _school_user_for_roles(db, tenant_id, user_id, current_user)
     roles = [_visible_role(db, request, role_id, current_user) for role_id in set(role_ids)]
     if not roles:
@@ -922,6 +987,7 @@ def assign_roles_to_user(
 
     for role in roles:
         if role not in user.roles:
+            _check_role_change(db, user, role, current_user, adding=True)
             user.roles.append(role)
 
     db.add(user)
@@ -939,11 +1005,12 @@ def remove_role_from_user(
     tenant_id: UUID = Depends(get_tenant_id_from_request),
     current_user: User = Depends(has_permission("manage_users"))
 ):
-    """Remove a role from a user."""
+    """Remove a role from a user (see _check_role_change)."""
     user = _school_user_for_roles(db, tenant_id, user_id, current_user)
     role = _visible_role(db, request, role_id, current_user)
 
     if role in user.roles:
+        _check_role_change(db, user, role, current_user, adding=False)
         user.roles.remove(role)
 
     db.add(user)

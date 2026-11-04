@@ -36,6 +36,7 @@ from src.services.academics import report_identity_service as ri
 from src.services.academics import results_service as rs
 from src.services.academics.attendance_access import class_sponsor_id
 from src.services.notification import alerts
+from src.core.security.effective import effective_permission_names
 
 PUBLISHED_MESSAGE = "Results for this period are published. Ask the principal to unpublish them first."
 STAFF_READ = ("view_academic_data", "manage_academic_data", "publish_results")
@@ -58,7 +59,7 @@ def _403(detail: str = "You don't have access to these results"):
 
 
 def user_permissions(user: Any) -> Set[str]:
-    return {p.name for role in getattr(user, "roles", []) for p in role.permissions}
+    return set(effective_permission_names(user))
 
 
 class GradebookService:

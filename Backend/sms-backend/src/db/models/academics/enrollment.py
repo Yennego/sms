@@ -161,7 +161,9 @@ def _copy_class(enrollment, cls) -> None:
         enrollment.class_id = cls.id
     for name in IDENTITY:
         setattr(enrollment, name, getattr(cls, name))
-    # Legacy display mirrors (still read by older screens)
+    # Legacy display mirrors (still read by older screens; the enrollments list requires the year)
+    if cls.academic_year is not None:
+        enrollment.academic_year = cls.academic_year.name
     if cls.grade is not None:
         enrollment.grade = cls.grade.name
     if cls.section is not None:

@@ -6,9 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field
 class EnrollmentBase(BaseModel):
     """Base schema for Enrollment model."""
     student_id: UUID
-    academic_year: str
-    grade: str
-    section: str
+    academic_year: Optional[str] = None
+    grade: Optional[str] = None
+    section: Optional[str] = None
     enrollment_date: Optional[date] = None
     roll_number: Optional[int] = None
     status: str = "active"
