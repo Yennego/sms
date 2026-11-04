@@ -181,6 +181,7 @@ The areas are what a school can use. Students, classes, the school year, grades 
 | **Attendance** | Daily attendance, scanning, excuses, attendance reports, ID cards | On |
 | **Homework** | Assignments teachers set and students hand in | On |
 | **Timetable** | Class timetables | On |
+| **Parent portal** | Parents sign in to follow their children's attendance, results, fees and messages. Off: parents can't sign in (a teacher who is also a parent keeps their staff access) | On |
 | **Announcements** | Announcements to staff, students and families (the inbox and school alerts stay on) | On |
 | **SMS alerts** | Text-message copies of alerts | Off (not connected yet) |
 

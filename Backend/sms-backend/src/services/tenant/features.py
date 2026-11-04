@@ -34,6 +34,9 @@ SCHOOL_AREAS = [
     {"key": "timetable", "feature": "enable_timetable", "label": "Timetable",
      "description": "Class timetables for staff, students and parents.",
      "permissions": []},
+    {"key": "parent_portal", "feature": "enable_parent_portal", "label": "Parent portal",
+     "description": "Parents sign in to follow their children's attendance, results, fees and messages.",
+     "permissions": ["view_child_records"]},
     {"key": "announcements", "feature": "enable_announcements", "label": "Announcements",
      "description": "Announcements from the school to staff, students and families. The inbox and school alerts stay on.",
      "permissions": ["send_announcements"]},
@@ -53,6 +56,36 @@ def feature_enabled(db: Session, tenant_id, key: str) -> bool:
 def school_areas(db: Session, tenant_id) -> list:
     """The switchable areas with whether this school has each one."""
     return [{**area, "enabled": feature_enabled(db, tenant_id, area["feature"])} for area in SCHOOL_AREAS]
+
+
+PARENT_PORTAL_OFF = "The parent portal is turned off for this school. Contact the school for your child's information."
+
+
+def _parent_only(user) -> bool:
+    """Signs in only as a parent (a teacher who is also a parent keeps their staff access)."""
+    names = {r.name for r in getattr(user, "roles", None) or [] if getattr(r, "tenant_id", None) is None}
+    return bool(names) and names <= {"parent"}
+
+
+def check_parent_portal_sign_in(db: Session, user) -> None:
+    """Sign-in and session refresh: parents are refused while their school's portal is off."""
+    if is_super_admin(user) or user.tenant_id is None or not _parent_only(user):
+        return
+    if not feature_enabled(db, user.tenant_id, "enable_parent_portal"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=PARENT_PORTAL_OFF)
+
+
+async def enforce_parent_portal(request: Request, db: Session = Depends(get_db)) -> None:
+    """Router-level guard (after authenticate_request): a parent already signed in is refused
+    everything but signing out once the school turns the portal off."""
+    user = getattr(request.state, "current_user", None)
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if user is None or tenant_id is None or is_super_admin(user) or not _parent_only(user):
+        return
+    if request.method == "POST" and request.url.path.endswith("/auth/logout"):
+        return
+    if not feature_enabled(db, tenant_id, "enable_parent_portal"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=PARENT_PORTAL_OFF)
 
 
 def require_feature(key: str):

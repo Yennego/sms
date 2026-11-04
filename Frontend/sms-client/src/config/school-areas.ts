@@ -18,4 +18,5 @@ export const FEATURE_DEFAULTS: Record<string, boolean> = {
   enable_homework: true,
   enable_timetable: true,
   enable_announcements: true,
+  enable_parent_portal: true,
 };
