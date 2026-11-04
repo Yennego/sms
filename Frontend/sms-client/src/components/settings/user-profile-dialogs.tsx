@@ -120,6 +120,9 @@ export function UpdateProfileDialog({ isOpen, onClose }: DialogProps) {
     const [phoneNumber, setPhoneNumber] = useState('');
     const [profilePicture, setProfilePicture] = useState('');
     const [loading, setLoading] = useState(false);
+    // Students and parents keep the name the school recorded; the school office changes it
+    const roleNames = [user?.role, user?.type, ...(user?.roles ?? []).map((r) => r?.name)];
+    const nameLocked = roleNames.some((r) => r === 'student' || r === 'parent');
 
     useEffect(() => {
         if (user && isOpen) {
@@ -136,8 +139,7 @@ export function UpdateProfileDialog({ isOpen, onClose }: DialogProps) {
         try {
             setLoading(true);
             await updateUser(user.id, {
-                first_name: firstName,
-                last_name: lastName,
+                ...(nameLocked ? {} : { first_name: firstName, last_name: lastName }),
                 phone_number: phoneNumber,
                 profile_picture: profilePicture,
             });
@@ -177,6 +179,7 @@ export function UpdateProfileDialog({ isOpen, onClose }: DialogProps) {
                             id="first-name"
                             value={firstName}
                             onChange={(e) => setFirstName(e.target.value)}
+                            disabled={nameLocked}
                         />
                     </div>
                     <div className="grid gap-2">
@@ -185,7 +188,13 @@ export function UpdateProfileDialog({ isOpen, onClose }: DialogProps) {
                             id="last-name"
                             value={lastName}
                             onChange={(e) => setLastName(e.target.value)}
+                            disabled={nameLocked}
                         />
+                        {nameLocked ? (
+                            <p className="text-sm text-muted-foreground">
+                                To correct your name, ask the school office.
+                            </p>
+                        ) : null}
                     </div>
                     <div className="grid gap-2">
                         <Label htmlFor="phone">Phone Number</Label>

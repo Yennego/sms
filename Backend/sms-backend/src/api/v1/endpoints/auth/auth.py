@@ -179,6 +179,8 @@ def get_user(
 
 # Fields a user may change on their own account; everything else is admin-managed
 SELF_EDITABLE_FIELDS = {"first_name", "last_name", "phone_number", "profile_picture", "preferences", "address"}
+# Students and parents keep the name the school recorded (report cards, receipts, ID cards)
+SCHOOL_KEPT_NAME_TYPES = {"student", "parent"}
 
 
 def _has_perm(user: User, permission: str) -> bool:
@@ -196,7 +198,8 @@ def _require_permission(user: User, permission: str) -> None:
 def update_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_tenant_id_from_request), user_id: UUID, user_in: UserUpdate, current_user: User = Depends(get_current_active_user)) -> Any:
     """Update a user.
 
-    - Your own account: profile fields only (name, phone, picture, preferences, address).
+    - Your own account: profile fields only (name, phone, picture, preferences, address);
+      students and parents can't change their name: the school office does.
     - Someone else: needs manage_users, same school, and never a super-admin unless you are one.
     - Passwords never change here: use /change-password or /admin/reset-password.
     """
@@ -211,6 +214,8 @@ def update_user(*, db: Session = Depends(get_db), tenant_id: UUID = Depends(get_
     actor_is_super_admin = is_super_admin(current_user)
     if is_self_update:
         forbidden = set(changes) - SELF_EDITABLE_FIELDS
+        if current_user.type in SCHOOL_KEPT_NAME_TYPES:
+            forbidden |= set(changes) & {"first_name", "last_name"}
         if forbidden and not actor_is_super_admin:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

@@ -204,8 +204,13 @@ def test_student_cannot_edit_others_or_escalate_self(env):
     h = headers(ids, "student_a")
     assert client.put(f"/api/v1/auth/users/{ids['admin_a']}", json={"first_name": "X"}, headers=h).status_code == 403
     assert client.put(f"/api/v1/auth/users/{ids['student_a']}", json={"is_active": True}, headers=h).status_code == 403
-    ok = client.put(f"/api/v1/auth/users/{ids['student_a']}", json={"first_name": "Ama"}, headers=h)
-    assert ok.status_code == 200 and ok.json()["first_name"] == "Ama"
+    # the school keeps a student's name (report cards, receipts); the phone is theirs to change
+    assert client.put(f"/api/v1/auth/users/{ids['student_a']}", json={"first_name": "Ama"}, headers=h).status_code == 403
+    ok = client.put(f"/api/v1/auth/users/{ids['student_a']}", json={"phone_number": "0770000009"}, headers=h)
+    assert ok.status_code == 200 and ok.json()["phone_number"] == "0770000009"
+    staff = client.put(f"/api/v1/auth/users/{ids['admin_a']}", json={"first_name": "Ama"},
+                       headers=headers(ids, "admin_a"))
+    assert staff.status_code == 200 and staff.json()["first_name"] == "Ama"
 
 
 def test_school_admin_cannot_reach_super_admin(env):
