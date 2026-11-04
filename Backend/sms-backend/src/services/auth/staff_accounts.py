@@ -3,8 +3,8 @@
 An admin with manage_users gives a person a sign-in with one staff role: a built-in role or one of
 the school's custom roles, never a platform, student or parent role. Teachers are added under
 Staff, which also keeps their teacher record. The password is generated like an admission's,
-returned once to hand over, and must be changed at first sign-in. Only a school admin may create
-another admin. Staged in the request's unit of work (flush, no commit).
+returned once to hand over, and must be changed at first sign-in. Only the platform operator creates
+an admin account. Staged in the request's unit of work (flush, no commit).
 """
 import re
 from typing import Any, Dict, List, Optional
@@ -22,7 +22,7 @@ from src.db.models.auth.username import username_problem
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # Roles a school can't hand out here: the platform's, families', and teachers (added under Staff)
 NOT_STAFF_ROLES = {"super-admin", "superadmin", "super_admin", "student", "parent", "teacher"}
-# Accounts with one of these roles are created (and reset) only by a school admin
+# Accounts with one of these roles are created only by the platform operator
 SCHOOL_ADMIN_ROLES = {"admin", "tenant-admin"}
 
 
@@ -34,18 +34,18 @@ def _blank(value: Any) -> Optional[str]:
 
 
 class StaffAccountService:
-    def __init__(self, db: Session, tenant_id: UUID, actor_is_school_admin: bool):
+    def __init__(self, db: Session, tenant_id: UUID, actor_may_create_admin: bool):
         self.db = db
         self.tenant_id = tenant_id
-        self.actor_is_school_admin = actor_is_school_admin
+        self.actor_may_create_admin = actor_may_create_admin
 
     def roles(self) -> List[UserRole]:
-        """Staff roles this person may give: built-in ones plus the school's own, admin only for admins."""
+        """Staff roles this person may give: built-in ones plus the school's own, admin only for the operator."""
         rows = self.db.query(UserRole).filter(
             or_(UserRole.tenant_id.is_(None), UserRole.tenant_id == self.tenant_id)
         ).order_by(UserRole.tenant_id.isnot(None), UserRole.name).all()
         return [r for r in rows if r.name not in NOT_STAFF_ROLES
-                and (self.actor_is_school_admin or r.name not in SCHOOL_ADMIN_ROLES)]
+                and (self.actor_may_create_admin or r.name not in SCHOOL_ADMIN_ROLES)]
 
     def _role(self, role_id: UUID) -> UserRole:
         role = self.db.query(UserRole).filter(
@@ -59,9 +59,9 @@ class StaffAccountService:
         if role.name in NOT_STAFF_ROLES:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                                 detail="Students and parents get their accounts through admission. Choose a staff role.")
-        if role.name in SCHOOL_ADMIN_ROLES and not self.actor_is_school_admin:
+        if role.name in SCHOOL_ADMIN_ROLES and not self.actor_may_create_admin:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                                detail="Only a school admin can create an admin account. Choose another role.")
+                                detail="Only the platform operator creates admin accounts. Choose another role, or ask them.")
         return role
 
     def _taken(self, column, value: Optional[str]) -> bool:

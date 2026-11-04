@@ -265,11 +265,18 @@ You can also manage these items one at a time under the other **Classes** tabs: 
 1. Open **Users** from the user menu and tap **Add staff member**.
 2. Fill in **First name** and **Last name**, and choose the **Role**.
    - **Email**, **Username** and **Phone number** are optional. Without a username, the app makes one from the name, like `ama.kollie`.
-   - Only a school admin can create another admin.
+   - A school can't create an admin. Another admin comes from the platform operator.
 3. Tap **Create account**.
 4. The app shows the username and password once. Copy them, or tap **Print sign-in slips**, and hand them over. The person chooses a new password at their first sign-in.
 
-To change a person's roles later, use **Role assignment** in the user menu.
+To change a person's roles later, use **Role assignment** in the user menu: tick or untick the roles and tap **Save roles**. The rules:
+
+- You can't change your own roles.
+- Only the platform operator gives or removes the **admin** role.
+- You can only give roles that allow nothing more than your own roles do.
+- A role whose area is turned off for the school is greyed out with a lock.
+
+**Roles** in the user menu shows what each role allows, read only, grouped by area (Students, Fees, Attendance and so on) in plain words. The technical name is in small print underneath. Roles show their everyday names too: **Principal** for `academic-admin`, **Gate scanner** for `attendance-scanner`, **Accountant (bursar)** for `accountant`. Roles and what they allow are set by the platform operator. If someone needs access that no role gives, ask the operator.
 
 **Check:** under **Staff → Directory**, the **Sponsor of** column shows each sponsor's class.
 
@@ -422,13 +429,23 @@ In **Schools**, tap **Deactivate** or **Activate** on the school's row, then con
 
 #### Create a staff account for a school
 
-Schools add their own staff under **Users → Add staff member** (section 3, Step 6). Use this only when a school asks for your help, for example when it has no admin who can sign in.
+Schools add their own staff under **Users → Add staff member** (section 3, Step 6). Use this when a school needs another **admin** (schools can't create admins), or when it has no admin who can sign in.
 
 1. Open **Users** and tap **Create User**.
 2. Fill in **First Name**, **Last Name** and **Email Address**.
 3. Choose the school under **School**, and the role under **Assigned Role**.
 4. Choose **Auto-generate secure password**.
 5. Tap **Create Account**. The password appears once, in the message at the corner of the screen. Copy it straight away.
+
+#### Change what a role allows
+
+Only you create roles and change what they allow. Schools see their roles read only, and ask you when someone needs more.
+
+1. Open **Users → Roles and permissions**.
+2. Choose the role and tick or untick its permissions. They are grouped by area, with plain names.
+3. Save. A built-in role (such as **accountant**) changes for **every** school.
+
+Whatever a role allows, a school never gets an area you turned off for it (section 3, Step 2).
 
 #### Reset a school user's password
 

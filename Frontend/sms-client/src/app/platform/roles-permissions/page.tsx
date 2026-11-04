@@ -14,6 +14,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Edit, Users, Shield, Save } from 'lucide-react';
 import { useSuperAdminApiClient } from '@/services/api/super-admin-api-client';
 import { useToast } from '@/hooks/use-toast';
+import { GroupedPermissions } from '@/components/roles/grouped-permissions';
+import { PERMISSIONS, PERMISSION_GROUPS, permissionLabel, roleLabel } from '@/config/permission-catalogue';
 
 interface Role {
   id: string;
@@ -330,7 +332,8 @@ export default function RolePermissionManagementPage() {
                         }`}
                       onClick={() => handleRoleSelect(role)}
                     >
-                      <div className="font-medium">{role.name}</div>
+                      <div className="font-medium">{roleLabel(role.name)}</div>
+                      <div className="font-mono text-xs text-gray-500">{role.name}</div>
                       {role.description && (
                         <div className="text-sm text-gray-500 mt-1">{role.description}</div>
                       )}
@@ -349,7 +352,7 @@ export default function RolePermissionManagementPage() {
             <Card className="lg:col-span-2">
               <CardHeader>
                 <CardTitle>
-                  {selectedRole ? `${selectedRole.name} Permissions` : 'Select a Role'}
+                  {selectedRole ? `What ${roleLabel(selectedRole.name)} allows` : 'Select a Role'}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -361,26 +364,22 @@ export default function RolePermissionManagementPage() {
                     </div>
 
                     <div>
-                      <h4 className="font-medium mb-2">Assign Permissions</h4>
-                      <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
-                        {permissions.map((permission) => (
-                          <div key={permission.id} className="flex items-center space-x-2">
-                            <Checkbox
-                              id={permission.id}
-                              checked={selectedPermissions.includes(permission.name)}
-                              onCheckedChange={(checked) => {
-                                if (checked) {
-                                  setSelectedPermissions([...selectedPermissions, permission.name]);
-                                } else {
-                                  setSelectedPermissions(selectedPermissions.filter(p => p !== permission.name));
-                                }
-                              }}
-                            />
-                            <Label htmlFor={permission.id} className="text-sm">
-                              {permission.name}
-                            </Label>
-                          </div>
-                        ))}
+                      <h4 className="font-medium mb-1">Permissions</h4>
+                      <p className="mb-2 text-sm text-gray-600">
+                        A built-in role changes for every school. A school never gets an area you turned off for it.
+                      </p>
+                      <div className="max-h-[28rem] overflow-y-auto rounded-md border p-2">
+                        <GroupedPermissions
+                          permissions={permissions}
+                          selected={selectedPermissions}
+                          onToggle={(name) =>
+                            setSelectedPermissions(
+                              selectedPermissions.includes(name)
+                                ? selectedPermissions.filter((p) => p !== name)
+                                : [...selectedPermissions, name]
+                            )
+                          }
+                        />
                       </div>
                       <Button
                         className="mt-4"
@@ -410,7 +409,8 @@ export default function RolePermissionManagementPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
+                    <TableHead>Permission</TableHead>
+                    <TableHead>Area</TableHead>
                     <TableHead>Description</TableHead>
                     <TableHead>Created</TableHead>
                     <TableHead>Actions</TableHead>
@@ -419,7 +419,13 @@ export default function RolePermissionManagementPage() {
                 <TableBody>
                   {permissions.map((permission) => (
                     <TableRow key={permission.id}>
-                      <TableCell className="font-medium">{permission.name}</TableCell>
+                      <TableCell>
+                        <div className="font-medium">{permissionLabel(permission.name)}</div>
+                        <div className="font-mono text-xs text-gray-500">{permission.name}</div>
+                      </TableCell>
+                      <TableCell>
+                        {PERMISSION_GROUPS.find((g) => g.key === (PERMISSIONS[permission.name]?.group ?? 'other'))?.label}
+                      </TableCell>
                       <TableCell>{permission.description || 'No description'}</TableCell>
                       <TableCell>{new Date(permission.created_at).toLocaleDateString()}</TableCell>
                       <TableCell>

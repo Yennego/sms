@@ -9,13 +9,19 @@ import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
 import { Loader2, Lock } from 'lucide-react';
 import { useSchoolAreas } from '@/hooks/use-tenant-features';
+import { roleLabel } from '@/config/permission-catalogue';
 import { useQuery } from '@tanstack/react-query';
 import { useUserService } from '@/services/api/user-service';
 import {
   useRoles,
   useUserRoles,
   useAssignRolesToUser,
+  useRemoveRoleFromUser,
 } from '@/hooks/queries/roles-permissions';
+
+// The rules the server enforces (only the platform operator is exempt): never your own roles,
+// never the admin role, only roles whose permissions you hold yourself
+const ADMIN_ROLE_NAMES = ['admin', 'tenant-admin'];
 import type { User as AuthUser } from '@/types/auth';
 
 export default function AdminRoleAssignmentPage() {
@@ -40,6 +46,21 @@ export default function AdminRoleAssignmentPage() {
 
   // Assign roles mutation
   const assignMutation = useAssignRolesToUser();
+  const removeMutation = useRemoveRoleFromUser();
+  const saving = assignMutation.isPending || removeMutation.isPending;
+  const isOperator = !!(user?.roles?.some((ro) => ro.name === 'super-admin') || user?.role === 'super-admin');
+  const isSelf = !!selectedUserId && selectedUserId === user?.id;
+  const heldPermissions = useMemo(() => new Set(user?.permissions ?? []), [user]);
+
+  /** Why this role can't be given or taken here, if it can't */
+  const lockReason = (role: { name: string; permissions?: { name: string }[] }): string | null => {
+    if (isOperator) return null;
+    if (ADMIN_ROLE_NAMES.includes(role.name)) return 'Only the platform operator gives or removes the admin role.';
+    if ((role.permissions ?? []).some((p) => !heldPermissions.has(p.name))) {
+      return 'It allows more than your own roles do. Ask the platform operator.';
+    }
+    return null;
+  };
 
   // A role whose every permission is in an area switched off for this school can't be given
   const { offAreaFor } = useSchoolAreas();
@@ -57,7 +78,7 @@ export default function AdminRoleAssignmentPage() {
       if (isStudentUser(usr)) return false;
       
       // Filter out super-admins/superadmin for total isolation
-      const roles = Array.isArray(usr.roles) ? usr.roles.map((r: any) => r.name?.toLowerCase()) : [];
+      const roles = Array.isArray(usr.roles) ? usr.roles.map((r: { name?: string }) => r.name?.toLowerCase()) : [];
       if (roles.includes('super-admin') || roles.includes('superadmin') || usr.role === 'super-admin') {
         return false;
       }
@@ -67,20 +88,15 @@ export default function AdminRoleAssignmentPage() {
   }, [allUsers]);
 
   const roles = useMemo(() => {
-    const isSuperAdmin = !!(user?.roles?.some((ro: any) => ro.name === 'super-admin') || user?.role === 'super-admin');
-    return isSuperAdmin ? allRoles : allRoles.filter(role => role.name !== 'super-admin' && role.name !== 'superadmin');
-  }, [allRoles, user]);
+    return isOperator ? allRoles : allRoles.filter(role => role.name !== 'super-admin' && role.name !== 'superadmin');
+  }, [allRoles, isOperator]);
 
   // Sync selected role IDs when user's roles load
   // Use a stable key to avoid infinite loop
   const roleIdsKey = currentUserRoles.map(r => r.id).sort().join(',');
   useEffect(() => {
-    if (selectedUserId && roleIdsKey) {
-      setSelectedRoleIds(roleIdsKey.split(',').filter(Boolean));
-    } else if (!selectedUserId) {
-      setSelectedRoleIds([]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // A user with no roles starts empty (not with the previous user's ticks)
+    setSelectedRoleIds(selectedUserId ? roleIdsKey.split(',').filter(Boolean) : []);
   }, [selectedUserId, roleIdsKey]);
 
   const filteredUsers = useMemo(() => {
@@ -97,13 +113,22 @@ export default function AdminRoleAssignmentPage() {
     );
   };
 
+  // Saving adds the newly ticked roles and removes the unticked ones
   const assignRoles = async () => {
     if (!selectedUserId) return;
+    const held = currentUserRoles.map((r) => r.id);
+    const added = selectedRoleIds.filter((id) => !held.includes(id));
+    const removed = held.filter((id) => !selectedRoleIds.includes(id));
+    if (added.length === 0 && removed.length === 0) {
+      toast.info('Nothing changed.');
+      return;
+    }
     try {
-      await assignMutation.mutateAsync({ userId: selectedUserId, roleIds: selectedRoleIds });
-      toast.success('Roles assigned successfully');
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to assign roles');
+      if (added.length) await assignMutation.mutateAsync({ userId: selectedUserId, roleIds: added });
+      for (const roleId of removed) await removeMutation.mutateAsync({ userId: selectedUserId, roleId });
+      toast.success('Roles saved');
+    } catch (err) {
+      toast.error(err instanceof Error && err.message ? err.message : "The roles weren't saved");
     }
   };
 
@@ -115,7 +140,7 @@ export default function AdminRoleAssignmentPage() {
         <Card>
           <CardHeader>
             <CardTitle>Role Assignment</CardTitle>
-            <CardDescription>Assign roles to tenant users</CardDescription>
+            <CardDescription>Give roles to your school&apos;s staff</CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
@@ -144,12 +169,17 @@ export default function AdminRoleAssignmentPage() {
             </div>
             <div>
               <div className="mb-3 text-sm text-muted-foreground">
-                {selectedUserId ? 'Select roles to assign to the chosen user.' : 'Select a user to begin.'}
+                {!selectedUserId
+                  ? 'Select a user to begin.'
+                  : isSelf && !isOperator
+                    ? "You can't change your own roles. Ask another admin or the platform operator."
+                    : 'Tick the roles this person should have, then save.'}
               </div>
               <div className="rounded-md border p-2 max-h-[400px] overflow-auto">
                 {roles.map(r => {
                   const off = offAreasOf(r);
-                  const locked = off.length > 0;
+                  const reason = lockReason(r);
+                  const locked = off.length > 0 || Boolean(reason) || (isSelf && !isOperator);
                   return (
                     <label
                       key={r.id}
@@ -159,18 +189,21 @@ export default function AdminRoleAssignmentPage() {
                         type="checkbox"
                         checked={selectedRoleIds.includes(r.id)}
                         onChange={() => toggleRoleSelection(r.id)}
-                        disabled={!selectedUserId || (locked && !selectedRoleIds.includes(r.id))}
+                        disabled={!selectedUserId || locked}
                       />
                       <div>
                         <div className="flex items-center gap-1 font-medium">
-                          {r.name}
+                          {roleLabel(r.name)}
                           {locked ? <Lock className="h-3.5 w-3.5" aria-hidden="true" /> : null}
                         </div>
+                        <div className="font-mono text-xs text-muted-foreground">{r.name}</div>
                         {r.description && <div className="text-xs text-muted-foreground">{r.description}</div>}
-                        {locked ? (
+                        {off.length > 0 ? (
                           <div className="text-xs text-muted-foreground">
                             {off.join(' and ')} {off.length === 1 ? 'is' : 'are'} turned off for this school. Ask the platform operator.
                           </div>
+                        ) : reason ? (
+                          <div className="text-xs text-muted-foreground">{reason}</div>
                         ) : null}
                       </div>
                     </label>
@@ -179,11 +212,15 @@ export default function AdminRoleAssignmentPage() {
                 {roles.length === 0 && <div className="text-sm text-muted-foreground">No roles available.</div>}
               </div>
               <div className="mt-4 flex gap-2">
-                <Button onClick={assignRoles} disabled={!selectedUserId || selectedRoleIds.length === 0 || assignMutation.isPending}>
-                  {assignMutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Assigning…</> : 'Assign Selected Roles'}
+                <Button onClick={assignRoles} disabled={!selectedUserId || (isSelf && !isOperator) || saving}>
+                  {saving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving…</> : 'Save roles'}
                 </Button>
-                <Button variant="secondary" onClick={() => setSelectedRoleIds([])} disabled={!selectedUserId || assignMutation.isPending}>
-                  Clear Selection
+                <Button
+                  variant="secondary"
+                  onClick={() => setSelectedRoleIds(currentUserRoles.map((r) => r.id))}
+                  disabled={!selectedUserId || saving}
+                >
+                  Undo changes
                 </Button>
               </div>
             </div>
