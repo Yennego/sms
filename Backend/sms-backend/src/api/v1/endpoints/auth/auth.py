@@ -19,6 +19,7 @@ from src.schemas.auth.token import Token
 from src.core.config import settings
 from src.core.security.jwt import create_access_token, create_refresh_token, verify_token
 from src.core.security.permissions import has_role, has_any_role, has_permission, require_super_admin
+from src.services.tenant.features import check_parent_portal_sign_in
 from src.core.security.effective import effective_permission_names, role_permission_names, school_adjustments
 from src.core.middleware.tenant import get_tenant_id_from_request, get_optional_tenant_id_from_request
 from src.core.security.auth import get_current_active_user, get_current_user, is_super_admin
@@ -574,6 +575,7 @@ async def login_for_access_token(
     await _clear_login_failures(form_data.username)
     # A suspended school (platform billing) lets only its admins in
     billing_access.check_sign_in(db, user)
+    check_parent_portal_sign_in(db, user)
 
     # Cache super-admin status before commit (which expires the object)
     super_admin = is_super_admin(user)
@@ -652,6 +654,7 @@ async def refresh_access_token(
         super_admin = is_super_admin(user)
         final_tenant_id = user.tenant_id
         billing_access.check_sign_in(db, user)
+        check_parent_portal_sign_in(db, user)
         billing_access.record_activity(db, user)
 
         # Rotate: the presented refresh token can't be used again
