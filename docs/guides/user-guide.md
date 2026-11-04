@@ -136,6 +136,7 @@ The app works in the web browser of any smartphone. You do not need to install a
 - **The pages of a menu item** appear as tabs across the top. Slide them sideways to see more.
 - **The bell** at the top right is your inbox. A red number shows how many messages you haven't read.
 - **Your name or initials** at the top right open the user menu. It has **Your profile**, **Change password**, **Notification settings** and **Sign out**. Staff who sign report cards also see **My signature**.
+- **Your profile** changes your picture and phone number. Staff can also change their name there. Students and parents can't: their name, gender, date of birth and class are kept by the school office (**Edit details** on the student's profile).
 - **Shared phone:** when you finish, open the user menu and tap **Sign out**. Then the next person can't see your child's details.
 - **Saving data:** on a slow connection, wait for each page to finish loading before you tap again.
 
