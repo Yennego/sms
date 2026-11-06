@@ -1,21 +1,26 @@
 'use client';
 
+// One student's attendance for staff (opened from a class report or the student's profile).
+
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
 import { DailyAttendanceHistory } from '@/components/attendance/DailyAttendanceHistory';
+import { PageShell } from '@/components/ui/page-shell';
 
-export default function StudentAttendancePage() {
+export default function StudentAttendanceRecordPage() {
   const router = useRouter();
   const { studentId } = useParams<{ studentId: string }>();
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <Button variant="outline" size="sm" onClick={() => router.back()}>
-        <ArrowLeft className="h-4 w-4 mr-2" /> Back
-      </Button>
-      {studentId && <DailyAttendanceHistory studentId={studentId} showStudentName />}
-    </div>
+    <PageShell
+      title="Attendance record"
+      eyebrow={
+        <button type="button" onClick={() => router.back()} className="inline-flex min-h-11 items-center hover:underline md:min-h-0">
+          ← Back
+        </button>
+      }
+    >
+      {studentId ? <DailyAttendanceHistory studentId={studentId} showStudentName /> : null}
+    </PageShell>
   );
 }
