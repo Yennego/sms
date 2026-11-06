@@ -1,208 +1,209 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+// Attendance today: the whole school's day, class by class. Admins and the principal and registrar
+// (view_school_attendance) see it; everyone else goes to their own attendance screen.
+
+import * as React from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
+import { useParams, useRouter } from 'next/navigation';
+import type { ColumnDef } from '@tanstack/react-table';
+import { ClipboardCheck, FileText, RefreshCw, School } from 'lucide-react';
+
 import {
-  AlertTriangle, BarChart3, ClipboardList, FileText, IdCard, Info, Loader2, RefreshCcw, ScanLine, Settings,
-} from 'lucide-react';
+  CountTiles,
+  DateField,
+  DayNotices,
+  rate,
+  useAttendanceAccess,
+} from '@/components/attendance/attendance-ui';
+import { useAttendanceOverview } from '@/components/attendance/queries';
+import { errorMessage, formatDate } from '@/components/students/format';
+import { Button } from '@/components/ui/button';
+import { DataTable } from '@/components/ui/data-table';
+import { EmptyState } from '@/components/ui/empty-state';
+import { PageShell } from '@/components/ui/page-shell';
+import { Skeleton } from '@/components/ui/skeleton';
+import { StatusBadge } from '@/components/ui/status-badge';
+import type { ClassOverview } from '@/types/daily-attendance';
 
-import { useAuth } from '@/hooks/use-auth';
-import { useTenant } from '@/hooks/use-tenant';
-import { useDailyAttendanceService } from '@/services/api/daily-attendance-service';
-import { AttendanceCounts, DailyOverview } from '@/types/daily-attendance';
-import { errorMessageOf } from '@/utils/error-utils';
-
-// Where non-admins go: their own attendance screen
-const ROLE_HOME: Record<string, string> = {
+// Where people without the whole school's view go: their own attendance screen
+const OWN_SCREEN: Record<string, string> = {
   teacher: '/teacher/attendance',
   student: '/student/attendance',
   parent: '/parent/attendance',
   'attendance-scanner': '/attendance/scan',
 };
 
-const rate = (value: number | null) => (value === null ? '—' : `${value}%`);
+const num = (n: number, tone?: string) => <span className={`tabular-nums ${tone ?? ''}`}>{n}</span>;
 
-function Tiles({ totals }: { totals: AttendanceCounts }) {
-  const tiles = [
-    { label: 'Enrolled', value: totals.enrolled, style: 'text-slate-800' },
-    { label: 'Present', value: totals.present, style: 'text-emerald-700' },
-    { label: 'Late', value: totals.late, style: 'text-orange-600' },
-    { label: 'Absent', value: totals.absent, style: 'text-rose-700' },
-    { label: 'Excused / sick', value: totals.excused + totals.sick, style: 'text-sky-700' },
-    { label: 'Not marked yet', value: totals.unmarked, style: 'text-slate-500' },
-    { label: 'Scanned in by card', value: totals.scanned, style: 'text-indigo-700' },
-    { label: 'Attendance rate', value: rate(totals.attendance_rate), style: 'text-indigo-700' },
-  ];
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-      {tiles.map(t => (
-        <div key={t.label} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">{t.label}</div>
-          <div className={`text-3xl font-black mt-1 ${t.style}`}>{t.value}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-export default function AttendanceOverviewPage() {
+export default function AttendanceTodayPage() {
+  const { tenantDomain } = useParams<{ tenantDomain: string }>();
   const router = useRouter();
-  const { tenant } = useTenant();
-  const { user, isLoading: authLoading } = useAuth();
-  const { getOverview } = useDailyAttendanceService();
+  const { user, isLoading, runsSchool, viewsSchool } = useAttendanceAccess();
+  const [date, setDate] = React.useState('');
+  const overview = useAttendanceOverview(date, viewsSchool);
+  const base = `/${tenantDomain}`;
 
-  const [date, setDate] = useState('');
-  const [overview, setOverview] = useState<DailyOverview | null>(null);
-  const [loading, setLoading] = useState(false);
+  React.useEffect(() => {
+    if (isLoading || !user || viewsSchool) return;
+    router.replace(`${base}${OWN_SCREEN[user.role ?? ''] ?? '/dashboard'}`);
+  }, [isLoading, user, viewsSchool, router, base]);
 
-  const roleNames: string[] = Array.isArray(user?.roles)
-    ? user.roles.map((r: unknown) => (typeof r === 'string' ? r : (r as { name?: string })?.name ?? ''))
-    : user?.role ? [user.role] : [];
-  const isAdmin = roleNames.some(r => ['admin', 'superadmin', 'super-admin'].includes(r));
-  // The principal and registrar read the whole school's attendance; only admins run it
-  const canView = isAdmin || (user?.permissions ?? []).includes('view_school_attendance');
-  const base = `/${tenant?.domain ?? ''}`;
+  const data = overview.data;
+  const day = data?.day;
 
-  useEffect(() => {
-    if (authLoading || !user || canView) return;
-    const home = ROLE_HOME[user.role ?? ''] ?? '/dashboard';
-    router.replace(`${base}${home}`);
-  }, [authLoading, user, canView, router, base]);
+  const columns = React.useMemo<ColumnDef<ClassOverview>[]>(
+    () => [
+      {
+        accessorKey: 'class_name',
+        header: 'Class',
+        cell: ({ row }) => <span className="font-medium">{row.original.class_name ?? 'Unnamed class'}</span>,
+      },
+      {
+        accessorKey: 'sponsor_name',
+        header: 'Sponsor',
+        cell: ({ row }) =>
+          row.original.sponsor_name ?? <StatusBadge status="warning" label="No sponsor" />,
+      },
+      { accessorKey: 'enrolled', header: 'Enrolled', meta: { className: 'text-right' }, cell: ({ row }) => num(row.original.enrolled) },
+      { accessorKey: 'present', header: 'Present', meta: { className: 'text-right' }, cell: ({ row }) => num(row.original.present, 'text-green-800') },
+      { accessorKey: 'late', header: 'Late', meta: { className: 'text-right' }, cell: ({ row }) => num(row.original.late, 'text-orange-800') },
+      { accessorKey: 'absent', header: 'Absent', meta: { className: 'text-right' }, cell: ({ row }) => num(row.original.absent, 'text-red-800') },
+      {
+        id: 'excused',
+        accessorFn: (c) => c.excused + c.sick,
+        header: 'Excused or sick',
+        meta: { className: 'text-right' },
+        cell: ({ row }) => num(row.original.excused + row.original.sick, 'text-blue-800'),
+      },
+      {
+        accessorKey: 'unmarked',
+        header: 'Not marked',
+        meta: { className: 'text-right' },
+        cell: ({ row }) =>
+          row.original.unmarked ? (
+            <span className="font-semibold tabular-nums text-amber-900">{row.original.unmarked}</span>
+          ) : (
+            num(0, 'text-muted-foreground')
+          ),
+      },
+      { accessorKey: 'scanned', header: 'By card', meta: { className: 'text-right', hideOnMobile: true }, cell: ({ row }) => num(row.original.scanned) },
+      {
+        accessorKey: 'attendance_rate',
+        header: 'Rate',
+        meta: { className: 'text-right' },
+        cell: ({ row }) => <span className="font-semibold tabular-nums">{rate(row.original.attendance_rate)}</span>,
+      },
+    ],
+    []
+  );
 
-  const load = useCallback(async (day?: string) => {
-    setLoading(true);
-    try {
-      const data = await getOverview(day || undefined);
-      setOverview(data);
-      setDate(data.day.date);
-    } catch (err) {
-      toast.error(errorMessageOf(err, 'Failed to load the attendance overview'));
-    } finally {
-      setLoading(false);
-    }
-  }, [getOverview]);
-
-  useEffect(() => {
-    if (canView) load();
-  }, [canView, load]);
-
-  if (authLoading || !user || !canView) {
-    return <div className="flex justify-center py-24"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>;
+  if (isLoading || !user || !viewsSchool) {
+    return (
+      <PageShell title="Attendance today">
+        <Skeleton className="h-48 w-full rounded-xl" />
+      </PageShell>
+    );
   }
 
-  const links = isAdmin ? [
-    { href: '/attendance/daily', label: 'Mark attendance', icon: ClipboardList },
-    { href: '/attendance/scan', label: 'Scan ID cards', icon: ScanLine },
-    { href: '/attendance/id-cards', label: 'Print ID cards', icon: IdCard },
-    { href: '/attendance/reports', label: 'Class reports', icon: BarChart3 },
-    { href: '/settings/attendance', label: 'Settings & holidays', icon: Settings },
-  ] : [
-    { href: '/attendance/reports', label: 'Class reports', icon: BarChart3 },
-  ];
-
+  const totals = data?.totals;
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold">Attendance</h1>
-          <p className="text-gray-600 mt-1">
-            {tenant?.name}{date ? ` · ${new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}` : ''}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={date}
-            max={overview?.day.today}
-            onChange={e => e.target.value && load(e.target.value)}
-            className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500"
-          />
-          <button onClick={() => load(date)} disabled={loading} title="Refresh"
-            className="p-2 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-800 disabled:opacity-50">
-            <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-      </div>
+    <PageShell
+      title="Attendance today"
+      description={day ? formatDate(day.date) : 'The whole school, class by class.'}
+      primaryAction={
+        runsSchool ? (
+          <Button asChild className="min-h-11 md:min-h-9">
+            <Link href={`${base}/attendance/daily`}>
+              <ClipboardCheck aria-hidden="true" />
+              Mark attendance
+            </Link>
+          </Button>
+        ) : undefined
+      }
+      secondaryActions={
+        <Button
+          variant="outline"
+          className="min-h-11 md:min-h-9"
+          onClick={() => overview.refetch()}
+          disabled={overview.isFetching}
+        >
+          <RefreshCw className={overview.isFetching ? 'animate-spin' : undefined} aria-hidden="true" />
+          Refresh
+        </Button>
+      }
+    >
+      <DateField
+        id="overview-date"
+        label="Day"
+        value={date || day?.date || ''}
+        max={day?.today}
+        onChange={(d) => d && setDate(d)}
+        className="max-w-xs"
+      />
 
-      <div className="flex flex-wrap gap-2">
-        {links.map(({ href, label, icon: Icon }) => (
-          <Link key={href} href={`${base}${href}`}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-            <Icon className="h-4 w-4 text-indigo-600" /> {label}
-          </Link>
-        ))}
-      </div>
-
-      {!overview ? (
-        <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>
+      {overview.isError ? (
+        <EmptyState
+          icon={School}
+          title="Today's attendance didn't load"
+          description={`${errorMessage(overview.error, 'The server didn’t answer.')} Check your connection and try again.`}
+          action={<Button onClick={() => overview.refetch()}>Try again</Button>}
+        />
+      ) : !data || !totals ? (
+        <Skeleton className="h-64 w-full rounded-xl" />
       ) : (
         <>
-          {!overview.day.is_school_day && (
-            <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-              <AlertTriangle className="h-5 w-5 shrink-0" />
-              <span><b>Not a school day</b>{overview.day.reason ? `: ${overview.day.reason}` : ''}.</span>
-            </div>
-          )}
-          {overview.day.auto_absent_applied && (
-            <div className="flex items-start gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-800">
-              <Info className="h-5 w-5 shrink-0" />
-              <span>The cut-off has passed: students who weren&apos;t scanned or marked are recorded absent.</span>
-            </div>
-          )}
-          {isAdmin && overview.pending_excuses > 0 && (
-            <Link href={`${base}/attendance/excuses`}
-              className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 hover:bg-amber-100">
-              <span className="flex items-center gap-3"><FileText className="h-5 w-5" />
-                <b>{overview.pending_excuses}</b> absence excuse{overview.pending_excuses === 1 ? '' : 's'} waiting for review
+          <DayNotices day={data.day} />
+          {runsSchool && data.pending_excuses > 0 ? (
+            <Link
+              href={`${base}/attendance/excuses`}
+              className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 hover:bg-amber-100"
+            >
+              <span className="flex items-center gap-3">
+                <FileText className="size-5 shrink-0" aria-hidden="true" />
+                {data.pending_excuses} absence {data.pending_excuses === 1 ? 'excuse is' : 'excuses are'} waiting for review
               </span>
-              <span className="font-semibold">Review →</span>
+              <span className="font-semibold">Review</span>
             </Link>
-          )}
+          ) : null}
 
-          <Tiles totals={overview.totals} />
+          <CountTiles
+            tiles={[
+              { label: 'Enrolled', value: totals.enrolled },
+              { label: 'Present', value: totals.present, status: 'present' },
+              { label: 'Late', value: totals.late, status: 'late' },
+              { label: 'Absent', value: totals.absent, status: 'absent' },
+              { label: 'Excused or sick', value: totals.excused + totals.sick, status: 'excused' },
+              { label: 'Not marked yet', value: totals.unmarked, status: totals.unmarked ? 'pending' : undefined },
+              { label: 'Scanned in by card', value: totals.scanned },
+              { label: 'Attendance rate', value: rate(totals.attendance_rate) },
+            ]}
+          />
 
-          <div className="bg-white rounded-2xl border shadow-sm overflow-x-auto">
-            <table className="w-full min-w-[860px] text-sm">
-              <thead className="bg-gray-50 text-left text-xs uppercase tracking-wider text-gray-500">
-                <tr>
-                  <th className="px-5 py-3">Class</th>
-                  <th className="px-5 py-3">Sponsor</th>
-                  <th className="px-3 py-3 text-right">Enrolled</th>
-                  <th className="px-3 py-3 text-right">Present</th>
-                  <th className="px-3 py-3 text-right">Late</th>
-                  <th className="px-3 py-3 text-right">Absent</th>
-                  <th className="px-3 py-3 text-right">Excused / sick</th>
-                  <th className="px-3 py-3 text-right">Not marked</th>
-                  <th className="px-3 py-3 text-right">By card</th>
-                  <th className="px-5 py-3 text-right">Rate</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {overview.classes.length === 0 ? (
-                  <tr><td colSpan={10} className="px-5 py-10 text-center text-gray-500">No active classes in this academic year.</td></tr>
-                ) : overview.classes.map(c => (
-                  <tr key={c.class_id}
-                    onClick={isAdmin ? () => router.push(`${base}/attendance/daily?classId=${c.class_id}&date=${overview.day.date}`) : undefined}
-                    className={isAdmin ? 'cursor-pointer hover:bg-indigo-50/40' : undefined}>
-                    <td className="px-5 py-3 font-semibold text-gray-800">{c.class_name}</td>
-                    <td className="px-5 py-3 text-gray-600">{c.sponsor_name ?? <span className="text-amber-600">No sponsor</span>}</td>
-                    <td className="px-3 py-3 text-right">{c.enrolled}</td>
-                    <td className="px-3 py-3 text-right text-emerald-700 font-semibold">{c.present}</td>
-                    <td className="px-3 py-3 text-right text-orange-600">{c.late}</td>
-                    <td className="px-3 py-3 text-right text-rose-700">{c.absent}</td>
-                    <td className="px-3 py-3 text-right text-sky-700">{c.excused + c.sick}</td>
-                    <td className={`px-3 py-3 text-right ${c.unmarked ? 'text-amber-600 font-semibold' : 'text-gray-400'}`}>{c.unmarked}</td>
-                    <td className="px-3 py-3 text-right text-indigo-700">{c.scanned}</td>
-                    <td className="px-5 py-3 text-right font-semibold">{rate(c.attendance_rate)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            label="Classes"
+            columns={columns}
+            data={data.classes}
+            pageSize={0}
+            getRowId={(c) => c.class_id}
+            initialSorting={[{ id: 'class_name', desc: false }]}
+            onRowClick={
+              runsSchool
+                ? (c) => router.push(`${base}/attendance/daily?classId=${c.class_id}&date=${data.day.date}`)
+                : undefined
+            }
+            emptyState={
+              <EmptyState
+                icon={School}
+                description="This school year has no active classes yet. Create them under Classes → Setup."
+              />
+            }
+          />
+          {runsSchool && data.classes.length > 0 ? (
+            <p className="text-sm text-muted-foreground">Open a class to mark or correct its attendance.</p>
+          ) : null}
         </>
       )}
-    </div>
+    </PageShell>
   );
 }
