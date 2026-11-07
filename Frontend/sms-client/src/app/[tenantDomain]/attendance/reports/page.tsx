@@ -1,30 +1,33 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+// Attendance reports: per student for one class over a period (empty dates = the school year so
+// far). Admins, the principal and the registrar choose any class; a sponsor, the classes they
+// sponsor.
+
+import * as React from 'react';
 import Link from 'next/link';
-import { toast } from 'sonner';
-import { BarChart3, Download, Loader2 } from 'lucide-react';
+import { useParams } from 'next/navigation';
+import type { ColumnDef } from '@tanstack/react-table';
+import { BarChart3, Download } from 'lucide-react';
 
+import { ClassPicker, CountTiles, DateField, rate, useAttendanceAccess } from '@/components/attendance/attendance-ui';
+import { useAttendanceClasses, useClassReport } from '@/components/attendance/queries';
+import { errorMessage, formatDate } from '@/components/students/format';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/hooks/use-auth';
-import { useTenant } from '@/hooks/use-tenant';
-import { useClassService } from '@/services/api/class-service';
-import { useDailyAttendanceService } from '@/services/api/daily-attendance-service';
-import { ClassAttendanceReport } from '@/types/daily-attendance';
-import { errorMessageOf } from '@/utils/error-utils';
-
-interface ClassOption { id: string; name: string }
-
-const rate = (value: number | null) => (value === null ? '—' : `${value}%`);
+import { DataTable } from '@/components/ui/data-table';
+import { EmptyState } from '@/components/ui/empty-state';
+import { PageShell } from '@/components/ui/page-shell';
+import { Skeleton } from '@/components/ui/skeleton';
+import type { ClassAttendanceReport, StudentReportRow } from '@/types/daily-attendance';
 
 function downloadCsv(report: ClassAttendanceReport) {
-  const header = ['Student', 'Admission No.', 'Present', 'Late', 'Absent', 'Excused', 'Sick', 'Not marked', 'Rate (%)'];
-  const rows = report.rows.map(r => [
+  const header = ['Student', 'Admission number', 'Present', 'Late', 'Absent', 'Excused', 'Sick', 'Not marked', 'Rate (%)'];
+  const rows = report.rows.map((r) => [
     r.student_name, r.admission_number ?? '', r.present, r.late, r.absent, r.excused, r.sick, r.unmarked,
     r.attendance_rate ?? '',
   ]);
-  const escape = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
-  const csv = [header, ...rows].map(line => line.map(escape).join(',')).join('\r\n');
+  const cell = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+  const csv = [header, ...rows].map((line) => line.map(cell).join(',')).join('\r\n');
   const url = URL.createObjectURL(new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' }));
   const link = document.createElement('a');
   link.href = url;
@@ -33,136 +36,123 @@ function downloadCsv(report: ClassAttendanceReport) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
+const n = (value: number, tone = '') => <span className={`tabular-nums ${tone}`}>{value}</span>;
+
 export default function AttendanceReportsPage() {
-  const { user } = useAuth();
-  const { tenant } = useTenant();
-  const { getClasses } = useClassService();
-  const { getClassReport } = useDailyAttendanceService();
+  const { tenantDomain } = useParams<{ tenantDomain: string }>();
+  const { user, viewsSchool } = useAttendanceAccess();
+  // The whole school for admins, the principal and the registrar; a sponsor's own classes otherwise
+  const classes = useAttendanceClasses(viewsSchool ? undefined : user?.id, Boolean(user?.id));
+  const [picked, setPicked] = React.useState('');
+  const [start, setStart] = React.useState('');
+  const [end, setEnd] = React.useState('');
+  const list = classes.data ?? [];
+  const classId = picked || (list.length === 1 ? list[0].id : '');
+  const report = useClassReport(classId, start, end);
+  const data = report.data;
 
-  const [classes, setClasses] = useState<ClassOption[]>([]);
-  const [classId, setClassId] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [report, setReport] = useState<ClassAttendanceReport | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const isAdmin = Array.isArray(user?.roles)
-    ? user.roles.some((r: unknown) => ['admin', 'superadmin', 'super-admin'].includes(typeof r === 'string' ? r : (r as { name?: string })?.name ?? ''))
-    : user?.role === 'admin';
-  const wholeSchool = isAdmin || (user?.permissions ?? []).includes('view_school_attendance');
-
-  // Admins, the principal and the registrar report on any class; a sponsor on the classes they sponsor
-  useEffect(() => {
-    if (!user?.id) return;
-    getClasses(wholeSchool ? { is_active: true } : { class_teacher_id: user.id, is_active: true })
-      .then(list => {
-        const options = list.map(c => ({ id: c.id, name: c.name || `${c.grade_name} ${c.section_name}` }));
-        setClasses(options);
-        if (options.length === 1) setClassId(options[0].id);
-      })
-      .catch((err: unknown) => toast.error(errorMessageOf(err, 'Failed to load classes')));
-  }, [user?.id, wholeSchool, getClasses]);
-
-  const run = async () => {
-    if (!classId) {
-      toast.error('Choose a class');
-      return;
-    }
-    setLoading(true);
-    try {
-      const data = await getClassReport(classId, startDate || undefined, endDate || undefined);
-      setReport(data);
-      setStartDate(data.start_date);
-      setEndDate(data.end_date);
-    } catch (err) {
-      setReport(null);
-      toast.error(errorMessageOf(err, 'Failed to build the report'));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const columns = React.useMemo<ColumnDef<StudentReportRow>[]>(
+    () => [
+      {
+        accessorKey: 'student_name',
+        header: 'Student',
+        cell: ({ row }) => (
+          <div>
+            <Link
+              href={`/${tenantDomain}/attendance/students/${row.original.student_id}`}
+              className="font-medium text-primary underline-offset-4 hover:underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {row.original.student_name}
+            </Link>
+            <p className="text-sm text-muted-foreground">{row.original.admission_number}</p>
+          </div>
+        ),
+      },
+      { accessorKey: 'present', header: 'Present', meta: { className: 'text-right' }, cell: ({ row }) => n(row.original.present, 'text-green-800') },
+      { accessorKey: 'late', header: 'Late', meta: { className: 'text-right' }, cell: ({ row }) => n(row.original.late, 'text-orange-800') },
+      { accessorKey: 'absent', header: 'Absent', meta: { className: 'text-right' }, cell: ({ row }) => n(row.original.absent, 'text-red-800') },
+      { accessorKey: 'excused', header: 'Excused', meta: { className: 'text-right' }, cell: ({ row }) => n(row.original.excused, 'text-blue-800') },
+      { accessorKey: 'sick', header: 'Sick', meta: { className: 'text-right' }, cell: ({ row }) => n(row.original.sick, 'text-blue-800') },
+      {
+        accessorKey: 'unmarked',
+        header: 'Not marked',
+        meta: { className: 'text-right', hideOnMobile: true },
+        cell: ({ row }) => n(row.original.unmarked, row.original.unmarked ? 'text-amber-900' : 'text-muted-foreground'),
+      },
+      {
+        accessorKey: 'attendance_rate',
+        header: 'Rate',
+        meta: { className: 'text-right' },
+        cell: ({ row }) => <span className="font-semibold tabular-nums">{rate(row.original.attendance_rate)}</span>,
+      },
+    ],
+    [tenantDomain]
+  );
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold flex items-center gap-3"><BarChart3 className="h-8 w-8" /> Attendance Reports</h1>
-        <p className="text-gray-600 mt-1">School-day attendance per student for a class. Leave the dates empty for the academic year so far.</p>
-      </div>
-
-      <div className="bg-white rounded-2xl border shadow-sm p-4 flex flex-wrap items-end gap-4">
-        <div className="space-y-1">
-          <label className="text-xs font-semibold text-gray-500" htmlFor="report-class">Class</label>
-          <select id="report-class" value={classId} onChange={e => { setClassId(e.target.value); setReport(null); }}
-            className="block min-w-[220px] px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-500">
-            <option value="">-- Select a class --</option>
-            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-semibold text-gray-500" htmlFor="report-start">From</label>
-          <input id="report-start" type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-            className="block px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-500" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-semibold text-gray-500" htmlFor="report-end">To</label>
-          <input id="report-end" type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
-            className="block px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-500" />
-        </div>
-        <Button onClick={run} disabled={loading || !classId}>
-          {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <BarChart3 className="h-4 w-4 mr-2" />}
-          Show report
-        </Button>
-        {report && (
-          <Button variant="outline" onClick={() => downloadCsv(report)}>
-            <Download className="h-4 w-4 mr-2" /> Export CSV
+    <PageShell
+      title="Attendance reports"
+      description="Each student's attendance in a class. Leave the dates empty for the school year so far."
+      primaryAction={
+        data ? (
+          <Button className="min-h-11 md:min-h-9" onClick={() => downloadCsv(data)}>
+            <Download aria-hidden="true" />
+            Download as CSV
           </Button>
-        )}
+        ) : undefined
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-3 lg:max-w-3xl">
+        <ClassPicker
+          id="report-class"
+          value={classId}
+          onChange={setPicked}
+          classes={list}
+          loading={classes.isLoading}
+          placeholder={list.length === 0 && !classes.isLoading ? 'No classes to report on' : 'Choose a class'}
+        />
+        <DateField id="report-from" label="From" value={start} max={end || undefined} onChange={setStart} />
+        <DateField id="report-to" label="To" value={end} onChange={setEnd} />
       </div>
 
-      {report && (
+      {!classId ? (
+        <EmptyState icon={BarChart3} description="Choose a class to see its report." />
+      ) : report.isLoading ? (
+        <Skeleton className="h-64 w-full rounded-xl" />
+      ) : report.isError || !data ? (
+        <EmptyState
+          icon={BarChart3}
+          title="The report didn't load"
+          description={`${errorMessage(report.error, 'The server didn’t answer.')} Check the dates and try again.`}
+          action={<Button onClick={() => report.refetch()}>Try again</Button>}
+        />
+      ) : (
         <>
-          <p className="text-sm text-gray-600">
-            <b>{report.class_name}</b> · {new Date(`${report.start_date}T00:00:00`).toLocaleDateString()} – {new Date(`${report.end_date}T00:00:00`).toLocaleDateString()} · {report.school_days} school days · class rate <b>{rate(report.totals.attendance_rate)}</b>
+          <p className="text-sm text-muted-foreground">
+            {data.class_name} · {formatDate(data.start_date)} to {formatDate(data.end_date)} · {data.school_days}{' '}
+            {data.school_days === 1 ? 'school day' : 'school days'}
           </p>
-          <div className="bg-white rounded-2xl border shadow-sm overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
-              <thead className="bg-gray-50 text-left text-xs uppercase tracking-wider text-gray-500">
-                <tr>
-                  <th className="px-5 py-3">Student</th>
-                  <th className="px-3 py-3 text-right">Present</th>
-                  <th className="px-3 py-3 text-right">Late</th>
-                  <th className="px-3 py-3 text-right">Absent</th>
-                  <th className="px-3 py-3 text-right">Excused</th>
-                  <th className="px-3 py-3 text-right">Sick</th>
-                  <th className="px-3 py-3 text-right">Not marked</th>
-                  <th className="px-5 py-3 text-right">Rate</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {report.rows.length === 0 ? (
-                  <tr><td colSpan={8} className="px-5 py-10 text-center text-gray-500">No students are enrolled in this class.</td></tr>
-                ) : report.rows.map(r => (
-                  <tr key={r.student_id} className="hover:bg-gray-50">
-                    <td className="px-5 py-3">
-                      <Link href={`/${tenant?.domain}/attendance/students/${r.student_id}`} className="font-semibold text-indigo-700 hover:underline">
-                        {r.student_name}
-                      </Link>
-                      <div className="text-xs text-gray-500">{r.admission_number}</div>
-                    </td>
-                    <td className="px-3 py-3 text-right text-emerald-700">{r.present}</td>
-                    <td className="px-3 py-3 text-right text-orange-600">{r.late}</td>
-                    <td className="px-3 py-3 text-right text-rose-700">{r.absent}</td>
-                    <td className="px-3 py-3 text-right text-sky-700">{r.excused}</td>
-                    <td className="px-3 py-3 text-right text-violet-700">{r.sick}</td>
-                    <td className={`px-3 py-3 text-right ${r.unmarked ? 'text-amber-600' : 'text-gray-400'}`}>{r.unmarked}</td>
-                    <td className="px-5 py-3 text-right font-semibold">{rate(r.attendance_rate)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <CountTiles
+            tiles={[
+              { label: 'Class rate', value: rate(data.totals.attendance_rate) },
+              { label: 'Present', value: data.totals.present, status: 'present' },
+              { label: 'Late', value: data.totals.late, status: 'late' },
+              { label: 'Absent', value: data.totals.absent, status: 'absent' },
+            ]}
+          />
+          <DataTable
+            label={`Attendance in ${data.class_name ?? 'the class'}`}
+            columns={columns}
+            data={data.rows}
+            searchable
+            searchPlaceholder="Search students"
+            getRowId={(r) => r.student_id}
+            initialSorting={[{ id: 'student_name', desc: false }]}
+            emptyState={<EmptyState icon={BarChart3} description="No students are enrolled in this class." />}
+          />
         </>
       )}
-    </div>
+    </PageShell>
   );
 }

@@ -102,8 +102,11 @@ async def update_session(
     # Re-evaluate promotion eligibility for the enrollment
     eval_result = await promotion_service.evaluate_eligibility(enrollment_id=updated.enrollment_id)
     # Upsert status done inside evaluate_eligibility via PromotionStatusService
+    # A Conditional student who has now passed every remedial subject moves up a grade (if
+    # they were already placed again in the same grade for the next year)
+    moved = await promotion_service.apply_remedial_outcome(updated.enrollment_id)
 
-    return {"session": updated, "evaluation": eval_result}
+    return {"session": updated, "evaluation": eval_result, "moved_up": moved}
 from fastapi import Query
 
 from src.schemas.academics.promotion import RemedialSession

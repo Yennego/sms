@@ -79,6 +79,13 @@ export interface BulkPromotionResponse {
   errors: PromotionError[];
 }
 
+export interface RemedialResultResponse {
+  moved_up?:
+    | { type: 'moved_up'; to_grade: string; class_id: string; class_name: string; fees_need_review: boolean }
+    | { type: 'error'; error: string }
+    | null;
+}
+
 export function usePromotionService() {
   const { apiClient, isLoading } = useApiClientWithLoading();
   const waitForApiClientReady = createWaitForApiClientReady(apiClient);
@@ -280,9 +287,10 @@ export function usePromotionService() {
     },
 
     // New: record remedial result and trigger re-evaluation
-    recordRemedialResult: async (session_id: string, payload: { status?: 'scheduled' | 'completed'; new_score?: number; passed?: boolean }): Promise<unknown> => {
+    /** moved_up: set when this result cleared a Conditional student, who moved to the next grade's class. */
+    recordRemedialResult: async (session_id: string, payload: { status?: 'scheduled' | 'completed'; new_score?: number; passed?: boolean }): Promise<RemedialResultResponse> => {
       const client = await waitForApiClientReady();
-      return client.put<unknown>(`/academics/remedial/sessions/${session_id}`, payload);
+      return client.put<RemedialResultResponse>(`/academics/remedial/sessions/${session_id}`, payload);
     },
     getRemedialSessions: async (enrollment_id: string): Promise<unknown[]> => {
       const client = await waitForApiClientReady();

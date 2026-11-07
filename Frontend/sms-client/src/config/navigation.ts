@@ -194,10 +194,11 @@ const ROLES: Record<string, RoleNavigation> = {
   admin: ADMIN,
   'tenant-admin': ADMIN,
   'academic-admin': {
-    home: '/academics/grades/publish',
+    // The same school dashboard as the admin
+    home: '/admin-dashboard',
     signs: true,
     areas: [
-      STUDENTS, STAFF, CLASSES, ATTENDANCE_READ_ONLY,
+      HOME('/admin-dashboard'), STUDENTS, STAFF, CLASSES, ATTENDANCE_READ_ONLY,
       // Assignments is the teachers' tool
       { ...GRADES, tabs: GRADES.tabs.filter((t) => t.path !== '/academics/assignments') },
       FEES_REVIEW(FEES), MESSAGES,

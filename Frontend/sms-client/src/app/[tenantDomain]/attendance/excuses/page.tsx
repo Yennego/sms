@@ -1,56 +1,68 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { toast } from 'sonner';
-import { Check, FileText, Loader2, Paperclip, X } from 'lucide-react';
+// Absence excuses: parents' excuses wait here for approval (excuses entered by staff are approved
+// straight away). Admins, or anyone who runs the school's attendance.
 
-import PermissionGuard from '@/components/auth/permission-guard';
-import { STATUS_STYLES } from '@/components/attendance/daily-status';
+import * as React from 'react';
+import type { ColumnDef } from '@tanstack/react-table';
+import { Check, FileText, Lock, Paperclip, X } from 'lucide-react';
+
+import { DailyStatusBadge, useAttendanceAccess } from '@/components/attendance/attendance-ui';
+import { useExcuses, useReviewExcuse } from '@/components/attendance/queries';
+import { errorMessage, formatDate, formatTime } from '@/components/students/format';
+import { Button } from '@/components/ui/button';
+import { DataTable } from '@/components/ui/data-table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { EmptyState } from '@/components/ui/empty-state';
+import { PageShell } from '@/components/ui/page-shell';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
+import { notify } from '@/components/ui/toaster';
+import { cn } from '@/lib/utils';
 import { useDailyAttendanceService } from '@/services/api/daily-attendance-service';
-import { ExcuseListItem, ExcuseStatus } from '@/types/daily-attendance';
-import { errorMessageOf } from '@/utils/error-utils';
+import type { ExcuseListItem, ExcuseStatus } from '@/types/daily-attendance';
 import { openExcuseDocument } from '@/utils/excuse-documents';
 
-const TABS: Array<{ status: ExcuseStatus; label: string }> = [
-  { status: 'pending', label: 'Pending' },
+const VIEWS: Array<{ status: ExcuseStatus; label: string }> = [
+  { status: 'pending', label: 'Waiting for review' },
   { status: 'approved', label: 'Approved' },
   { status: 'rejected', label: 'Rejected' },
 ];
 
-export default function ExcuseReviewPage() {
-  const { listExcuses, reviewExcuse, getExcuseDocument } = useDailyAttendanceService();
-  const [tab, setTab] = useState<ExcuseStatus>('pending');
-  const [items, setItems] = useState<ExcuseListItem[] | null>(null);
-  const [working, setWorking] = useState<string | null>(null);
+export default function ExcusesPage() {
+  const { isLoading, runsSchool } = useAttendanceAccess();
+  const [view, setView] = React.useState<ExcuseStatus>('pending');
+  const excuses = useExcuses(view);
+  const review = useReviewExcuse();
+  const { getExcuseDocument } = useDailyAttendanceService();
+  const [rejecting, setRejecting] = React.useState<ExcuseListItem | null>(null);
+  const [rejectNote, setRejectNote] = React.useState('');
 
-  const load = useCallback(async () => {
-    setItems(null);
+  const approve = async (item: ExcuseListItem) => {
     try {
-      setItems(await listExcuses(tab));
+      await review.mutateAsync({ dailyId: item.daily_id, approve: true });
+      notify.success(`${item.student_name}'s excuse is approved.`);
     } catch (err) {
-      setItems([]);
-      toast.error(errorMessageOf(err, 'Failed to load excuses'));
+      notify.error(errorMessage(err, "The excuse wasn't approved. Try again."));
     }
-  }, [tab, listExcuses]);
+  };
 
-  useEffect(() => { load(); }, [load]);
-
-  const review = async (item: ExcuseListItem, approve: boolean) => {
-    let notes: string | undefined;
-    if (!approve) {
-      const answer = window.prompt(`Reason for rejecting ${item.student_name}'s excuse (shared with staff):`);
-      if (answer === null) return;
-      notes = answer.trim() || undefined;
-    }
-    setWorking(item.daily_id);
+  const reject = async () => {
+    if (!rejecting) return;
     try {
-      await reviewExcuse(item.daily_id, approve, notes);
-      setItems(prev => prev?.filter(i => i.daily_id !== item.daily_id) ?? prev);
-      toast.success(approve ? 'Excuse approved' : 'Excuse rejected');
+      await review.mutateAsync({ dailyId: rejecting.daily_id, approve: false, notes: rejectNote.trim() || undefined });
+      notify.success(`${rejecting.student_name}'s excuse is rejected. The absence stays unexcused.`);
+      setRejecting(null);
+      setRejectNote('');
     } catch (err) {
-      toast.error(errorMessageOf(err, 'Failed to review the excuse'));
-    } finally {
-      setWorking(null);
+      notify.error(errorMessage(err, "The excuse wasn't rejected. Try again."));
     }
   };
 
@@ -58,88 +70,183 @@ export default function ExcuseReviewPage() {
     try {
       openExcuseDocument(await getExcuseDocument(dailyId));
     } catch (err) {
-      toast.error(errorMessageOf(err, 'Failed to open the document'));
+      notify.error(errorMessage(err, "The document couldn't be opened."));
     }
   };
 
-  return (
-    <PermissionGuard requiredRole="admin" fallback={<div>You do not have permission to access this page.</div>}>
-      <div className="container mx-auto p-6 space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3"><FileText className="h-8 w-8" /> Absence Excuses</h1>
-          <p className="text-gray-600 mt-1">Excuses reported by parents wait here for approval. Excuses entered by class sponsors are approved automatically.</p>
-        </div>
-
-        <div className="flex gap-2">
-          {TABS.map(t => (
-            <button key={t.status} onClick={() => setTab(t.status)}
-              className={`px-4 py-2 rounded-lg text-sm font-bold ${tab === t.status ? 'bg-indigo-600 text-white' : 'bg-white border text-gray-600 hover:bg-gray-50'}`}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        {items === null ? (
-          <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>
-        ) : items.length === 0 ? (
-          <p className="text-gray-500">No {tab} excuses.</p>
-        ) : (
-          <div className="bg-white rounded-2xl border shadow-sm overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
-              <thead className="bg-gray-50 text-left text-xs uppercase tracking-wider text-gray-500">
-                <tr>
-                  <th className="px-5 py-3">Student</th>
-                  <th className="px-5 py-3">Date</th>
-                  <th className="px-5 py-3">Reason</th>
-                  <th className="px-5 py-3">Submitted</th>
-                  <th className="px-5 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {items.map(item => (
-                  <tr key={item.daily_id}>
-                    <td className="px-5 py-3">
-                      <div className="font-semibold text-gray-800">{item.student_name}</div>
-                      <div className="text-xs text-gray-500">{item.class_name}</div>
-                    </td>
-                    <td className="px-5 py-3">
-                      <div>{new Date(`${item.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</div>
-                      <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${STATUS_STYLES[item.status].badge}`}>
-                        {STATUS_STYLES[item.status].label}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 max-w-sm text-gray-700">{item.excuse_reason}</td>
-                    <td className="px-5 py-3 text-xs text-gray-500">
-                      {item.submitted_by_name ?? '—'}
-                      <div>{new Date(item.submitted_at).toLocaleString()}</div>
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="flex justify-end gap-2">
-                        {item.has_document && (
-                          <button onClick={() => viewDocument(item.daily_id)} title="View document"
-                            className="p-2 rounded-lg bg-gray-50 text-gray-500 hover:bg-gray-100"><Paperclip className="h-4 w-4" /></button>
-                        )}
-                        {tab === 'pending' && (
-                          <>
-                            <button onClick={() => review(item, true)} disabled={working === item.daily_id}
-                              className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50">
-                              <Check className="h-4 w-4" /> Approve
-                            </button>
-                            <button onClick={() => review(item, false)} disabled={working === item.daily_id}
-                              className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-rose-50 text-rose-700 font-semibold disabled:opacity-50">
-                              <X className="h-4 w-4" /> Reject
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+  const columns = React.useMemo<ColumnDef<ExcuseListItem>[]>(
+    () => [
+      {
+        accessorKey: 'student_name',
+        header: 'Student',
+        cell: ({ row }) => (
+          <div>
+            <p className="font-medium">{row.original.student_name}</p>
+            <p className="text-sm text-muted-foreground">{row.original.class_name}</p>
           </div>
-        )}
+        ),
+      },
+      {
+        accessorKey: 'date',
+        header: 'Day',
+        cell: ({ row }) => (
+          <div className="flex flex-col gap-1">
+            <span>{formatDate(row.original.date)}</span>
+            <DailyStatusBadge status={row.original.status} />
+          </div>
+        ),
+      },
+      { accessorKey: 'excuse_reason', header: 'Reason', cell: ({ row }) => row.original.excuse_reason || '–' },
+      {
+        accessorKey: 'submitted_at',
+        header: 'Sent by',
+        meta: { hideOnMobile: true },
+        cell: ({ row }) => (
+          <div className="text-sm">
+            <p>{row.original.submitted_by_name ?? '–'}</p>
+            <p className="text-muted-foreground">
+              {formatDate(row.original.submitted_at)} {formatTime(row.original.submitted_at)}
+            </p>
+          </div>
+        ),
+      },
+      {
+        id: 'actions',
+        header: '',
+        enableSorting: false,
+        meta: { label: 'Actions', className: 'text-right' },
+        cell: ({ row }) => {
+          const item = row.original;
+          return (
+            <div className="flex flex-wrap justify-end gap-2">
+              {item.has_document ? (
+                <Button variant="ghost" size="sm" className="min-h-11 md:min-h-9" onClick={() => viewDocument(item.daily_id)}>
+                  <Paperclip aria-hidden="true" />
+                  Document
+                </Button>
+              ) : null}
+              {view === 'pending' ? (
+                <>
+                  <Button
+                    size="sm"
+                    className="min-h-11 md:min-h-9"
+                    onClick={() => approve(item)}
+                    disabled={review.isPending}
+                  >
+                    <Check aria-hidden="true" />
+                    Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="min-h-11 md:min-h-9"
+                    onClick={() => setRejecting(item)}
+                    disabled={review.isPending}
+                  >
+                    <X aria-hidden="true" />
+                    Reject
+                  </Button>
+                </>
+              ) : null}
+            </div>
+          );
+        },
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [view, review.isPending]
+  );
+
+  if (isLoading) {
+    return (
+      <PageShell title="Absence excuses">
+        <Skeleton className="h-48 w-full rounded-xl" />
+      </PageShell>
+    );
+  }
+  if (!runsSchool) {
+    return (
+      <PageShell title="Absence excuses">
+        <EmptyState icon={Lock} description="Only the school's admins review excuses." />
+      </PageShell>
+    );
+  }
+
+  return (
+    <PageShell
+      title="Absence excuses"
+      description="Excuses sent by parents wait here for review. Excuses entered by staff are approved straight away."
+    >
+      <div role="tablist" aria-label="Excuses" className="flex flex-wrap gap-2">
+        {VIEWS.map((v) => (
+          <button
+            key={v.status}
+            type="button"
+            role="tab"
+            aria-selected={view === v.status}
+            onClick={() => setView(v.status)}
+            className={cn(
+              'min-h-11 rounded-md border px-4 text-sm font-medium md:min-h-9',
+              view === v.status ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'
+            )}
+          >
+            {v.label}
+          </button>
+        ))}
       </div>
-    </PermissionGuard>
+
+      {excuses.isError ? (
+        <EmptyState
+          icon={FileText}
+          title="The excuses didn't load"
+          description={`${errorMessage(excuses.error, 'The server didn’t answer.')} Check your connection and try again.`}
+          action={<Button onClick={() => excuses.refetch()}>Try again</Button>}
+        />
+      ) : (
+        <DataTable
+          label="Excuses"
+          columns={columns}
+          data={excuses.data ?? []}
+          loading={excuses.isLoading}
+          getRowId={(e) => e.daily_id}
+          initialSorting={[{ id: 'date', desc: true }]}
+          emptyState={
+            <EmptyState
+              icon={FileText}
+              description={
+                view === 'pending'
+                  ? 'Nothing is waiting. Excuses that parents send appear here.'
+                  : `No ${view} excuses.`
+              }
+            />
+          }
+        />
+      )}
+
+      <Dialog open={Boolean(rejecting)} onOpenChange={(open) => !open && setRejecting(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject {rejecting?.student_name}&apos;s excuse?</DialogTitle>
+            <DialogDescription>
+              The absence on {rejecting ? formatDate(rejecting.date) : ''} stays unexcused. Staff see your note.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <label htmlFor="reject-note" className="text-sm font-medium">
+              Why (optional)
+            </label>
+            <Textarea id="reject-note" rows={3} value={rejectNote} onChange={(e) => setRejectNote(e.target.value)} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="min-h-11 md:min-h-9" onClick={() => setRejecting(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" className="min-h-11 md:min-h-9" onClick={reject} disabled={review.isPending}>
+              Reject excuse
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </PageShell>
   );
 }

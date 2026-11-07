@@ -4,7 +4,12 @@ import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/hooks/use-tenant';
 import { useAuth } from '@/hooks/use-auth';
+import { School } from 'lucide-react';
 import AdminDashboard from '@/components/dashboards/AdminDashboard';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { PageShell } from '@/components/ui/page-shell';
+import { Skeleton } from '@/components/ui/skeleton';
 import { contextualCookies, getCurrentContext } from '@/utils/cookie-manager';
 
 export default function AdminDashboardPage() {
@@ -31,7 +36,9 @@ export default function AdminDashboardPage() {
         user.roles[0].name) : 
       'admin');
   
-  const isAdmin = userRole === 'admin';
+  // The school dashboard is for the admin and the principal (academic admin)
+  const isAdmin = ['admin', 'tenant-admin', 'academic-admin'].includes(userRole) ||
+    (Array.isArray(user?.roles) && user.roles.some((r) => ['admin', 'tenant-admin', 'academic-admin'].includes(typeof r === 'string' ? r : r.name)));
   
   useEffect(() => {
     try {
@@ -86,66 +93,31 @@ export default function AdminDashboardPage() {
     }
   }, [user, authLoading, isAdmin, userRole, router, stableTenant]);
 
-  // Show loading state
-  if (tenantLoading || authLoading) {
+  // Loading, or on the way somewhere else (signed out, or another role's home)
+  if (tenantLoading || authLoading || !user || (!isAdmin && !error)) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold mb-2">Loading Admin Dashboard...</h2>
-          <p className="text-gray-500">Please wait while we prepare your admin dashboard.</p>
-        </div>
-      </div>
+      <PageShell title="Home">
+        <Skeleton className="h-48 w-full rounded-xl" />
+      </PageShell>
     );
   }
 
-  // Show error state
   if (error) {
-    const getLoginPath = () => {
-      if (stableTenant?.domain) {
-        return `/${stableTenant.domain}/login`;
-      }
-      return '/login';
-    };
-
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold mb-2 text-red-600">Error</h2>
-          <p className="text-gray-700">{error}</p>
-          <button 
-            onClick={() => router.push(getLoginPath())} 
-            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            Go to Login
-          </button>
-        </div>
-      </div>
+      <PageShell title="Home">
+        <EmptyState
+          icon={School}
+          title="Your school didn't load"
+          description="Sign in again to open your school's home."
+          action={
+            <Button onClick={() => router.push(stableTenant?.domain ? `/${stableTenant.domain}/login` : '/login')}>
+              Go to sign-in
+            </Button>
+          }
+        />
+      </PageShell>
     );
   }
 
-  // Return loading state if no user (while redirect is happening)
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold mb-2">Redirecting...</h2>
-          <p className="text-gray-500">Please wait...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Only render admin dashboard for admin users
-  if (isAdmin) {
-    return <AdminDashboard />;
-  }
-  
-  // Fallback - should not reach here due to redirect logic above
-  return (
-    <div className="p-6">
-      <h1 className="text-3xl font-bold">Access Denied</h1>
-      <p className="mt-4">You do not have permission to access the admin dashboard.</p>
-      <p className="mt-2 text-sm text-gray-600">Role: {userRole}</p>
-    </div>
-  );
+  return <AdminDashboard />;
 }
