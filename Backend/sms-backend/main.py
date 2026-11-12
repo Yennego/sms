@@ -151,21 +151,21 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 #     return {"cpuUsage": 0.5, "memoryUsage": 0.6, "diskUsage": 0.7, "activeConnections": 10, "alerts": [], "tenantGrowth": []}
 
 
+from sqlalchemy.orm import Session
+from src.db.session import get_db
+
+
 @app.get("/health", include_in_schema=False)
-def health() -> dict:
+def health(db: Session = Depends(get_db)):
     """Liveness for deploy checks and monitors: the API answers and reaches the database."""
     from fastapi.responses import JSONResponse
     from sqlalchemy import text
-    from src.db.session import platform_session
 
-    db = platform_session()
     try:
         db.execute(text("SELECT 1"))
         return {"status": "ok", "database": "ok"}
     except Exception:
         return JSONResponse(status_code=503, content={"status": "degraded", "database": "unreachable"})
-    finally:
-        db.close()
 
 
 # Mount static files directory (create if doesn't exist for cloud deployment)
