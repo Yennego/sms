@@ -1,20 +1,21 @@
 'use client';
 
+// Enroll many students at once from a CSV file: rows are matched to students by id, admission
+// number, email or name; rows with a name and email that match nobody become new students.
+
 import React, { useState, useEffect } from 'react';
+import { Download, Loader2 } from 'lucide-react';
+
+import { selectClass } from '@/components/students/admission-form';
+import { errorMessage } from '@/components/students/format';
 import { Button } from '@/components/ui/button';
+import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useEnrollmentService } from '@/services/api/enrollment-service';
-import { useStudentService } from '@/services/api/student-service';
+import { notify } from '@/components/ui/toaster';
+import { plural } from '@/components/year-end/format';
+import { useBulkCreateEnrollments, useCreateStudentsBulk, useSectionsOfGrade } from '@/components/year-end/queries';
 import { AcademicYear, Grade, Section, BulkEnrollmentCreate } from '@/types/enrollment';
-import { Student } from '@/types/student';
-import { useBulkCreateEnrollments } from '@/hooks/queries/enrollments';
-import { useCreateStudentsBulk } from '@/hooks/queries/students';
-import { useSectionsByGrade } from '@/hooks/queries/sections';
-import { toast } from 'sonner';
-import { AppError, ErrorType } from '@/utils/error-utils';
-import { Loader2 } from 'lucide-react';
+import { Student, StudentCreate } from '@/types/student';
 
 interface BulkEnrollmentFormProps {
   students: Student[];
@@ -23,7 +24,10 @@ interface BulkEnrollmentFormProps {
   sections: Section[];
   currentAcademicYear: AcademicYear | null;
   onSuccess: () => void;
+  onCancel?: () => void;
 }
+
+type BulkResponseItem = { student_id?: string; id?: string; error?: string; message?: string };
 
 export default function BulkEnrollmentForm({
   students,
@@ -32,16 +36,12 @@ export default function BulkEnrollmentForm({
   sections,
   currentAcademicYear,
   onSuccess,
+  onCancel,
 }: BulkEnrollmentFormProps) {
-  const enrollmentService = useEnrollmentService();
-  const studentService = useStudentService();
-
   const createStudentsBulkMutation = useCreateStudentsBulk();
   const bulkCreateEnrollmentsMutation = useBulkCreateEnrollments();
 
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
-  const [lastSummary, setLastSummary] =
-    useState<{ created: string[]; failed: Array<{ student_id: string; reason: string }> } | null>(null);
 
   // Define row detail type and fix state typings
   type CsvRowDetail = {
@@ -56,7 +56,6 @@ export default function BulkEnrollmentForm({
   };
 
   const [csvRowsDetail, setCsvRowsDetail] = useState<CsvRowDetail[]>([]);
-  const [csvMetaLocked, setCsvMetaLocked] = useState(false);
 
   const creatableCount = React.useMemo(
     () =>
@@ -94,7 +93,7 @@ export default function BulkEnrollmentForm({
   }, [currentAcademicYear?.id]);
 
   // Section filtering
-  const { data: filteredSectionsData, isLoading: loadingSections } = useSectionsByGrade(formData.grade_id);
+  const { data: filteredSectionsData, isLoading: loadingSections } = useSectionsOfGrade(formData.grade_id);
   const filteredSections = React.useMemo(() => {
     return Array.isArray(filteredSectionsData) ? filteredSectionsData : [];
   }, [filteredSectionsData]);
@@ -119,7 +118,7 @@ export default function BulkEnrollmentForm({
     const v = norm(value);
     const n = digits(v);
     if (n != null) {
-      const byLevel = grades.find((g: any) => (g?.level ?? null) === n);
+      const byLevel = grades.find((g) => (g?.level ?? null) === n);
       if (byLevel) return byLevel.id;
       const byNameNum = grades.find((g) => norm(g.name).includes(String(n)));
       if (byNameNum) return byNameNum.id;
@@ -344,7 +343,6 @@ export default function BulkEnrollmentForm({
       setSelectedStudents([]);
       setCsvRowsDetail([]);
       setImportSummary({ matched: 0, notMatched: [] });
-      setCsvMetaLocked(false);
       return;
     }
     const text = await file.text();
@@ -362,17 +360,8 @@ export default function BulkEnrollmentForm({
       enrollment_date: csvIdFields.enrollment_date ?? prev.enrollment_date,
     }));
 
-    // Fix: lock selectors if CSV provides consistent values
-    setCsvMetaLocked(Boolean(
-      csvIdFields.academic_year_id &&
-      csvIdFields.grade_id &&
-      csvIdFields.section_id &&
-      csvIdFields.enrollment_date &&
-      multiWarnings.length === 0
-    ));
-
     const notices = [...multiWarnings, ...nameWarnings];
-    if (notices.length) toast.info(notices.join(' '));
+    if (notices.length) notify.info(notices.join(' '));
   };
 
   const downloadCsvTemplate = () => {
@@ -400,7 +389,7 @@ export default function BulkEnrollmentForm({
     e.preventDefault();
 
     if (!formData.academic_year_id || !formData.grade_id || !formData.section_id) {
-      toast.error('Academic year, grade, and section are required');
+      notify.error('Choose a school year, grade and section.');
       return;
     }
 
@@ -409,20 +398,17 @@ export default function BulkEnrollmentForm({
         (r: CsvRowDetail) => !r.resolvedId && r.first_name && r.last_name && r.email
       );
 
-      let newlyCreatedIds: string[] = [];
+      const newlyCreatedIds: string[] = [];
       const creationFailures: Array<{ label: string; reason: string }> = [];
 
       if (missingCandidates.length > 0) {
-        const studentsToCreate = missingCandidates.map(r => ({
+        const studentsToCreate = missingCandidates.map((r) => ({
           firstName: r.first_name!,
           lastName: r.last_name!,
           email: r.email!,
-        }));
+        })) as StudentCreate[];
 
-        console.log('[BulkEnrollment] Attempting to create missing students:', studentsToCreate);
         const results = await createStudentsBulkMutation.mutateAsync(studentsToCreate);
-        console.log('[BulkEnrollment] Student creation results:', results);
-
         results.forEach((res, idx) => {
           if (res.success) {
             newlyCreatedIds.push(res.id);
@@ -430,7 +416,7 @@ export default function BulkEnrollmentForm({
             const candidate = missingCandidates[idx];
             creationFailures.push({
               label: `${candidate.first_name} ${candidate.last_name}`,
-              reason: res.error || 'Failed to create student'
+              reason: res.error || 'Failed to create student',
             });
           }
         });
@@ -438,216 +424,191 @@ export default function BulkEnrollmentForm({
 
       const allIds = [...selectedStudents, ...newlyCreatedIds];
       if (allIds.length === 0) {
-        toast.error('No students matched or created from CSV');
+        notify.error('No student in the file matched or could be added. Check the file and try again.');
         return;
       }
 
       if (newlyCreatedIds.length) {
-        toast.info(`Created ${newlyCreatedIds.length} missing students`);
+        notify.info(`${plural(newlyCreatedIds.length, 'new student')} added.`);
       }
       if (creationFailures.length) {
-        toast.error(`Failed to create ${creationFailures.length} students`, {
+        notify.error(`${plural(creationFailures.length, 'student')} couldn't be added`, {
           description:
-            creationFailures.slice(0, 3).map((f) => f.label).join(', ') +
-            (creationFailures.length > 3 ? '...' : ''),
+            creationFailures.slice(0, 3).map((f) => f.label).join(', ') + (creationFailures.length > 3 ? '…' : ''),
         });
       }
 
-      console.log('[BulkEnrollment] Enrolling all student IDs:', allIds);
-      const resp: any = await bulkCreateEnrollmentsMutation.mutateAsync({
+      const resp: unknown = await bulkCreateEnrollmentsMutation.mutateAsync({
         ...formData,
         student_ids: allIds,
       });
 
       let created: string[] = [];
       let failed: Array<{ student_id: string; reason: string }> = [];
-
+      const idOf = (item: BulkResponseItem) => item.student_id || item.id;
       if (Array.isArray(resp)) {
-        created = resp.map((e: any) => e.student_id || e.id).filter(Boolean);
+        created = (resp as BulkResponseItem[]).map(idOf).filter(Boolean) as string[];
       } else if (resp && typeof resp === 'object') {
-        if (Array.isArray(resp.created)) {
-          created = resp.created.map((e: any) => e.student_id || e.id).filter(Boolean);
-        }
-        if (Array.isArray(resp.failed)) {
-          failed = resp.failed.map((e: any) => ({
-            student_id: e.student_id || e.id,
-            reason: e.error || e.message || 'Failed',
+        const r = resp as { created?: BulkResponseItem[]; failed?: BulkResponseItem[] };
+        if (Array.isArray(r.created)) created = r.created.map(idOf).filter(Boolean) as string[];
+        if (Array.isArray(r.failed)) {
+          failed = r.failed.map((item) => ({
+            student_id: idOf(item) ?? '',
+            reason: item.error || item.message || 'Failed',
           }));
         }
       }
 
-      setLastSummary({ created, failed });
-      toast.success(`Enrolled ${created.length} students`, {
-        description: failed.length ? `${failed.length} failed` : undefined,
+      const failedNames = failed.slice(0, 3).map(({ student_id, reason }) => {
+        const s = students.find((st) => st.id === student_id);
+        return `${s ? `${s.firstName} ${s.lastName}` : student_id}: ${reason}`;
+      });
+      notify.success(`${plural(created.length, 'student')} enrolled.`, {
+        description: failed.length
+          ? `${failed.length} not enrolled. ${failedNames.join('; ')}${failed.length > 3 ? '…' : ''}`
+          : undefined,
       });
       onSuccess();
-    } catch (error: any) {
-      console.error('[BulkEnrollment] Process failed:', error);
-      if (error instanceof AppError) {
-        if (error.statusCode === 401 || error.statusCode === 403) {
-          toast.error('Session expired. Please log out and back in.');
-        } else if (error.statusCode === 422 || error.type === ErrorType.VALIDATION) {
-          toast.error(error.message);
-        } else {
-          toast.error(error.message || 'Bulk enrollment failed');
-        }
-      } else {
-        toast.error('An unexpected error occurred during bulk enrollment');
-      }
+    } catch (error) {
+      const status = (error as { statusCode?: number })?.statusCode;
+      notify.error(
+        status === 401 || status === 403
+          ? 'Your session has ended. Sign out and sign in again.'
+          : errorMessage(error, "The students weren't enrolled. Try again.")
+      );
     }
   };
 
   const isSubmitting = createStudentsBulkMutation.isPending || bulkCreateEnrollmentsMutation.isPending;
+  const total = selectedStudents.length + creatableCount;
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="academicYear">Academic Year *</Label>
-          <Select
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <FormField label="School year" required>
+          <select
+            className={selectClass}
             value={formData.academic_year_id}
-            onValueChange={(value) => setFormData((prev) => ({ ...prev, academic_year_id: value }))}
+            onChange={(e) => setFormData((prev) => ({ ...prev, academic_year_id: e.target.value }))}
           >
-            <SelectTrigger>
-              <SelectValue placeholder="Select academic year" />
-            </SelectTrigger>
-            <SelectContent>
-              {academicYears.map((year) => (
-                <SelectItem key={year.id} value={year.id}>
-                  {year.name} {year.is_current && '(Current)'}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+            <option value="">Choose a school year</option>
+            {academicYears.map((year) => (
+              <option key={year.id} value={year.id}>
+                {year.name}
+                {year.is_current ? ' (current)' : ''}
+              </option>
+            ))}
+          </select>
+        </FormField>
 
-        <div>
-          <Label htmlFor="grade">Grade *</Label>
-          <Select
+        <FormField label="Grade" required>
+          <select
+            className={selectClass}
             value={formData.grade_id}
-            onValueChange={(value) => setFormData((prev) => ({ ...prev, grade_id: value, section_id: '' }))}
+            onChange={(e) => setFormData((prev) => ({ ...prev, grade_id: e.target.value, section_id: '' }))}
           >
-            <SelectTrigger>
-              <SelectValue placeholder="Select grade" />
-            </SelectTrigger>
-            <SelectContent>
-              {grades.map((grade) => (
-                <SelectItem key={grade.id} value={grade.id}>
-                  {grade.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+            <option value="">Choose a grade</option>
+            {grades.map((grade) => (
+              <option key={grade.id} value={grade.id}>
+                {grade.name}
+              </option>
+            ))}
+          </select>
+        </FormField>
 
-        <div>
-          <Label htmlFor="section">Section *</Label>
-          <Select
+        <FormField
+          label="Section"
+          required
+          description={!formData.grade_id ? 'Choose a grade to see its sections.' : undefined}
+        >
+          <select
+            className={selectClass}
             value={formData.section_id}
-            onValueChange={(value) => setFormData((prev) => ({ ...prev, section_id: value }))}
+            onChange={(e) => setFormData((prev) => ({ ...prev, section_id: e.target.value }))}
             disabled={!formData.grade_id || loadingSections || filteredSections.length === 0}
           >
-            <SelectTrigger>
-              <SelectValue placeholder={loadingSections ? 'Loading...' : 'Select section'} />
-            </SelectTrigger>
-            <SelectContent>
-              {filteredSections.map((section) => (
-                <SelectItem key={section.id} value={section.id}>
-                  {section.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+            <option value="">{loadingSections ? 'Loading sections…' : 'Choose a section'}</option>
+            {filteredSections.map((section) => (
+              <option key={section.id} value={section.id}>
+                {section.name}
+              </option>
+            ))}
+          </select>
+        </FormField>
 
-        <div>
-          <Label htmlFor="enrollmentDate">Enrollment Date *</Label>
+        <FormField label="Enrollment date" required>
           <Input
-            id="enrollmentDate"
             type="date"
+            className="h-11 text-base md:h-9 md:text-sm"
             value={formData.enrollment_date}
             onChange={(e) => setFormData((prev) => ({ ...prev, enrollment_date: e.target.value }))}
           />
-        </div>
+        </FormField>
 
-        <div>
-          <Label htmlFor="semester">Semester *</Label>
-          <Select
+        <FormField label="Semester" required>
+          <select
+            className={selectClass}
             value={String(formData.semester)}
-            onValueChange={(value) => setFormData((prev) => ({ ...prev, semester: parseInt(value) }))}
+            onChange={(e) => setFormData((prev) => ({ ...prev, semester: parseInt(e.target.value, 10) }))}
           >
-            <SelectTrigger id="semester">
-              <SelectValue placeholder="Select semester" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="1">Semester 1</SelectItem>
-              <SelectItem value="2">Semester 2</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+            <option value="1">Semester 1</option>
+            <option value="2">Semester 2</option>
+          </select>
+        </FormField>
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="csvFile">
-          Upload CSV (student_id or admission or email or first+last; use names for academic year, grade, section)
-        </Label>
-        <div className="flex items-center gap-2">
-          <Input id="csvFile" type="file" accept=".csv" onChange={(e) => handleCsvFile(e.target.files?.[0] ?? null)} />
-          <Button type="button" variant="secondary" onClick={downloadCsvTemplate}>
-            Download CSV template
+      <div className="flex flex-col gap-3 rounded-xl border p-4">
+        <FormField
+          label="CSV file"
+          description="Each row needs a student_id, admission number, email, or first and last name. Optional columns academic_year, grade, section and enrollment_date fill in the choices above when every row has the same value."
+        >
+          <Input
+            type="file"
+            accept=".csv"
+            className="h-11 md:h-9"
+            onChange={(e) => handleCsvFile(e.target.files?.[0] ?? null)}
+          />
+        </FormField>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button type="button" variant="outline" className="min-h-11 md:min-h-9" onClick={downloadCsvTemplate}>
+            <Download aria-hidden="true" />
+            Download a template
           </Button>
-          <Button type="button" variant="ghost" onClick={() => handleCsvFile(null)}>
-            Clear import
-          </Button>
+          {importSummary.matched > 0 || importSummary.notMatched.length > 0 ? (
+            <Button type="button" variant="ghost" className="min-h-11 md:min-h-9" onClick={() => handleCsvFile(null)}>
+              Clear the file
+            </Button>
+          ) : null}
         </div>
-        <p className="text-xs text-muted-foreground">
-          Optional CSV columns: academic_year, grade, section, enrollment_date. If consistent across rows, they auto-fill above.
+        <p role="status" className="text-sm text-muted-foreground">
+          {importSummary.matched} matched
+          {importSummary.notMatched.length ? ` · ${importSummary.notMatched.length} not matched` : ''}
+          {creatableCount ? ` · ${creatableCount} will be added as new students` : ''}
         </p>
-        <p className="text-sm text-muted-foreground">
-          Matched: {importSummary.matched}
-          {importSummary.notMatched.length ? ` | Not matched: ${importSummary.notMatched.length}` : ''}
-          {creatableCount ? ` | Will create: ${creatableCount}` : ''}
-        </p>
-        {importSummary.notMatched.length > 0 && (
-          <div className="rounded-md border p-3">
-            <div className="font-medium">Unmatched students</div>
-            <ul className="text-sm list-disc ml-5">
+        {importSummary.notMatched.length > 0 ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <p className="font-medium">Not matched to a student</p>
+            <ul className="ml-5 list-disc">
               {importSummary.notMatched.slice(0, 20).map((val, idx) => (
                 <li key={idx}>{val || '(empty)'}</li>
               ))}
             </ul>
-            {importSummary.notMatched.length > 20 && (
-              <p className="text-xs text-muted-foreground mt-1">+{importSummary.notMatched.length - 20} more</p>
-            )}
+            {importSummary.notMatched.length > 20 ? (
+              <p className="mt-1">and {importSummary.notMatched.length - 20} more</p>
+            ) : null}
           </div>
-        )}
+        ) : null}
       </div>
 
-      {lastSummary && (
-        <div className="rounded-md border p-3">
-          <div className="font-medium">Bulk Enrollment Summary</div>
-          <div className="text-sm">
-            Created: {lastSummary.created.length} | Failed: {lastSummary.failed.length}
-          </div>
-          {lastSummary.failed.length > 0 && (
-            <ul className="mt-2 text-sm">
-              {lastSummary.failed.map(({ student_id, reason }) => {
-                const s = students.find((st) => st.id === student_id);
-                return <li key={student_id}>{s ? `${s.firstName} ${s.lastName}` : student_id}: {reason}</li>;
-              })}
-            </ul>
-          )}
-        </div>
-      )}
-
-      <div className="flex justify-end gap-2 pt-4">
-        <Button type="submit" disabled={isSubmitting || (selectedStudents.length === 0 && creatableCount === 0)}>
-          {isSubmitting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Processing...
-            </>
-          ) : `Enroll ${selectedStudents.length + creatableCount} Students`}
+      <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">
+        {onCancel ? (
+          <Button type="button" variant="outline" className="min-h-11 md:min-h-9" onClick={onCancel} disabled={isSubmitting}>
+            Cancel
+          </Button>
+        ) : null}
+        <Button type="submit" className="min-h-11 md:min-h-9" disabled={isSubmitting || total === 0}>
+          {isSubmitting ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+          {isSubmitting ? 'Enrolling…' : total === 0 ? 'Enroll students' : `Enroll ${plural(total, 'student')}`}
         </Button>
       </div>
     </form>
