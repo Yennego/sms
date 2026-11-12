@@ -1,43 +1,55 @@
-[tool.poetry]
+# The API's dependencies (PEP 621), pinned to the versions the tests run with. FastAPI Cloud installs
+# from this file (and uv.lock); CI installs requirements.txt, which carries the same pins.
+[project]
 name = "multi-tenant-sms"
 version = "0.1.0"
 description = "A Multi-Tenant SMS"
-authors = ["Zayzay J. Yennego <zyennego@gmail.com>"]
+authors = [{ name = "Zayzay J. Yennego", email = "zyennego@gmail.com" }]
 license = "MIT"
 readme = "README.md"
-packages = [{ include = "src" }]
+requires-python = "==3.13.*"
+dependencies = [
+    "fastapi[standard]==0.115.12",  # includes fastapi-cli, which FastAPI Cloud runs the app with
+    "uvicorn==0.34.2",
+    "sqlalchemy==2.0.40",
+    "psycopg2-binary==2.9.10",
+    "pydantic[email]==2.11.3",
+    "alembic==1.11.1",
+    "python-jose==3.3.0",
+    "passlib==1.7.4",
+    "python-multipart==0.0.20",
+    "pydantic-settings==2.9.1",
+    "bcrypt==4.3.0",
+    "redis==6.0.0",
+    "openpyxl==3.1.5",
+    "python-dotenv==1.2.1",
+    "argon2-cffi==23.1.0",
+    "logfire==4.27.0",
+    "httpx==0.27.0",
+    "Pillow==12.1.1",
+    "tzdata==2025.3",  # IANA timezones for zoneinfo
+    "segno==1.6.6",  # QR codes for student ID cards
+    "pandas==3.0.1",
+    "reportlab==4.4.10",
+    "numpy==2.4.3",
+    "email-validator==2.3.0",
+    "cryptography==42.0.5",
+    "boto3==1.34.162",  # S3-compatible file storage (FILE_STORAGE=s3)
+]
 
-[tool.poetry.dependencies]
-python = ">=3.13,<3.14"
+[dependency-groups]
+dev = [
+    "pytest==8.0.0",
+    "pytest-cov==4.0.0",
+    "black==23.1.0",
+    "isort==5.12.0",
+    "mypy==1.9.0",
+]
 
-fastapi = "^0.115.12"
-uvicorn = "^0.34.2"
-sqlalchemy = "^2.0.40"
-tzdata = ">=2025.3"
-segno = "^1.6.6"
-psycopg2-binary = "^2.9.10"
-pydantic          = {extras = ["email"], version = "^2.11.3"}
-alembic           = "^1.11.1"
-python-jose       = "^3.3.0"
-passlib           = "^1.7.4"
-python-multipart  = "^0.0.6"
-pydantic-settings = "^2.9.1"
-bcrypt = "^4.3.0"
-redis = "^6.0.0"
-argon2-cffi = "^25.1.0"
-boto3 = "^1.34"  # S3-compatible file storage (FILE_STORAGE=s3)
+# `fastapi run` / `fastapi deploy` load the app from here
+[tool.fastapi]
+entrypoint = "main:app"
 
-[tool.poetry.group.dev.dependencies]
-pytest        = "^8.0.0"
-pytest-cov    = "^4.0.0"
-httpx         = "^0.27.0"  # FastAPI TestClient
-black        = "^23.1.0"
-isort         = "^5.12.0"
-mypy          = "^1.9.0"
-
-[tool.poetry.scripts]
-validate-configs = "scripts.validate_configs:main"
-
-[build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+# An application, not a library: uv installs the dependencies only
+[tool.uv]
+package = false

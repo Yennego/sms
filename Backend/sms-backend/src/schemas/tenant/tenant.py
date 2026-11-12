@@ -1,7 +1,7 @@
 from typing import Optional, Dict, Any, Union
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.schemas.base.base import BaseSchema, TimestampSchema
 from src.core.security.password_policy import check_password
@@ -90,19 +90,16 @@ class TenantUpdate(BaseModel):
 
 
 class TenantSelfUpdate(BaseModel):
-    """What a school admin may change about their own school (branding only).
+    """What a school admin may change about their own school: logo and colours.
 
-    Code, domain, active state and billing are platform-controlled (super-admin)."""
-    name: Optional[str] = None
+    The name, code, web address (domain), active state and billing are the platform operator's: the
+    name is printed on report cards and receipts, and the address is in every saved link. Anything
+    else is refused, not ignored."""
+    model_config = ConfigDict(extra="forbid")
+
     logo: Optional[str] = None
     primary_color: Optional[str] = None
     secondary_color: Optional[str] = None
-
-    @field_validator('name')
-    def validate_name_length(cls, v):
-        if v and len(v) < 3:
-            raise ValueError("tenant name must be at least 3 characters long")
-        return v
 
 
 class TenantPublic(BaseModel):

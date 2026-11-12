@@ -34,7 +34,7 @@ ADMIN_PERMISSIONS = [
     # academics and attendance check these instead of the admin role name (migration c3f9a1d7e2b8)
     "view_classes", "manage_classes", "view_subjects", "manage_subjects", "manage_teacher_assignments",
     "view_academic_data", "manage_academic_data", "create_assignments", "delete_assignments",
-    "delete_students", "view_school_attendance", "manage_school_attendance", "view_teachers",
+    "delete_students", "view_school_attendance", "manage_school_attendance", "view_teachers", "view_audit_logs",
 ]
 PLATFORM_ONLY = ["manage_tenants"]
 
@@ -434,3 +434,44 @@ def test_deactivated_student_can_no_longer_sign_in(env):
     assert client.get("/api/v1/auth/me", headers=h_student).status_code == 401  # existing session ends
     client.put(f"/api/v1/people/students/{ids['student_a']}/status?status=active", headers=h_admin)
     assert client.get("/api/v1/auth/me", headers=h_student).status_code == 200
+
+
+def test_health_is_public_and_checks_the_database(env):
+    client, _ = env
+    r = client.get("/health")
+    assert r.status_code == 200 and r.json() == {"status": "ok", "database": "ok"}
+
+
+def test_school_audit_log_applies_filters_together_with_dates(env):
+    """The action and record-type filters still apply when dates are given (they used to be dropped)."""
+    from datetime import datetime, timedelta
+    from src.db.models.logging.activity_log import ActivityLog
+
+    client, ids = env
+    gen = main.app.dependency_overrides[get_db]()
+    db = next(gen)
+    now = datetime.utcnow()
+    for action, entity in (("create", "student"), ("update", "student"), ("create", "payment")):
+        db.add(ActivityLog(tenant_id=ids["tenant_a"], user_id=ids["admin_a"], action=action, entity_type=entity))
+    next(gen, None)
+
+    params = {"action": "create", "entity_type": "student",
+              "start_date": (now - timedelta(days=1)).isoformat(), "end_date": (now + timedelta(days=1)).isoformat()}
+    r = client.get("/api/v1/logging/audit-logs", headers=headers(ids, "admin_a"), params=params)
+    assert r.status_code == 200, r.text
+    assert r.json()["total"] == 1 and r.json()["items"][0]["action"] == "create"
+    assert client.get("/api/v1/logging/audit-logs", headers=headers(ids, "admin_a"),
+                      params={"limit": 5000}).status_code == 422  # page size is capped
+
+
+def test_school_admin_changes_colours_but_not_the_name_or_address(env):
+    """The school's name (report cards, receipts) and web address (saved links) are the operator's."""
+    client, ids = env
+    h = headers(ids, "admin_a")
+    ok = client.put("/api/v1/tenants/self", headers=h, json={"primary_color": "#123456"})
+    assert ok.status_code == 200 and ok.json()["primary_color"] == "#123456"
+    for field, value in (("name", "Renamed School"), ("domain", "renamed"), ("code", "XYZ")):
+        r = client.put("/api/v1/tenants/self", headers=h, json={field: value})
+        assert r.status_code == 422, (field, r.text)
+    after = client.get(f"/api/v1/tenants/{ids['tenant_a']}", headers=h).json()
+    assert after["name"] == "School A" and after["domain"] == "school-a"

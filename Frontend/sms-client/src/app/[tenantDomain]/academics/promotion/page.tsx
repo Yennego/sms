@@ -1,377 +1,498 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { usePromotionService, type TransitionResult } from '@/services/api/promotion-service';
-import { useAcademicYear } from '@/contexts/academic-year-context';
-import { useAcademicGradeService } from '@/services/api/academic-grade-service';
-import { useSectionService } from '@/services/api/section-service';
+// Year-end promotion: check a grade's results against the promotion rules, adjust a student's
+// score if needed, then move the grade into next year's classes. Passed students move up,
+// failed ones repeat with remedial work, final-grade students are left for the Graduation page.
+
+import React, { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import type { ColumnDef } from '@tanstack/react-table';
+import { ArrowRight, BookOpen, CheckCircle2, ListChecks, Settings2, TrendingUp } from 'lucide-react';
+
+import { CountTiles } from '@/components/attendance/attendance-ui';
+import { selectClass } from '@/components/students/admission-form';
+import { errorMessage } from '@/components/students/format';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow
-} from '@/components/ui/table';
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle
-} from '@/components/ui/dialog';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue
-} from '@/components/ui/select';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { DataTable } from '@/components/ui/data-table';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { toast } from 'sonner';
-import { Loader2, TrendingUp, UserCheck, UserX, AlertCircle, Save, ArrowRight, BookOpen, ChevronDown, ChevronUp } from 'lucide-react';
-import RemedialPanel from '@/components/students/remedial-panel';
+import { Label } from '@/components/ui/label';
+import { PageShell } from '@/components/ui/page-shell';
+import { Skeleton } from '@/components/ui/skeleton';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { notify } from '@/components/ui/toaster';
+import { plural, promotionBadge } from '@/components/year-end/format';
+import { RemedialSection } from '@/components/year-end/remedial-section';
+import {
+  useApplyScaling,
+  useGradeLevels,
+  usePromotionEvaluation,
+  useRefreshYearEnd,
+  useSectionsOfGrade,
+  useStartTransition,
+  type EvaluationParams,
+} from '@/components/year-end/queries';
+import { useAcademicYear } from '@/contexts/academic-year-context';
+import type { PromotionEvaluationResult, TransitionResult } from '@/services/api/promotion-service';
 
-export default function PromotionDashboard() {
-    const [loading, setLoading] = useState(false);
-    const [academicYears, setAcademicYears] = useState<any[]>([]);
-    const [selectedYear, setSelectedYear] = useState('');
-    const [grades, setGrades] = useState<any[]>([]);
-    const [selectedGrade, setSelectedGrade] = useState('');
-    const [evaluationResults, setEvaluationResults] = useState<any[]>([]);
-    const [sections, setSections] = useState<any[]>([]);
-    const [selectedSection, setSelectedSection] = useState('all');
-    const [scalingInput, setScalingInput] = useState<Record<string, number>>({});
-    const [isTransitionModalOpen, setIsTransitionModalOpen] = useState(false);
-    const [expandedRemedial, setExpandedRemedial] = useState<string | null>(null);
-    const [targetYearName, setTargetYearName] = useState('');
-    const [transitionResult, setTransitionResult] = useState<TransitionResult | null>(null);
+export default function PromotionPage() {
+  const { tenantDomain } = useParams<{ tenantDomain: string }>();
+  const base = `/${tenantDomain}`;
+  const { academicYears: ayList } = useAcademicYear();
+  const { data: grades = [] } = useGradeLevels();
 
-    const promotionService = usePromotionService();
-    const gradeService = useAcademicGradeService();
-    const sectionService = useSectionService();
-    const { academicYears: ayList } = useAcademicYear();
+  const [selectedYear, setSelectedYear] = useState('');
+  const [selectedGrade, setSelectedGrade] = useState('');
+  const [selectedSection, setSelectedSection] = useState('all');
+  const [targetChoice, setTargetChoice] = useState('');
+  // The year, grade and section whose results are shown (set by "Check results")
+  const [checked, setChecked] = useState<EvaluationParams | null>(null);
+  const [scaling, setScaling] = useState<{ row: PromotionEvaluationResult; points: number } | null>(null);
+  const [remedialFor, setRemedialFor] = useState<PromotionEvaluationResult | null>(null);
+  const [confirmMove, setConfirmMove] = useState(false);
+  const [transitionResult, setTransitionResult] = useState<{ result: TransitionResult; target: string } | null>(null);
 
-    // Filter academic years to show only current and future/scheduled
-    const filteredYears = useMemo(() => {
-        const today = new Date();
-        return ayList.filter(y => y.is_current || new Date(y.start_date) > today || (new Date(y.end_date) >= today));
-    }, [ayList]);
+  const sectionsQuery = useSectionsOfGrade(selectedGrade);
+  const sections = useMemo(() => (Array.isArray(sectionsQuery.data) ? sectionsQuery.data : []), [sectionsQuery.data]);
+  const evaluation = usePromotionEvaluation(checked);
+  const applyScaling = useApplyScaling();
+  const transition = useStartTransition();
+  const refreshYearEnd = useRefreshYearEnd();
 
-    // Students move into a school year that starts after the one being evaluated, never an older one
-    const targetYears = useMemo(() => {
-        const from = ayList.find(y => y.id === selectedYear);
-        if (!from) return [];
-        return ayList
-            .filter(y => y.id !== from.id && new Date(y.start_date) > new Date(from.start_date))
-            .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
-    }, [ayList, selectedYear]);
+  // Current and future school years only
+  const filteredYears = useMemo(() => {
+    const today = new Date();
+    return ayList.filter((y) => y.is_current || new Date(y.start_date) > today || new Date(y.end_date) >= today);
+  }, [ayList]);
 
-    useEffect(() => {
-        setTargetYearName(targetYears[0]?.name ?? '');
-    }, [targetYears]);
+  // Students move into a school year that starts after the one being evaluated, never an older one
+  const targetYears = useMemo(() => {
+    const from = ayList.find((y) => y.id === selectedYear);
+    if (!from) return [];
+    return ayList
+      .filter((y) => y.id !== from.id && new Date(y.start_date) > new Date(from.start_date))
+      .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
+  }, [ayList, selectedYear]);
+  // The first later year unless another is chosen
+  const targetYearName = targetYears.some((y) => y.name === targetChoice) ? targetChoice : (targetYears[0]?.name ?? '');
 
-    useEffect(() => {
-        loadGrades();
-    }, []);
+  const gradeName = grades.find((g) => g.id === (checked?.gradeId ?? selectedGrade))?.name ?? 'this grade';
+  const sectionName = (id?: string) => sections.find((s) => s.id === id)?.name ?? '–';
 
-    useEffect(() => {
-        if (selectedGrade) {
-            sectionService.getSectionsByGrade(selectedGrade).then(setSections);
-        } else {
-            setSections([]);
-        }
-        setSelectedSection('all');
-    }, [selectedGrade]);
+  const results = useMemo(
+    () => (evaluation.data ?? []).filter((r) => selectedSection === 'all' || r.section_id === selectedSection),
+    [evaluation.data, selectedSection]
+  );
+  const counts = useMemo(() => {
+    const c = { Eligible: 0, Conditional: 0, Repeating: 0, 'Not graded': 0 } as Record<string, number>;
+    for (const r of results) c[r.status] = (c[r.status] ?? 0) + 1;
+    return c;
+  }, [results]);
 
-    const loadGrades = async () => {
-        try {
-            const data = await gradeService.getAllGrades();
-            setGrades(data || []);
-        } catch (err) {
-            console.error('Failed to load grades', err);
-        }
-    };
+  // Changing the year or grade clears the results: what is moved is always what was checked
+  const chooseYear = (id: string) => {
+    setSelectedYear(id);
+    setTargetChoice('');
+    setChecked(null);
+    setTransitionResult(null);
+  };
+  const chooseGrade = (id: string) => {
+    setSelectedGrade(id);
+    setSelectedSection('all');
+    setChecked(null);
+    setTransitionResult(null);
+  };
 
-    const runEvaluation = async () => {
-        if (!selectedYear || !selectedGrade) {
-            toast.error('Please select both academic year and grade');
-            return;
-        }
-        setLoading(true);
-        try {
-            const results = await promotionService.evaluatePromotion(selectedYear, selectedGrade, selectedSection);
-            setEvaluationResults(results || []);
-            toast.success('Evaluation complete');
-        } catch (err) {
-            console.error('Evaluation failed', err);
-            toast.error('Failed to evaluate students');
-        } finally {
-            setLoading(false);
-        }
-    };
+  const runEvaluation = () => {
+    if (!selectedYear || !selectedGrade) {
+      notify.error('Choose a school year and a grade.');
+      return;
+    }
+    const params = { yearId: selectedYear, gradeId: selectedGrade, sectionId: selectedSection };
+    if (checked && JSON.stringify(checked) === JSON.stringify(params)) evaluation.refetch();
+    else setChecked(params);
+  };
 
-    const handleScaling = async (enrollmentId: string) => {
-        const points = scalingInput[enrollmentId];
-        if (points === undefined || isNaN(points)) return;
+  const confirmScaling = async () => {
+    if (!scaling) return;
+    try {
+      await applyScaling.mutateAsync({ enrollmentId: scaling.row.enrollment_id, points: scaling.points });
+      notify.success(`${scaling.points > 0 ? '+' : ''}${scaling.points} points given to ${scaling.row.student_name || 'the student'}. Results checked again.`);
+    } catch (error) {
+      notify.error(errorMessage(error, "The points weren't added. Try again."));
+      throw error;
+    }
+  };
 
-        try {
-            await promotionService.applyScaling(enrollmentId, points, 'Manual adjustment via dashboard');
-            toast.success('Scaling applied');
-            // Re-run evaluation for this year/grade to update list
-            runEvaluation();
-        } catch (err) {
-            toast.error('Failed to apply scaling');
-        }
-    };
+  const executeTransition = async () => {
+    if (!checked || !targetYearName) return;
+    try {
+      const res = await transition.mutateAsync({
+        yearId: checked.yearId,
+        targetYearName,
+        gradeId: checked.gradeId,
+      });
+      setTransitionResult({ result: res, target: targetYearName });
+      notify.success(`${plural(res.promoted.length, 'student')} promoted to ${targetYearName}.`);
+    } catch (error) {
+      notify.error(errorMessage(error, 'Nothing was changed. Try again.'));
+      throw error;
+    }
+  };
 
-    const executeTransition = async () => {
-        if (!selectedYear || !selectedGrade || !targetYearName) return;
-
-        setIsTransitionModalOpen(false);
-        setLoading(true);
-
-        try {
-            const res = await promotionService.startTransition(selectedYear, targetYearName, selectedGrade);
-            setTransitionResult(res);
-            toast.success(`${res.promoted.length} promoted to ${targetYearName}`);
-            runEvaluation();
-        } catch (err) {
-            console.error('Transition failed', err);
-            toast.error(err instanceof Error && err.message ? err.message : 'Nothing was changed. Try again.');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    return (
-        <div className="container mx-auto py-8 px-4">
-            <div className="flex flex-col gap-6">
-                <div className="flex justify-between items-center">
-                    <div>
-                        <h1 className="text-3xl font-bold">Promotion & Lifecycle Dashboard</h1>
-                        <p className="text-muted-foreground pt-1">Automated student performance evaluation and year-end transition.</p>
-                    </div>
-                    <Button
-                        onClick={() => setIsTransitionModalOpen(true)}
-                        disabled={loading || evaluationResults.length === 0 || !targetYearName}
-                        className="bg-indigo-600 hover:bg-indigo-700"
-                    >
-                        <ArrowRight className="w-4 h-4 mr-2" />
-                        Execute Transition
-                    </Button>
-                </div>
-
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Evaluation Filters</CardTitle>
-                        <CardDescription>Select a year and grade to evaluate promotion eligibility.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="flex gap-4 items-end">
-                        <div className="flex-1 space-y-2">
-                            <label className="text-sm font-medium">Academic Year</label>
-                            <Select value={selectedYear} onValueChange={setSelectedYear}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select Year" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {filteredYears.map(y => (
-                                        <SelectItem key={y.id} value={y.id}>{y.name}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="flex-1 space-y-2">
-                            <label className="text-sm font-medium">Promote into</label>
-                            <Select value={targetYearName} onValueChange={setTargetYearName} disabled={targetYears.length === 0}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder={selectedYear ? 'Create next school year first' : 'Select year first'} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {targetYears.map(y => (
-                                        <SelectItem key={y.id} value={y.name}>{y.name}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="flex-1 space-y-2">
-                            <label className="text-sm font-medium">Grade</label>
-                            <Select value={selectedGrade} onValueChange={setSelectedGrade}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select Grade" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {grades.map(g => (
-                                        <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="flex-1 space-y-2">
-                            <label className="text-sm font-medium">Section (Optional)</label>
-                            <Select value={selectedSection} onValueChange={setSelectedSection}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="All Sections" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">All Sections</SelectItem>
-                                    {sections.map(s => (
-                                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <Button onClick={runEvaluation} disabled={loading} variant="secondary">
-                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4 mr-2" />}
-                            Evaluate Eligibility
-                        </Button>
-                    </CardContent>
-                </Card>
-
-                {transitionResult && (
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Transition done</CardTitle>
-                            <CardDescription>
-                                {transitionResult.promoted.length} promoted to {targetYearName}.{' '}
-                                {transitionResult.remedial.length} repeat their grade in {targetYearName}, with remedial sessions.{' '}
-                                {transitionResult.skipped.length} not graded, skipped.
-                                {transitionResult.graduating.length > 0 && ` ${transitionResult.graduating.length} in the final grade: graduate them on the Graduation page.`}
-                                {transitionResult.errors.length > 0 && ` ${transitionResult.errors.length} not moved: ${transitionResult.errors.map(e => e.error).join('; ')}.`}
-                            </CardDescription>
-                        </CardHeader>
-                    </Card>
-                )}
-
-                {evaluationResults.length > 0 && (
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Evaluation Results</CardTitle>
-                            <CardDescription>
-                                Summary of students who are passing, failing, or eligible for scaling.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Student</TableHead>
-                                        <TableHead>Section</TableHead>
-                                        <TableHead>Total Score</TableHead>
-                                        <TableHead>Status</TableHead>
-                                        <TableHead>Failed Subjects</TableHead>
-                                        <TableHead className="w-[150px]">Manual Scaling</TableHead>
-                                        <TableHead className="text-right">Action</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {evaluationResults
-                                        .filter(res => selectedSection === 'all' || res.section_id === selectedSection)
-                                        .map((res) => (
-                                            <React.Fragment key={res.enrollment_id}>
-                                                <TableRow>
-                                                    <TableCell className="font-medium">
-                                                        <div className="flex flex-col">
-                                                            <span>{res.student_name || 'Unknown Student'}</span>
-                                                            <span className="text-xs text-muted-foreground">{res.student_id.substring(0, 8)}</span>
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        {sections.find(s => s.id === res.section_id)?.name || 'Unknown'}
-                                                    </TableCell>
-                                                    <TableCell>{res.status === 'Not graded' ? '—' : `${res.total_score}%`}</TableCell>
-                                                    <TableCell>
-                                                        <Badge
-                                                            variant={res.status === 'Eligible' ? 'default' : res.status === 'Repeating' ? 'destructive' : 'secondary'}
-                                                        >
-                                                            {res.status === 'Eligible' ? <UserCheck className="w-3 h-3 mr-1" /> : <UserX className="w-3 h-3 mr-1" />}
-                                                            {res.status}
-                                                        </Badge>
-                                                        {res.status === 'Not graded' && (
-                                                            <p className="mt-1 text-xs text-muted-foreground">No grades recorded yet</p>
-                                                        )}
-                                                    </TableCell>
-                                                    <TableCell>{res.status === 'Not graded' ? '—' : (res.failed_subject_ids?.length || 0)}</TableCell>
-                                                    <TableCell>
-                                                        {/* Scaling only makes sense once there are marks to scale */}
-                                                        {res.status !== 'Not graded' && <Input
-                                                            type="number"
-                                                            placeholder="+/- points"
-                                                            className="h-8 text-sm"
-                                                            value={scalingInput[res.enrollment_id] || ''}
-                                                            onChange={(e) => setScalingInput(prev => ({ ...prev, [res.enrollment_id]: parseFloat(e.target.value) }))}
-                                                        />}
-                                                    </TableCell>
-                                                    <TableCell className="text-right">
-                                                        <div className="flex justify-end gap-2">
-                                                            {(res.status === 'Repeating' || res.status === 'Conditional') && (
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant="ghost"
-                                                                    className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
-                                                                    onClick={() => setExpandedRemedial(expandedRemedial === res.enrollment_id ? null : res.enrollment_id)}
-                                                                >
-                                                                    <BookOpen className="w-4 h-4 mr-1" />
-                                                                    {expandedRemedial === res.enrollment_id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                                                                </Button>
-                                                            )}
-                                                            <Button
-                                                                size="sm"
-                                                                variant="ghost"
-                                                                onClick={() => handleScaling(res.enrollment_id)}
-                                                                disabled={scalingInput[res.enrollment_id] === undefined}
-                                                            >
-                                                                <Save className="w-4 h-4" />
-                                                            </Button>
-                                                        </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                                {expandedRemedial === res.enrollment_id && (
-                                                    <TableRow className="bg-slate-50/50">
-                                                        <TableCell colSpan={7} className="p-4">
-                                                            <div className="max-w-3xl mx-auto">
-                                                                <RemedialPanel enrollmentId={res.enrollment_id} />
-                                                            </div>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                )}
-                                            </React.Fragment>
-                                        ))}
-                                </TableBody>
-                            </Table>
-                        </CardContent>
-                    </Card>
-                )}
+  const columns = useMemo<ColumnDef<PromotionEvaluationResult>[]>(
+    () => [
+      {
+        accessorKey: 'student_name',
+        header: 'Student',
+        cell: ({ row }) => <span className="font-medium">{row.original.student_name || 'Unknown student'}</span>,
+      },
+      {
+        id: 'section',
+        header: 'Section',
+        enableSorting: false,
+        meta: { hideOnMobile: true },
+        cell: ({ row }) => sectionName(row.original.section_id),
+      },
+      {
+        accessorKey: 'total_score',
+        header: 'Total score',
+        cell: ({ row }) => (row.original.status === 'Not graded' ? '–' : `${row.original.total_score}%`),
+      },
+      {
+        accessorKey: 'status',
+        header: 'Decision',
+        cell: ({ row }) => {
+          const b = promotionBadge(row.original.status);
+          return (
+            <div className="flex flex-col gap-1">
+              <StatusBadge status={b.status} label={b.label} />
+              {row.original.status === 'Not graded' ? (
+                <span className="text-xs text-muted-foreground">No grades recorded yet</span>
+              ) : null}
             </div>
+          );
+        },
+      },
+      {
+        id: 'failed',
+        header: 'Subjects failed',
+        enableSorting: false,
+        cell: ({ row }) => (row.original.status === 'Not graded' ? '–' : (row.original.failed_subject_ids?.length ?? 0)),
+      },
+      {
+        id: 'actions',
+        header: '',
+        enableSorting: false,
+        meta: { label: 'Actions', className: 'text-right' },
+        cell: ({ row }) => {
+          const r = row.original;
+          return (
+            <div className="flex flex-wrap items-end justify-end gap-2">
+              {/* Scaling only makes sense once there are marks to scale */}
+              {r.status !== 'Not graded' ? (
+                <ScalingInput
+                  row={r}
+                  disabled={applyScaling.isPending}
+                  onApply={(points) => setScaling({ row: r, points })}
+                />
+              ) : null}
+              {r.status === 'Repeating' || r.status === 'Conditional' ? (
+                <Button variant="outline" size="sm" className="min-h-11 md:min-h-9" onClick={() => setRemedialFor(r)}>
+                  <BookOpen aria-hidden="true" />
+                  Remedial work
+                </Button>
+              ) : null}
+            </div>
+          );
+        },
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sections, applyScaling.isPending]
+  );
 
-            <Dialog open={isTransitionModalOpen} onOpenChange={setIsTransitionModalOpen} align="top" showBackdrop={true}>
-                <DialogContent className="max-w-xl bg-white/90 backdrop-blur-md border border-indigo-100 shadow-2xl mt-10">
-                    <DialogHeader>
-                        <div className="flex items-center gap-2 mb-2">
-                            <div className="p-2 bg-indigo-50 rounded-full text-indigo-600">
-                                <AlertCircle className="w-5 h-5" />
-                            </div>
-                            <DialogTitle className="text-xl">Execute Academic Transition</DialogTitle>
-                        </div>
-                        <DialogDescription className="text-base text-gray-600">
-                            Students in {grades.find(g => g.id === selectedGrade)?.name ?? 'this grade'} who passed move up one grade in {targetYearName}.
-                            Students who failed repeat their grade in {targetYearName} and get remedial sessions. Students not graded are skipped.
-                            <span className="block mt-2 font-medium text-indigo-700">Final-grade students are not moved: graduate them on the Graduation page.</span>
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="flex justify-end gap-3 mt-6">
-                        <Button variant="ghost" onClick={() => setIsTransitionModalOpen(false)} className="hover:bg-gray-100">
-                            Review More
-                        </Button>
-                        <Button className="bg-indigo-600 hover:bg-indigo-700 px-6 shadow-lg shadow-indigo-200" onClick={executeTransition}>
-                            Confirm & Execute
-                        </Button>
-                    </div>
-                </DialogContent>
-            </Dialog>
+  const canMove = Boolean(checked && (evaluation.data?.length ?? 0) > 0 && targetYearName && !transition.isPending);
+
+  return (
+    <PageShell
+      title="Promotion"
+      description="Check a grade's results at the end of the year, then move its students into next year's classes."
+      secondaryActions={
+        <Button asChild variant="outline" className="min-h-11 md:min-h-9">
+          <Link href={`${base}/settings/promotion`}>
+            <Settings2 aria-hidden="true" />
+            Promotion rules
+          </Link>
+        </Button>
+      }
+      primaryAction={
+        <Button className="min-h-11 md:min-h-9" onClick={() => setConfirmMove(true)} disabled={!canMove}>
+          <ArrowRight aria-hidden="true" />
+          {targetYearName ? `Move students to ${targetYearName}` : 'Move students'}
+        </Button>
+      }
+    >
+      <section aria-label="Choose a grade" className="flex flex-col gap-4 rounded-xl border bg-card p-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-2">
+            <Label htmlFor="promo-year">School year</Label>
+            <select id="promo-year" className={selectClass} value={selectedYear} onChange={(e) => chooseYear(e.target.value)}>
+              <option value="">Choose a year</option>
+              {filteredYears.map((y) => (
+                <option key={y.id} value={y.id}>
+                  {y.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="promo-target">Promote into</Label>
+            <select
+              id="promo-target"
+              className={selectClass}
+              value={targetYearName}
+              onChange={(e) => setTargetChoice(e.target.value)}
+              disabled={targetYears.length === 0}
+              aria-describedby="promo-target-help"
+            >
+              {targetYears.length === 0 ? <option value="">–</option> : null}
+              {targetYears.map((y) => (
+                <option key={y.id} value={y.name}>
+                  {y.name}
+                </option>
+              ))}
+            </select>
+            <p id="promo-target-help" className="text-sm text-muted-foreground">
+              {!selectedYear
+                ? 'Choose the school year first.'
+                : targetYears.length === 0
+                  ? 'Create next school year first.'
+                  : 'A school year that starts later.'}
+            </p>
+          </div>
+          <div className="grid content-start gap-2">
+            <Label htmlFor="promo-grade">Grade</Label>
+            <select id="promo-grade" className={selectClass} value={selectedGrade} onChange={(e) => chooseGrade(e.target.value)}>
+              <option value="">Choose a grade</option>
+              {grades.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid content-start gap-2">
+            <Label htmlFor="promo-section">Section</Label>
+            <select
+              id="promo-section"
+              className={selectClass}
+              value={selectedSection}
+              onChange={(e) => setSelectedSection(e.target.value)}
+              disabled={!selectedGrade}
+            >
+              <option value="all">All sections</option>
+              {sections.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-    );
+        <div>
+          <Button
+            variant="secondary"
+            className="min-h-11 md:min-h-9"
+            onClick={runEvaluation}
+            disabled={!selectedYear || !selectedGrade || evaluation.isFetching}
+          >
+            <TrendingUp aria-hidden="true" />
+            {evaluation.isFetching ? 'Checking results…' : 'Check results'}
+          </Button>
+        </div>
+      </section>
+
+      {transitionResult ? <TransitionSummary {...transitionResult} base={base} /> : null}
+
+      {!checked ? (
+        <EmptyState
+          icon={ListChecks}
+          description="Choose a school year and a grade, then check results to see who moves up."
+        />
+      ) : evaluation.isLoading ? (
+        <Skeleton className="h-64 w-full rounded-xl" />
+      ) : evaluation.isError ? (
+        <EmptyState
+          icon={ListChecks}
+          title="The results didn't load"
+          description={`${errorMessage(evaluation.error, 'The server didn’t answer.')} Check your connection and try again.`}
+          action={<Button onClick={() => evaluation.refetch()}>Try again</Button>}
+        />
+      ) : (
+        <>
+          <CountTiles
+            tiles={[
+              { label: 'Eligible', value: counts.Eligible, status: 'success' },
+              { label: 'Conditional', value: counts.Conditional, status: 'warning' },
+              { label: 'Repeating', value: counts.Repeating, status: 'danger' },
+              { label: 'Not graded', value: counts['Not graded'], status: 'neutral' },
+            ]}
+          />
+          <DataTable
+            label={`Results for ${gradeName}`}
+            columns={columns}
+            data={results}
+            searchable
+            searchPlaceholder="Search students"
+            pageSize={50}
+            getRowId={(r) => r.enrollment_id}
+            initialSorting={[{ id: 'student_name', desc: false }]}
+            emptyState={
+              <EmptyState
+                icon={ListChecks}
+                description="No students are enrolled in this grade for that year. Check the enrollments, then try again."
+              />
+            }
+          />
+          {remedialFor ? (
+            <RemedialSection
+              key={remedialFor.enrollment_id}
+              studentName={remedialFor.student_name || 'student'}
+              enrollmentId={remedialFor.enrollment_id}
+              onClose={() => {
+                setRemedialFor(null);
+                refreshYearEnd(); // results may have changed in the panel
+              }}
+            />
+          ) : null}
+        </>
+      )}
+
+      <ConfirmDialog
+        open={Boolean(scaling)}
+        onOpenChange={(open) => !open && setScaling(null)}
+        title={
+          scaling
+            ? `${scaling.points >= 0 ? 'Add' : 'Take away'} ${Math.abs(scaling.points)} points for ${scaling.row.student_name || 'this student'}?`
+            : ''
+        }
+        description="The change is added to their total score and recorded as a manual adjustment. Their result is checked again."
+        confirmLabel={scaling && scaling.points < 0 ? 'Take away points' : 'Add points'}
+        loading={applyScaling.isPending}
+        onConfirm={confirmScaling}
+      />
+
+      <ConfirmDialog
+        open={confirmMove}
+        onOpenChange={setConfirmMove}
+        destructive
+        title={`Move ${gradeName} into ${targetYearName}?`}
+        description={`Every student in ${gradeName}, in all its sections, is placed in a class for ${targetYearName}. This can't be undone from this page.`}
+        confirmLabel={`Move students to ${targetYearName}`}
+        loading={transition.isPending}
+        onConfirm={executeTransition}
+      >
+        <ul className="ml-5 list-disc space-y-1 text-sm">
+          <li>Students who passed move up one grade.</li>
+          <li>Students who failed repeat {gradeName} and get remedial sessions.</li>
+          <li>Students with no grades are skipped.</li>
+          <li>Students in the final grade are not moved: graduate them on the Graduation page.</li>
+        </ul>
+      </ConfirmDialog>
+
+    </PageShell>
+  );
+}
+
+/** Points to add (or take away, when negative) for one student; the page confirms first. */
+function ScalingInput({
+  row,
+  disabled,
+  onApply,
+}: {
+  row: PromotionEvaluationResult;
+  disabled: boolean;
+  onApply: (points: number) => void;
+}) {
+  const [value, setValue] = useState('');
+  const points = parseFloat(value);
+  const id = `scale-${row.enrollment_id}`;
+  return (
+    <form
+      className="flex items-end gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!Number.isNaN(points) && points !== 0) {
+          onApply(points);
+          setValue('');
+        }
+      }}
+    >
+      <div className="grid gap-1 text-left">
+        <Label htmlFor={id} className="text-xs text-muted-foreground">
+          Adjust score
+        </Label>
+        <Input
+          id={id}
+          type="number"
+          inputMode="decimal"
+          placeholder="+/- points"
+          className="h-11 w-28 md:h-9"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+      </div>
+      <Button
+        type="submit"
+        variant="outline"
+        size="sm"
+        className="min-h-11 md:min-h-9"
+        disabled={disabled || Number.isNaN(points) || points === 0}
+      >
+        Apply
+      </Button>
+    </form>
+  );
+}
+
+function TransitionSummary({ result, target, base }: { result: TransitionResult; target: string; base: string }) {
+  return (
+    <section role="status" className="flex flex-col gap-3 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-950">
+      <p className="flex items-center gap-2 text-base font-semibold">
+        <CheckCircle2 className="size-5 text-green-700" aria-hidden="true" />
+        Students moved to {target}
+      </p>
+      <ul className="ml-5 list-disc space-y-1">
+        <li>{plural(result.promoted.length, 'student')} promoted to the next grade.</li>
+        <li>{plural(result.remedial.length, 'student')} repeat their grade, with remedial sessions.</li>
+        <li>{plural(result.skipped.length, 'student')} not graded, skipped.</li>
+        {result.graduating.length > 0 ? (
+          <li>{plural(result.graduating.length, 'student')} in the final grade: graduate them on the Graduation page.</li>
+        ) : null}
+        {result.errors.length > 0 ? (
+          <li className="text-red-800">
+            {plural(result.errors.length, 'student')} not moved: {result.errors.map((e) => e.error).join('; ')}.
+          </li>
+        ) : null}
+      </ul>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        {result.remedial.length > 0 ? (
+          <Button asChild variant="outline" className="min-h-11 bg-background md:min-h-9">
+            <Link href={`${base}/academics/remedial`}>See remedial work</Link>
+          </Button>
+        ) : null}
+        {result.graduating.length > 0 ? (
+          <Button asChild variant="outline" className="min-h-11 bg-background md:min-h-9">
+            <Link href={`${base}/academics/graduation`}>Go to Graduation</Link>
+          </Button>
+        ) : null}
+        <Button asChild variant="outline" className="min-h-11 bg-background md:min-h-9">
+          <Link href={`${base}/academics/enrollments`}>See enrollments</Link>
+        </Button>
+      </div>
+    </section>
+  );
 }

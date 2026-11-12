@@ -1,284 +1,196 @@
 'use client';
-"use client";
 
-import React, { useEffect, useState, useRef } from 'react';
-import { useAcademicGradeService } from '@/services/api/academic-grade-service';
-import { useSectionService } from '@/services/api/section-service';
-import { useTimetableService, Timetable } from '@/services/api/timetable-service';
-import type { TimetableFilters as TimetableQueryFilters } from '@/services/api/timetable-service';
-import type { AcademicYear, Section } from '@/types/enrollment';
-import type { AcademicGrade as Grade } from '@/types/academic-grade';
-import TimetableFilters from './components/TimetableFilters';
-import TimetableList from './components/TimetableList';
-import TimetableDialog from './components/TimetableDialog';
-import TimetableScheduleView from './components/TimetableScheduleView';
-import TeacherWeeklySchedule from './components/TeacherWeeklySchedule';
+// The Timetable page. Teachers see their own lessons (today, then the week). Everyone else sees
+// the school's timetables by year, grade and section; admins and anyone who manages classes (the
+// principal) create, edit and delete them, the rest read only.
+
+import * as React from 'react';
+import { CalendarDays, CalendarX, Plus, Printer } from 'lucide-react';
+
+import { useDeleteTimetable, useTimetableGrades, useTimetableSections, useTimetables } from '@/components/timetables/queries';
+import { errorMessage } from '@/components/students/format';
+import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { EmptyState } from '@/components/ui/empty-state';
+import { PageShell } from '@/components/ui/page-shell';
+import { notify } from '@/components/ui/toaster';
 import { useAcademicYear } from '@/contexts/academic-year-context';
 import { useAuth } from '@/hooks/use-auth';
-import ConfirmationModal from '@/components/common/ConfirmationModal';
-import { toast } from 'sonner';
+import { useDebounce } from '@/hooks/use-debounce';
+import type { Timetable } from '@/services/api/timetable-service';
+
+import TeacherWeeklySchedule from './components/TeacherWeeklySchedule';
+import TimetableDialog from './components/TimetableDialog';
+import TimetableFilters, { type TimetableFilterValues } from './components/TimetableFilters';
+import TimetableList, { timetableClassName } from './components/TimetableList';
+import TimetableScheduleView from './components/TimetableScheduleView';
 
 export default function TimetablesPage() {
-  const academicGradeService = useAcademicGradeService();
-  const sectionService = useSectionService();
-  const timetableService = useTimetableService();
-
-  const [loading, setLoading] = useState(true);
-  const [grades, setGrades] = useState<Grade[]>([]);
-  const [sections, setSections] = useState<Section[]>([]);
-  const [filters, setFilters] = useState<TimetableQueryFilters>({});
-  const [timetables, setTimetables] = useState<Timetable[]>([]);
-  const [search, setSearch] = useState('');
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingTimetable, setEditingTimetable] = useState<Timetable | null>(null);
-  const [viewingTimetable, setViewingTimetable] = useState<Timetable | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-
   const { user } = useAuth();
+  const isTeacher = Boolean(user?.roles?.some((r) => r.name.toLowerCase() === 'teacher'));
   // Editing follows the server: admins, and anyone who manages classes (e.g. the principal)
-  const isAdmin = Boolean(
-    user?.roles?.some(r => ['admin', 'superadmin', 'super-admin'].includes(r.name)) ||
+  const canEdit = Boolean(
+    user?.roles?.some((r) => ['admin', 'superadmin', 'super-admin'].includes(r.name)) ||
       user?.permissions?.includes('manage_classes')
   );
 
-  // Use Context for Academic Years
-  const { academicYears: ayList, selectedAcademicYearId, setSelectedAcademicYearId } = useAcademicYear();
+  if (isTeacher) {
+    const name = [user?.firstName, user?.lastName].filter(Boolean).join(' ');
+    return (
+      <PageShell
+        title="My timetable"
+        description="Your lessons from every class timetable."
+        secondaryActions={
+          <Button variant="outline" className="min-h-11 md:min-h-9" onClick={() => window.print()}>
+            <Printer aria-hidden="true" />
+            Print my week
+          </Button>
+        }
+      >
+        <TeacherWeeklySchedule printTitle={name ? `Timetable of ${name}` : 'My timetable'} />
+      </PageShell>
+    );
+  }
+  return <SchoolTimetables canEdit={canEdit} />;
+}
 
-  // Use refs to access services inside effects without adding them to dependencies
-  // This breaks the loop if services are unstable (though they should be fixed now)
-  const servicesRef = useRef({ academicGradeService, sectionService, timetableService });
-  useEffect(() => {
-    servicesRef.current = { academicGradeService, sectionService, timetableService };
-  }, [academicGradeService, sectionService, timetableService]);
+function SchoolTimetables({ canEdit }: { canEdit: boolean }) {
+  const { academicYears, selectedAcademicYearId, setSelectedAcademicYearId, isLoading: yearsLoading } = useAcademicYear();
+  const [filters, setFilters] = React.useState({ gradeId: '', sectionId: '', search: '' });
+  const search = useDebounce(filters.search.trim(), 300);
+  const yearId = selectedAcademicYearId ?? '';
 
-  const lastFetchKeyRef = useRef<string>('');
-  const inflightRef = useRef<Promise<Timetable[]> | null>(null);
+  const grades = useTimetableGrades();
+  const sections = useTimetableSections(filters.gradeId);
+  const timetables = useTimetables({
+    academic_year_id: yearId,
+    grade_id: filters.gradeId || undefined,
+    section_id: filters.sectionId || undefined,
+    search: search || undefined,
+  });
+  const remove = useDeleteTimetable();
 
-  // Effect 1: Initial Data Load (Grades/Sections) - One time only on mount
-  useEffect(() => {
-    let mounted = true;
-    const loadInitialData = async () => {
-      setLoading(true);
-      try {
-        const { academicGradeService, sectionService } = servicesRef.current;
+  const [editing, setEditing] = React.useState<{ timetable?: Timetable } | null>(null);
+  const [viewing, setViewing] = React.useState<Timetable | null>(null);
+  const [deleting, setDeleting] = React.useState<Timetable | null>(null);
 
-        const gradesRes = await academicGradeService.getAllGrades();
-        if (mounted) setGrades(Array.isArray(gradesRes) ? gradesRes : []);
+  const years = academicYears.map((y) => ({ id: y.id, name: y.name, is_current: y.is_current }));
+  const gradeList = grades.data ?? [];
+  const sectionList = sections.data ?? [];
+  const filtered = Boolean(filters.gradeId || filters.sectionId || filters.search);
 
-        const sectionsData = await sectionService.getSections();
-        // getSections returns a { sections, total } envelope, not the array
-        if (mounted) setSections(sectionsData?.sections ?? []);
-      } catch (e) {
-        console.warn('[TimetablesPage] Failed to load initial data:', e);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-    loadInitialData();
-    return () => { mounted = false; };
-  }, []); // Strictly empty dependency array to prevent loops
-
-  // Effect 2: Load Timetables when Filters change
-  useEffect(() => {
-    if (!filters.academic_year_id) return;
-
-    const key = JSON.stringify({
-      ay: filters.academic_year_id || '',
-      g: filters.grade_id || '',
-      s: filters.section_id || '',
-      q: search || ''
-    });
-    if (lastFetchKeyRef.current === key) return;
-    lastFetchKeyRef.current = key;
-
-    let mounted = true;
-    const loadTimetables = async () => {
-      setLoading(true);
-      try {
-        const { timetableService } = servicesRef.current;
-        const isTeacher = user?.roles?.some(r => r.name.toLowerCase() === 'teacher');
-        const p = timetableService.getTimetables({
-          academic_year_id: filters.academic_year_id,
-          grade_id: filters.grade_id,
-          section_id: filters.section_id,
-          teacher_id: isTeacher ? user?.id : undefined,
-          search
-        });
-        inflightRef.current = p;
-        const data = await p;
-        if (inflightRef.current !== p) return;
-        if (mounted) setTimetables(Array.isArray(data) ? data : []);
-      } catch (e) {
-        console.error("Failed to load timetables", e);
-      } finally {
-        inflightRef.current = null;
-        if (mounted) setLoading(false);
-      }
-    };
-
-    loadTimetables();
-    return () => { mounted = false; };
-  }, [filters.academic_year_id, filters.grade_id, filters.section_id, search]);
-
-  // Effect 3: Fetch Sections when Grade Filter changes
-  useEffect(() => {
-    if (!filters.grade_id) {
-      // Optional: reset sections or fetch all.
-      // For stability, let's just ignore or fetch all if needed.
-      return;
-    }
-    let mounted = true;
-    const fetchSections = async () => {
-      try {
-        const { sectionService } = servicesRef.current;
-        const arr = await sectionService.getSectionsByGrade(filters.grade_id!);
-        if (mounted) setSections(Array.isArray(arr) ? arr : []);
-      } catch (e) {
-        console.warn('[TimetablesPage] Failed to fetch sections by grade:', e);
-      }
-    };
-    fetchSections();
-    return () => { mounted = false; };
-  }, [filters.grade_id]);
-
-  // Effect 4: Sync Filters with Global Context (One Way: Context -> Filter)
-  useEffect(() => {
-    if (selectedAcademicYearId && filters.academic_year_id !== selectedAcademicYearId) {
-      setFilters(prev => ({ ...prev, academic_year_id: selectedAcademicYearId }));
-    }
-  }, [selectedAcademicYearId, filters.academic_year_id]);
-
-
-  const handleDelete = async (id: string) => {
-    setDeletingId(id);
+  const onFilters = (next: TimetableFilterValues) => {
+    if (next.yearId !== yearId) setSelectedAcademicYearId(next.yearId);
+    setFilters({ gradeId: next.gradeId, sectionId: next.sectionId, search: next.search });
   };
+  const clearFilters = () => setFilters({ gradeId: '', sectionId: '', search: '' });
+
+  const onView = React.useCallback((t: Timetable) => setViewing(t), []);
+  const onEdit = React.useCallback((t: Timetable) => setEditing({ timetable: t }), []);
+  const onDelete = React.useCallback((t: Timetable) => setDeleting(t), []);
 
   const confirmDelete = async () => {
-    if (!deletingId) return;
-
-    setIsDeleting(true);
+    if (!deleting) return;
     try {
-      await servicesRef.current.timetableService.deleteTimetable(deletingId);
-      toast.success('Timetable deleted successfully');
-
-      // Trigger reload
-      lastFetchKeyRef.current = '';
-      const { timetableService } = servicesRef.current;
-      const data = await timetableService.getTimetables(filters);
-      setTimetables(Array.isArray(data) ? data : []);
+      await remove.mutateAsync(deleting.id);
+      notify.success(`${deleting.name} is deleted.`);
     } catch (err) {
-      console.error('Failed to delete timetable:', err);
-      toast.error('Failed to delete timetable');
-    } finally {
-      setIsDeleting(false);
-      setDeletingId(null);
+      notify.error(errorMessage(err, "The timetable wasn't deleted. Check your connection and try again."));
+      throw err; // keep the dialog open
     }
   };
-
-  const handleFiltersChange = (updated: TimetableQueryFilters) => {
-    if (updated.academic_year_id !== filters.academic_year_id) {
-      setSelectedAcademicYearId(updated.academic_year_id || '');
-    }
-    setFilters(updated);
-  };
-
-  const isTeacher = user?.roles?.some(r => r.name.toLowerCase() === 'teacher');
 
   return (
-    <>
-      <div className="container mx-auto p-6 space-y-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">
-              {isTeacher ? 'My Schedule' : 'Timetables'}
-            </h1>
-            <p className="text-gray-600 mt-2">
-              {isTeacher ? 'Your personal weekly teaching schedule' : 'Manage class schedules and time slots'}
-            </p>
-          </div>
-          {isTeacher && (
-            <div className="bg-indigo-50 px-4 py-2 rounded-2xl border border-indigo-100 flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-              <span className="text-xs font-bold text-indigo-700 capitalize">{user?.firstName} {user?.lastName}</span>
-            </div>
-          )}
-        </div>
-
-        {!isTeacher && (
-          <TimetableFilters
-            academicYears={ayList}
-            grades={grades}
-            sections={sections}
-            filters={filters}
-            onFiltersChange={handleFiltersChange}
-            search={search}
-            onSearchChange={setSearch}
-            onReset={() => {
-              setFilters({ academic_year_id: selectedAcademicYearId });
-              setSearch('');
-            }}
-            onCreate={() => {
-              setEditingTimetable(null);
-              setIsDialogOpen(true);
-            }}
-            isAdmin={isAdmin}
-          />
-        )}
-
-        {isTeacher ? (
-          <TeacherWeeklySchedule />
-        ) : (
-          <TimetableList
-            loading={loading}
-            timetables={timetables}
-            grades={grades}
-            sections={sections}
-            onDelete={handleDelete}
-            onEdit={(t) => {
-              setEditingTimetable(t);
-              setIsDialogOpen(true);
-            }}
-            onViewSchedule={(t) => setViewingTimetable(t)}
-            isAdmin={isAdmin}
-          />
-        )}
-      </div>
-      <TimetableDialog
-        isOpen={isDialogOpen}
-        onClose={() => {
-          setIsDialogOpen(false);
-          setEditingTimetable(null);
-        }}
-        timetableToEdit={editingTimetable || undefined}
-        academicYears={ayList}
-        grades={grades}
-        sections={sections}
-        onSaved={() => {
-          // Manual reload
-          lastFetchKeyRef.current = '';
-          const { timetableService } = servicesRef.current;
-          setLoading(true);
-          timetableService.getTimetables(filters).then(data => {
-            setTimetables(Array.isArray(data) ? data : []);
-            setLoading(false);
-          });
-        }}
+    <PageShell
+      title="Timetables"
+      description={canEdit ? 'The lessons of each class, week by week.' : 'The lessons of each class, week by week. Only admins and the principal change them.'}
+      primaryAction={
+        canEdit ? (
+          <Button className="min-h-11 md:min-h-9" onClick={() => setEditing({})}>
+            <Plus aria-hidden="true" />
+            New timetable
+          </Button>
+        ) : undefined
+      }
+    >
+      <TimetableFilters
+        years={years}
+        grades={gradeList}
+        sections={sectionList}
+        value={{ yearId, ...filters }}
+        onChange={onFilters}
+        onClear={clearFilters}
       />
-      <TimetableScheduleView
-        timetable={viewingTimetable!}
-        isOpen={!!viewingTimetable}
-        onClose={() => setViewingTimetable(null)}
-      />
-      <ConfirmationModal
-        isOpen={!!deletingId}
-        title="Delete Timetable"
-        message="Are you sure you want to delete this timetable? This action cannot be undone and will remove all associated schedules."
-        confirmButtonText="Delete"
+
+      {timetables.isError ? (
+        <EmptyState
+          icon={CalendarX}
+          description={`${errorMessage(timetables.error, "The timetables didn't load.")} Check your connection and try again.`}
+          action={
+            <Button variant="outline" onClick={() => void timetables.refetch()}>
+              Try again
+            </Button>
+          }
+        />
+      ) : !yearsLoading && academicYears.length === 0 ? (
+        <EmptyState icon={CalendarDays} description="There are no school years yet. Set up the school year first." />
+      ) : (
+        <TimetableList
+          loading={!yearId || timetables.isLoading}
+          timetables={timetables.data ?? []}
+          grades={gradeList}
+          sections={sectionList}
+          canEdit={canEdit}
+          onView={onView}
+          onEdit={onEdit}
+          onDelete={onDelete}
+          emptyState={
+            filtered ? (
+              <EmptyState
+                icon={CalendarDays}
+                description="No timetables match these filters."
+                action={
+                  <Button variant="outline" onClick={clearFilters}>
+                    Clear filters
+                  </Button>
+                }
+              />
+            ) : (
+              <EmptyState
+                icon={CalendarDays}
+                description={canEdit ? 'No timetables for this year yet. Create one for each class.' : 'No timetables for this year yet.'}
+                action={
+                  canEdit ? (
+                    <Button onClick={() => setEditing({})}>
+                      <Plus aria-hidden="true" />
+                      New timetable
+                    </Button>
+                  ) : undefined
+                }
+              />
+            )
+          }
+        />
+      )}
+
+      {editing ? (
+        <TimetableDialog timetable={editing.timetable} years={years} grades={gradeList} onClose={() => setEditing(null)} />
+      ) : null}
+      <TimetableScheduleView timetable={viewing} onClose={() => setViewing(null)} />
+      <ConfirmDialog
+        open={Boolean(deleting)}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={deleting ? `Delete ${deleting.name}?` : 'Delete timetable?'}
+        description={
+          deleting
+            ? `Its ${deleting.time_slots.length} lessons for ${timetableClassName(deleting, gradeList, sectionList)} will be removed. This can't be undone.`
+            : undefined
+        }
+        confirmLabel="Delete timetable"
+        destructive
+        loading={remove.isPending}
         onConfirm={confirmDelete}
-        onCancel={() => setDeletingId(null)}
-        isLoading={isDeleting}
       />
-    </>
+    </PageShell>
   );
 }

@@ -346,11 +346,11 @@ export function SchoolProfile({ school }: { school: string }) {
       className="max-w-4xl"
     >
       <p className="rounded-xl border bg-muted/40 p-4 text-sm">
-        The school&rsquo;s name and colours are changed in{" "}
+        The app&rsquo;s logo and colours are under{" "}
         <Link href={`/${school}/settings/tenant`} className="font-medium text-primary underline underline-offset-4">
-          school settings
+          Logo and colours
         </Link>
-        .
+        . The school&rsquo;s name is set by the platform operator.
       </p>
 
       {query.isLoading ? (

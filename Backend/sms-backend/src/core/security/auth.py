@@ -32,6 +32,8 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 # (method, route template) pairs reachable without a session. Everything else needs a token.
 PUBLIC_ROUTES = {
+    # Deploy checks and uptime monitors: answers "ok" and whether the database is reachable, nothing else
+    ("GET", "/health"),
     ("POST", "/api/v1/auth/login"),
     ("POST", "/api/v1/auth/refresh"),
     ("POST", "/api/v1/auth/logout"),

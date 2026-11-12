@@ -30,9 +30,9 @@ class ClassService(TenantBaseService[Class, ClassCreate, ClassUpdate]):
         tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
         super().__init__(crud=class_crud, model=Class, tenant_id=tenant_id, db=db)
     
-    async def get_by_name(self, name: str) -> Optional[Class]:
-        """Get a class by name."""
-        return class_crud.get_by_name(self.db, tenant_id=self.tenant_id, name=name)
+    async def get_by_name(self, name: str, academic_year_id: Optional[UUID] = None) -> Optional[Class]:
+        """Get a class by name (in one school year when given)."""
+        return class_crud.get_by_name(self.db, tenant_id=self.tenant_id, name=name, academic_year_id=academic_year_id)
     
     async def get_by_academic_year(self, academic_year_id: UUID) -> List[Class]:
         """Get classes by academic year ID."""
@@ -56,9 +56,9 @@ class ClassService(TenantBaseService[Class, ClassCreate, ClassUpdate]):
     
     async def create(self, *, obj_in: ClassCreate) -> Class:
         """Create a new class container with validation."""
-        # Check for duplicate class name if provided
+        # A class name is unique within its school year ("Grade 1 - A" comes back every year)
         if obj_in.name:
-            existing = await self.get_by_name(obj_in.name)
+            existing = await self.get_by_name(obj_in.name, obj_in.academic_year_id)
             if existing:
                 raise DuplicateEntityError("Class", "name", obj_in.name)
         

@@ -17,11 +17,12 @@ export default function NotFound() {
             <div className="space-y-2">
                 <h2 className="text-3xl font-bold text-gray-900">Page Not Found</h2>
                 <p className="text-gray-600 max-w-md mx-auto">
-                    The page you are looking for doesn't exist or has been moved.
+                    The page you are looking for doesn&apos;t exist or has been moved.
                 </p>
             </div>
-            <Link href={`/${tenantDomain}/dashboard`}>
-                <Button>Return to Dashboard</Button>
+            {/* The school's address sends each role to its own home page (or to sign in) */}
+            <Link href={`/${tenantDomain}`}>
+                <Button>Go to your home page</Button>
             </Link>
         </div>
     );

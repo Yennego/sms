@@ -1,248 +1,191 @@
 'use client';
 
-import { useAuth } from '@/hooks/use-auth';
-import { useState, useEffect } from 'react';
-import { useTeacherService } from '@/services/api/teacher-service';
-import { useClassService } from '@/services/api/class-service';
-import {
-    BookOpen, Users, ChevronRight, Search,
-    GraduationCap, X, Loader2
-} from 'lucide-react';
+// The teacher's classes (phone first): one card per subject they teach in a class, the class's
+// students, and the way to mark attendance in the classes they sponsor.
+
+import * as React from 'react';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import { BookOpen, ClipboardCheck, Search, Users } from 'lucide-react';
 
-export default function TeacherClasses() {
-    const { user } = useAuth();
+import { useAttendanceClasses } from '@/components/attendance/queries';
+import { useLoadStudents, useTeacherLoads, type SubjectLoad } from '@/components/teaching/queries';
+import { errorMessage } from '@/components/students/format';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Input } from '@/components/ui/input';
+import { PageShell } from '@/components/ui/page-shell';
+import { Sheet } from '@/components/ui/sheet';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useAuth } from '@/hooks/use-auth';
+import { useTenantFeatures } from '@/hooks/use-tenant-features';
 
-    // One card per subject the teacher teaches in a class
-    const { getTeacherAssignments, getAssignmentStudents } = useTeacherService();
-    const { getClasses } = useClassService();
-    const [classes, setClasses] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [search, setSearch] = useState('');
-    // Classes this teacher sponsors: only the sponsor marks a class's daily attendance
-    const [sponsoredIds, setSponsoredIds] = useState<Set<string>>(new Set());
+function AttendanceLink({ href, primary }: { href: string; primary?: boolean }) {
+  return (
+    <Button asChild size="sm" variant={primary ? 'default' : 'outline'} className="min-h-11 md:min-h-9">
+      <Link href={href}>
+        <ClipboardCheck aria-hidden="true" />
+        Mark attendance
+      </Link>
+    </Button>
+  );
+}
 
-    // Modal state for viewing class details
-    const [showDetailsModal, setShowDetailsModal] = useState(false);
-    const [selectedClass, setSelectedClass] = useState<any>(null);
-    const [classStudents, setClassStudents] = useState<any[]>([]);
-    const [studentsLoading, setStudentsLoading] = useState(false);
-
-    useEffect(() => {
-        const fetchClasses = async () => {
-            if (!user?.id) return;
-            try {
-                const data = await getTeacherAssignments(user.id);
-                // Map API response to UI model
-                const mapped = data.map((item: any) => ({
-                    id: item.class_id, // The class; attendance is taken per class
-                    assignmentId: item.id, // The subject assignment; unique per card
-                    name: item.subject_name || item.class_name,
-                    grade: `${item.grade_name} - ${item.section_name}`,
-                    grade_id: item.grade_id,
-                    section_id: item.section_id,
-                    subject_id: item.subject_id,
-                    academic_year_id: item.academic_year_id,
-                }));
-                setClasses(mapped);
-            } catch (err) {
-                console.error('Failed to fetch classes', err);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchClasses();
-    }, [user?.id, getTeacherAssignments]);
-
-    useEffect(() => {
-        if (!user?.id) return;
-        getClasses({ class_teacher_id: user.id, is_active: true })
-            .then(data => setSponsoredIds(new Set(data.map(c => c.id))))
-            .catch(err => console.error('Failed to fetch sponsored classes', err));
-    }, [user?.id, getClasses]);
-
-    const query = search.trim().toLowerCase();
-    const shownClasses = query
-        ? classes.filter(c => `${c.name} ${c.grade}`.toLowerCase().includes(query))
-        : classes;
-
-    // Fetch students when modal opens
-    const handleViewDetails = async (cls: any) => {
-        setSelectedClass(cls);
-        setShowDetailsModal(true);
-        setStudentsLoading(true);
-        setClassStudents([]);
-
-        try {
-            const students = await getAssignmentStudents(cls.assignmentId);
-            setClassStudents(students.map((s: any) => ({
-                id: s.student_id || s.id,
-                name: s.full_name || `${s.first_name || ''} ${s.last_name || ''}`.trim() || 'Unknown',
-                admissionNo: s.admission_number || '-',
-                email: s.email || '-'
-            })));
-        } catch (err) {
-            console.error('Failed to fetch students', err);
-        } finally {
-            setStudentsLoading(false);
-        }
-    };
-
+/** The students of one subject load. */
+function Roster({ load }: { load: SubjectLoad }) {
+  const students = useLoadStudents(load.id);
+  if (students.isLoading) {
     return (
-        <div className="min-h-screen bg-[#f8fafc] p-6 lg:p-10">
-            <div className="mx-auto max-w-7xl space-y-8">
-
-                {/* Header */}
-                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                    <div>
-                        <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-3">
-                            <BookOpen className="h-8 w-8 text-indigo-600" />
-                            My Classes
-                        </h1>
-                        <p className="text-slate-500 mt-1">View and manage your assigned subject loads and sections.</p>
-                    </div>
-                </div>
-
-                {/* Filters & Search */}
-                <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-                    <div className="relative flex-1">
-                        <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                        <input
-                            value={search}
-                            onChange={e => setSearch(e.target.value)}
-                            placeholder="Search classes..."
-                            className="w-full pl-10 pr-4 py-2 bg-slate-50 border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                        />
-                    </div>
-                </div>
-
-                {/* Classes Grid */}
-                {loading ? (
-                    <div className="text-center py-20 text-slate-500">Loading classes...</div>
-                ) : classes.length === 0 ? (
-                    <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-slate-300">
-                        <p className="text-slate-500">No classes assigned to you yet.</p>
-                    </div>
-                ) : shownClasses.length === 0 ? (
-                    <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-slate-300">
-                        <p className="text-slate-500">No classes match your search.</p>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {shownClasses.map((cls: any) => (
-                            <div key={cls.assignmentId} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-md transition-all group">
-                                <div className="p-6">
-                                    <div className="flex justify-between items-start mb-4">
-                                        <div className="p-2 bg-indigo-50 rounded-lg group-hover:bg-indigo-600 transition-colors">
-                                            <GraduationCap className="h-6 w-6 text-indigo-600 group-hover:text-white" />
-                                        </div>
-                                        <span className="px-2.5 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold uppercase tracking-wider">
-                                            {cls.grade}
-                                        </span>
-                                    </div>
-                                    <h3 className="text-lg font-bold text-slate-900 mb-1">{cls.name}</h3>
-                                </div>
-                                <div className="p-4 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between">
-                                    <button
-                                        onClick={() => handleViewDetails(cls)}
-                                        className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
-                                    >
-                                        View Details
-                                        <ChevronRight className="h-3 w-3" />
-                                    </button>
-                                    {sponsoredIds.has(cls.id) && (
-                                        <div className="flex gap-2">
-                                            <Link
-                                                href={`./attendance?classId=${cls.id}`}
-                                                className="text-[10px] font-bold px-2 py-1 bg-white border border-slate-200 rounded text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-100 transition-colors"
-                                            >
-                                                Attendance
-                                            </Link>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-            </div>
-
-            {/* Student Roster Modal */}
-            {showDetailsModal && selectedClass && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden">
-                        {/* Modal Header */}
-                        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                            <div>
-                                <h2 className="text-xl font-bold text-slate-900">{selectedClass.name}</h2>
-                                <p className="text-sm text-slate-500 mt-1">{selectedClass.grade} • Student Roster</p>
-                            </div>
-                            <button
-                                onClick={() => setShowDetailsModal(false)}
-                                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-                            >
-                                <X className="h-5 w-5 text-slate-500" />
-                            </button>
-                        </div>
-
-                        {/* Modal Body */}
-                        <div className="p-6 overflow-y-auto max-h-[60vh]">
-                            {studentsLoading ? (
-                                <div className="flex flex-col items-center gap-3 py-12">
-                                    <Loader2 className="h-8 w-8 text-indigo-600 animate-spin" />
-                                    <span className="text-slate-500">Loading students...</span>
-                                </div>
-                            ) : classStudents.length === 0 ? (
-                                <div className="flex flex-col items-center gap-3 py-12">
-                                    <Users className="h-12 w-12 text-slate-300" />
-                                    <span className="text-slate-500">No students enrolled in this class</span>
-                                </div>
-                            ) : (
-                                <div className="space-y-2">
-                                    <div className="text-sm font-bold text-slate-500 mb-4">
-                                        {classStudents.length} Students Enrolled
-                                    </div>
-                                    {classStudents.map((student, idx) => (
-                                        <div
-                                            key={student.id}
-                                            className="flex items-center gap-4 p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
-                                        >
-                                            <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-sm">
-                                                {student.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
-                                            </div>
-                                            <div className="flex-1">
-                                                <div className="font-semibold text-slate-800">{student.name}</div>
-                                                <div className="text-xs text-slate-500">{student.admissionNo}</div>
-                                            </div>
-                                            <div className="text-xs text-slate-400 font-mono">#{idx + 1}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Modal Footer */}
-                        <div className="p-4 border-t border-slate-100 flex justify-end gap-3">
-                            <button
-                                onClick={() => setShowDetailsModal(false)}
-                                className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                            >
-                                Close
-                            </button>
-                            {sponsoredIds.has(selectedClass.id) && (
-                                <Link
-                                    href={`./attendance?classId=${selectedClass.id}`}
-                                    className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
-                                >
-                                    Mark attendance
-                                </Link>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
+      <div className="space-y-2">
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-12 w-full rounded-lg" />
+        ))}
+      </div>
     );
+  }
+  if (students.isError) {
+    return (
+      <EmptyState
+        bare
+        icon={Users}
+        description={`${errorMessage(students.error, "The students didn't load.")} Check your connection and try again.`}
+        action={
+          <Button variant="outline" onClick={() => void students.refetch()}>
+            Try again
+          </Button>
+        }
+      />
+    );
+  }
+  const list = students.data ?? [];
+  if (list.length === 0) {
+    return <EmptyState bare icon={Users} description="No students are enrolled in this class yet." />;
+  }
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">
+        {list.length} {list.length === 1 ? 'student' : 'students'}
+      </p>
+      <ol className="divide-y rounded-xl border">
+        {list.map((s, i) => (
+          <li key={s.id || i} className="flex items-center gap-3 px-3 py-2.5">
+            <span className="w-6 shrink-0 text-right text-sm tabular-nums text-muted-foreground">{i + 1}</span>
+            <div className="min-w-0">
+              <p className="truncate font-medium">{s.name}</p>
+              {s.admissionNo ? <p className="text-sm text-muted-foreground">{s.admissionNo}</p> : null}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+export default function TeacherClassesPage() {
+  const { tenantDomain } = useParams<{ tenantDomain: string }>();
+  const { user } = useAuth();
+  const features = useTenantFeatures();
+  const attendanceOn = !features.isLoading && features.isFeatureEnabled('enable_attendance');
+
+  const loads = useTeacherLoads(user?.id ?? '');
+  // Only a class's sponsor marks its daily attendance
+  const sponsored = useAttendanceClasses(user?.id, Boolean(user?.id) && attendanceOn);
+  const sponsoredIds = React.useMemo(() => new Set((sponsored.data ?? []).map((c) => c.id)), [sponsored.data]);
+
+  const [search, setSearch] = React.useState('');
+  const [open, setOpen] = React.useState<SubjectLoad | null>(null);
+
+  const all = loads.data ?? [];
+  const query = search.trim().toLowerCase();
+  const shown = query ? all.filter((l) => `${l.subject} ${l.className}`.toLowerCase().includes(query)) : all;
+  const attendanceHref = (classId: string) => `/${tenantDomain}/teacher/attendance?classId=${classId}`;
+  const canMark = (load: SubjectLoad) => attendanceOn && sponsoredIds.has(load.classId);
+
+  return (
+    <PageShell title="My classes" description="The subjects you teach, class by class.">
+      {all.length > 0 ? (
+        <div className="relative max-w-md">
+          <label htmlFor="class-search" className="sr-only">
+            Search your classes
+          </label>
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <Input
+            id="class-search"
+            type="search"
+            className="h-11 pl-9 text-base md:h-9 md:text-sm"
+            placeholder="Search by subject or class"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      ) : null}
+
+      {!user?.id || loads.isLoading ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-32 w-full rounded-xl" />
+          ))}
+        </div>
+      ) : loads.isError ? (
+        <EmptyState
+          icon={BookOpen}
+          description={`${errorMessage(loads.error, "Your classes didn't load.")} Check your connection and try again.`}
+          action={
+            <Button variant="outline" onClick={() => void loads.refetch()}>
+              Try again
+            </Button>
+          }
+        />
+      ) : all.length === 0 ? (
+        <EmptyState icon={BookOpen} description="You don't teach any subjects yet. The school office assigns them." />
+      ) : shown.length === 0 ? (
+        <EmptyState
+          icon={Search}
+          description="No classes match your search."
+          action={
+            <Button variant="outline" onClick={() => setSearch('')}>
+              Clear search
+            </Button>
+          }
+        />
+      ) : (
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="My classes">
+          {shown.map((load) => (
+            <li key={load.id} className="flex flex-col gap-4 rounded-xl border bg-card p-4">
+              <div className="min-w-0">
+                <p className="font-medium">{load.subject}</p>
+                <p className="text-sm text-muted-foreground">{load.className}</p>
+              </div>
+              <div className="mt-auto flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" className="min-h-11 md:min-h-9" onClick={() => setOpen(load)}>
+                  <Users aria-hidden="true" />
+                  See students
+                </Button>
+                {canMark(load) ? <AttendanceLink href={attendanceHref(load.classId)} /> : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <Sheet
+        open={Boolean(open)}
+        onOpenChange={(o) => !o && setOpen(null)}
+        title={open ? `${open.subject}, ${open.className}` : 'Students'}
+        description="The students in this class."
+        footer={
+          open ? (
+            <>
+              <Button variant="outline" onClick={() => setOpen(null)}>
+                Close
+              </Button>
+              {canMark(open) ? <AttendanceLink href={attendanceHref(open.classId)} primary /> : null}
+            </>
+          ) : null
+        }
+      >
+        {open ? <Roster load={open} /> : null}
+      </Sheet>
+    </PageShell>
+  );
 }

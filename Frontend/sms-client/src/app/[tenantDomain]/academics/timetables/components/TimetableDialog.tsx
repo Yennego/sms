@@ -1,508 +1,374 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
+// Create or edit a timetable: what it covers (year, grade, optional section), then its lessons.
+// "Add to several days" adds the same lesson on each chosen day; every lesson can then be changed.
+
+import * as React from 'react';
+import { Loader2, Plus, Save, Trash2 } from 'lucide-react';
+
+import { selectClass } from '@/components/students/admission-form';
+import { errorMessage } from '@/components/students/format';
+import { useSaveTimetable, useTimetableSections, useTimetableSubjects } from '@/components/timetables/queries';
+import { dayLabel, hhmm, WEEKDAYS } from '@/components/timetables/timetable-ui';
 import { Button } from '@/components/ui/button';
-import { useTimetableService, Timetable, TimetableCreate } from '@/services/api/timetable-service';
-import { useClassService } from '@/services/api/class-service';
-import { useSectionService } from '@/services/api/section-service';
-import type { ClassWithDetails, ClassSubject } from '@/types/class';
-import { toast } from 'sonner';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { FormField } from '@/components/ui/form-field';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+import { notify } from '@/components/ui/toaster';
+import { cn } from '@/lib/utils';
+import type { Timetable, TimetableCreate } from '@/services/api/timetable-service';
 
 type Item = { id: string; name: string };
-type AcademicYear = { id: string; name: string; is_current?: boolean };
+type Year = Item & { is_current?: boolean };
 
-interface Props {
-  isOpen: boolean;
-  onClose: () => void;
-  onSaved: (saved: Timetable) => void;
-  timetableToEdit?: Timetable;
-  academicYears: AcademicYear[];
-  grades: Item[];
-  // Replaced external sections with internal fetching since dialog state is independent
-  // But we can keep it as initial/fallback, typically unused if we fetch dynamically
-  sections?: Item[];
+interface SlotDraft {
+  key: number;
+  name: string;
+  day_of_week: string;
+  start_time: string;
+  end_time: string;
+  class_id: string;
 }
 
-export default function TimetableDialog({
-  isOpen,
-  onClose,
-  onSaved,
-  timetableToEdit,
-  academicYears,
-  grades,
-}: Props) {
-  const { createTimetable, updateTimetable, loading } = useTimetableService();
-  const { getClasses } = useClassService();
-  const { getSectionsByGrade } = useSectionService();
+interface Props {
+  /** The timetable to edit; omit to create one */
+  timetable?: Timetable;
+  years: Year[];
+  grades: Item[];
+  onClose: () => void;
+}
 
-  const [tab, setTab] = useState<'general' | 'timeslots'>('general');
-  const [sections, setSections] = useState<Item[]>([]);
+const inputClass = 'h-11 text-base md:h-9 md:text-sm';
+let nextKey = 1;
 
-  const [form, setForm] = useState<TimetableCreate>({
-    name: '',
-    academic_year_id: '',
-    grade_id: '',
-    section_id: '',
-    is_active: true,
-    time_slots: [],
-  });
+const minutes = (t: string) => {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + (m || 0);
+};
 
-  // Store flattened class subjects with their class info
-  const [availableSubjects, setAvailableSubjects] = useState<(ClassSubject & { class_name?: string })[]>([]);
-  const [bulkSlot, setBulkSlot] = useState({
-    name: '',
-    start_time: '',
-    end_time: '',
-    days: [] as string[],
-    class_id: ''
-  });
+function initialForm(timetable: Timetable | undefined, years: Year[]) {
+  if (!timetable) {
+    return {
+      name: '',
+      academic_year_id: years.find((y) => y.is_current)?.id || years[0]?.id || '',
+      grade_id: '',
+      section_id: '',
+      is_active: true,
+    };
+  }
+  return {
+    name: timetable.name,
+    academic_year_id: timetable.academic_year_id || years.find((y) => y.name === timetable.academic_year)?.id || '',
+    grade_id: timetable.grade_id,
+    section_id: timetable.section_id || '',
+    is_active: timetable.is_active,
+  };
+}
 
-  useEffect(() => {
-    if (timetableToEdit) {
-      setForm({
-        name: timetableToEdit.name,
-        academic_year_id: timetableToEdit.academic_year_id || (academicYears.find((y) => y.name === timetableToEdit.academic_year)?.id || ''),
-        grade_id: timetableToEdit.grade_id,
-        section_id: timetableToEdit.section_id || '',
-        is_active: timetableToEdit.is_active,
-        time_slots: timetableToEdit.time_slots.map((s) => ({
-          name: s.name || '',
-          start_time: s.start_time || '',
-          end_time: s.end_time || '',
-          day_of_week: s.day_of_week || '',
-          class_id: s.class_id || '',
-        })),
-      });
-      setTab('general');
-    } else {
-      const currentYear = academicYears.find((y) => y.is_current)?.id || academicYears[0]?.id || '';
-      setForm({
-        name: '',
-        academic_year_id: currentYear,
-        grade_id: '',
-        section_id: '',
-        is_active: true,
-        time_slots: [],
-      });
-      setTab('general');
+export default function TimetableDialog({ timetable, years, grades, onClose }: Props) {
+  const save = useSaveTimetable();
+  const [form, setForm] = React.useState(() => initialForm(timetable, years));
+  const [slots, setSlots] = React.useState<SlotDraft[]>(() =>
+    (timetable?.time_slots ?? []).map((s) => ({
+      key: nextKey++,
+      name: s.name || '',
+      day_of_week: (s.day_of_week || '').toLowerCase(),
+      start_time: hhmm(s.start_time),
+      end_time: hhmm(s.end_time),
+      class_id: s.class_id || '',
+    }))
+  );
+  const [quick, setQuick] = React.useState({ name: '', class_id: '', start_time: '', end_time: '', days: [] as string[] });
+  const [errors, setErrors] = React.useState<Record<string, string>>({});
+
+  const sections = useTimetableSections(form.grade_id);
+  const subjects = useTimetableSubjects(form.academic_year_id, form.grade_id, form.section_id);
+  const subjectList = subjects.data ?? [];
+
+  const setField = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
+    setForm((f) => ({ ...f, [key]: value }));
+  const changeSlot = (key: number, patch: Partial<SlotDraft>) =>
+    setSlots((list) => list.map((s) => (s.key === key ? { ...s, ...patch } : s)));
+
+  const quickReady = Boolean(quick.class_id && quick.start_time && quick.end_time && quick.days.length);
+  const addToDays = () => {
+    if (!quickReady) return;
+    setSlots((list) => [
+      ...list,
+      ...quick.days.map((day) => ({
+        key: nextKey++,
+        name: quick.name || 'Period',
+        day_of_week: day,
+        start_time: quick.start_time,
+        end_time: quick.end_time,
+        class_id: quick.class_id,
+      })),
+    ]);
+    // Keep the subject and times for the next days
+    setQuick((q) => ({ ...q, days: [] }));
+  };
+
+  const validate = () => {
+    const next: Record<string, string> = {};
+    if (!form.name.trim()) next.name = 'Enter a name, e.g. "Grade 7 timetable".';
+    if (!form.academic_year_id) next.academic_year_id = 'Choose the school year.';
+    if (!form.grade_id) next.grade_id = 'Choose the grade.';
+    if (slots.some((s) => !s.day_of_week || !s.start_time || !s.end_time)) {
+      next.slots = 'Every lesson needs a day, a start time and an end time.';
+    } else if (slots.some((s) => minutes(s.end_time) <= minutes(s.start_time))) {
+      next.slots = 'Every lesson must end after it starts.';
     }
-  }, [timetableToEdit, academicYears]);
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
 
-  // Fetch sections when grade changes
-  useEffect(() => {
-    const fetchSections = async () => {
-      if (!form.grade_id) {
-        setSections([]);
-        return;
-      }
-      try {
-        const data = await getSectionsByGrade(form.grade_id);
-        setSections(Array.isArray(data) ? data : []);
-      } catch (e) {
-        console.error('Failed to fetch sections in dialog', e);
-        setSections([]);
-      }
-    };
-    fetchSections();
-  }, [form.grade_id, getSectionsByGrade]);
-
-  // Fetch subjects (classes) when grade/section/year changes
-  useEffect(() => {
-    const fetchSubjects = async () => {
-      // If we don't have enough info, clear list
-      if (!form.grade_id || !form.academic_year_id) {
-        setAvailableSubjects([]);
-        return;
-      }
-
-      const yearName = academicYears.find(y => y.id === form.academic_year_id)?.name;
-
-      const apiFilters = {
-        grade_id: form.grade_id,
-        section_id: form.section_id || undefined,
-        academic_year_id: form.academic_year_id,
-        is_active: true
-      };
-
-      console.log('[TimetableDialog] Fetching classes with filters:', apiFilters);
-
-      try {
-        const classes = await getClasses(apiFilters) as unknown as ClassWithDetails[];
-        console.log('[TimetableDialog] Received classes:', classes);
-
-        // Flatten subjects from all classes for the dropdown
-        const allSubjects: (ClassSubject & { class_name?: string })[] = [];
-        for (const cls of classes) {
-          if (cls.subjects && Array.isArray(cls.subjects)) {
-            for (const subj of cls.subjects) {
-              allSubjects.push({
-                ...subj,
-                class_name: cls.name || `${cls.grade_name} - ${cls.section_name}`
-              });
-            }
-          }
-        }
-        console.log('[TimetableDialog] Extracted subjects:', allSubjects);
-        setAvailableSubjects(allSubjects);
-      } catch (err) {
-        console.error('Failed to fetch subjects for timetable', err);
-        setAvailableSubjects([]);
-      }
-    };
-    fetchSubjects();
-  }, [form.grade_id, form.section_id, form.academic_year_id, getClasses, academicYears]);
-
-
-  const onSubmit = async () => {
-    const payload: TimetableCreate = {
+  const submit = async () => {
+    if (!validate()) return;
+    const data: TimetableCreate = {
       name: form.name.trim(),
       academic_year_id: form.academic_year_id,
       grade_id: form.grade_id,
       section_id: form.section_id || undefined,
       is_active: form.is_active,
-      time_slots: form.time_slots.map((t) => ({
-        name: t.name.trim(),
-        start_time: t.start_time,
-        end_time: t.end_time,
-        day_of_week: t.day_of_week,
-        class_id: t.class_id || undefined,
+      time_slots: slots.map((s) => ({
+        name: s.name.trim(),
+        start_time: s.start_time,
+        end_time: s.end_time,
+        day_of_week: s.day_of_week,
+        class_id: s.class_id || undefined,
       })),
     };
-
     try {
-      const saved = timetableToEdit
-        ? await updateTimetable(timetableToEdit.id, payload)
-        : await createTimetable(payload);
-
-      toast.success(timetableToEdit ? 'Timetable updated successfully' : 'Timetable created successfully');
-      onSaved(saved);
+      await save.mutateAsync({ id: timetable?.id, data });
+      notify.success(timetable ? `${data.name} is saved.` : `${data.name} is created.`);
       onClose();
-    } catch (err: any) {
-      const message = err?.message || err?.detail || 'An unexpected error occurred';
-      toast.error(message);
-      console.error('Timetable save failed:', err);
+    } catch (err) {
+      notify.error(errorMessage(err, "The timetable wasn't saved. Check your connection and try again."));
     }
   };
 
-  const addSlot = () => {
-    setForm((prev) => ({
-      ...prev,
-      time_slots: [...prev.time_slots, { name: '', start_time: '', end_time: '', day_of_week: '', class_id: '' }],
-    }));
-  };
-
-  const removeSlot = (index: number) => {
-    setForm((prev) => ({
-      ...prev,
-      time_slots: prev.time_slots.filter((_, i) => i !== index),
-    }));
-  };
-
-  const handleBulkAdd = () => {
-    if (!bulkSlot.class_id || bulkSlot.days.length === 0 || !bulkSlot.start_time || !bulkSlot.end_time) return;
-
-    const newSlots = bulkSlot.days.map(day => ({
-      name: bulkSlot.name || 'Period',
-      start_time: bulkSlot.start_time,
-      end_time: bulkSlot.end_time,
-      day_of_week: day,
-      class_id: bulkSlot.class_id
-    }));
-
-    setForm(prev => ({
-      ...prev,
-      time_slots: [...prev.time_slots, ...newSlots]
-    }));
-
-    // Reset some fields but keep subject/time for easy repetitive add
-    setBulkSlot(prev => ({ ...prev, days: [] }));
-  };
-
-  const changeSlot = (
-    index: number,
-    field: keyof Omit<TimetableCreate['time_slots'][number], 'id'>,
-    value: string
-  ) => {
-    setForm((prev) => ({
-      ...prev,
-      time_slots: prev.time_slots.map((slot, i) => (i === index ? { ...slot, [field]: value } : slot)),
-    }));
-  };
+  const subjectOptions = (
+    <>
+      <option value="">{subjects.isLoading ? 'Loading subjects…' : 'Choose a subject'}</option>
+      {subjectList.map((s) => (
+        <option key={s.id} value={s.id}>
+          {s.label}
+        </option>
+      ))}
+    </>
+  );
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+    <Dialog open onOpenChange={(open) => !open && !save.isPending && onClose()}>
+      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{timetableToEdit ? 'Edit Timetable' : 'Create Timetable'}</DialogTitle>
-          <DialogDescription>Configure details and schedule classes.</DialogDescription>
+          <DialogTitle className="text-xl font-semibold text-foreground">
+            {timetable ? `Edit ${timetable.name}` : 'New timetable'}
+          </DialogTitle>
+          <DialogDescription>Choose the class it covers, then add its lessons.</DialogDescription>
         </DialogHeader>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-          <TabsList>
-            <TabsTrigger value="general">General</TabsTrigger>
-            <TabsTrigger value="timeslots">Schedule</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="general" className="space-y-4 pt-4">
-            <div className="space-y-2">
-              <Label>Name</Label>
+        <div className="mt-4 space-y-6">
+          <section className="grid gap-4 sm:grid-cols-2" aria-label="Details">
+            <FormField label="Name" required error={errors.name} className="sm:col-span-2">
               <Input
+                className={inputClass}
                 value={form.name}
-                onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="e.g. Standard Timetable"
+                placeholder="e.g. Grade 7 timetable"
+                onChange={(e) => setField('name', e.target.value)}
               />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Academic Year</Label>
-              <Select
-                value={form.academic_year_id}
-                onValueChange={(v) => setForm((prev) => ({ ...prev, academic_year_id: v }))}
+            </FormField>
+            <FormField label="School year" required error={errors.academic_year_id}>
+              <select className={selectClass} value={form.academic_year_id} onChange={(e) => setField('academic_year_id', e.target.value)}>
+                <option value="">Choose a year</option>
+                {years.map((y) => (
+                  <option key={y.id} value={y.id}>
+                    {y.name}
+                    {y.is_current ? ' (current)' : ''}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="Grade" required error={errors.grade_id}>
+              <select
+                className={selectClass}
+                value={form.grade_id}
+                onChange={(e) => setForm((f) => ({ ...f, grade_id: e.target.value, section_id: '' }))}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select academic year" />
-                </SelectTrigger>
-                <SelectContent>
-                  {academicYears.map((y) => (
-                    <SelectItem key={y.id} value={y.id}>
-                      {y.name} {y.is_current ? '(current)' : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Grade</Label>
-                <Select
-                  value={form.grade_id}
-                  onValueChange={(v) => setForm((prev) => ({ ...prev, grade_id: v, section_id: '' }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select grade" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {grades.map((g) => (
-                      <SelectItem key={g.id} value={g.id}>
-                        {g.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Section</Label>
-                <Select
-                  value={form.section_id}
-                  onValueChange={(v) => setForm((prev) => ({ ...prev, section_id: v }))}
-                  disabled={!form.grade_id || sections.length === 0}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={sections.length === 0 ? "No sections available" : "Select section"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sections.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
+                <option value="">Choose a grade</option>
+                {grades.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="Section" description="Leave empty to use this timetable for every section of the grade.">
+              <select
+                className={selectClass}
+                value={form.section_id}
+                onChange={(e) => setField('section_id', e.target.value)}
+                disabled={!form.grade_id}
+              >
+                <option value="">{form.grade_id ? 'Every section' : 'Choose a grade first'}</option>
+                {form.grade_id
+                  ? (sections.data ?? []).map((s) => (
+                      <option key={s.id} value={s.id}>
                         {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-gray-500">Leaving this empty applies to all sections (template).</p>
-              </div>
+                      </option>
+                    ))
+                  : null}
+              </select>
+            </FormField>
+            <div className="flex min-h-11 items-center gap-3 sm:self-end md:min-h-9">
+              <Switch id="tt-active" checked={form.is_active} onCheckedChange={(on) => setField('is_active', on)} />
+              <label htmlFor="tt-active" className="text-sm">
+                Active (students and teachers see it)
+              </label>
             </div>
+          </section>
 
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                checked={form.is_active}
-                onCheckedChange={(checked) =>
-                  setForm((prev) => ({ ...prev, is_active: Boolean(checked) }))
+          <section className="space-y-4 rounded-xl border p-4" aria-label="Add to several days">
+            <div>
+              <h3 className="font-semibold">Add a lesson to several days</h3>
+              <p className="text-sm text-muted-foreground">
+                {form.grade_id ? 'Pick the subject, the times and the days.' : 'Choose a grade above to see its subjects.'}
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <FormField label="Subject" className="sm:col-span-2">
+                <select
+                  className={selectClass}
+                  value={quick.class_id}
+                  onChange={(e) => setQuick((q) => ({ ...q, class_id: e.target.value }))}
+                  disabled={!form.grade_id}
+                >
+                  {subjectOptions}
+                </select>
+              </FormField>
+              <FormField label="Starts">
+                <Input type="time" className={inputClass} value={quick.start_time} onChange={(e) => setQuick((q) => ({ ...q, start_time: e.target.value }))} />
+              </FormField>
+              <FormField label="Ends">
+                <Input type="time" className={inputClass} value={quick.end_time} onChange={(e) => setQuick((q) => ({ ...q, end_time: e.target.value }))} />
+              </FormField>
+              <FormField label="Label (optional)" className="sm:col-span-2">
+                <Input className={inputClass} placeholder="e.g. Period 1" value={quick.name} onChange={(e) => setQuick((q) => ({ ...q, name: e.target.value }))} />
+              </FormField>
+            </div>
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">Days</legend>
+              <div className="flex flex-wrap gap-2">
+                {WEEKDAYS.map((day) => {
+                  const on = quick.days.includes(day);
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() =>
+                        setQuick((q) => ({ ...q, days: on ? q.days.filter((d) => d !== day) : [...q.days, day] }))
+                      }
+                      className={cn(
+                        'min-h-11 min-w-14 rounded-md border px-3 text-sm font-medium md:min-h-9',
+                        on ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'
+                      )}
+                    >
+                      {dayLabel(day).slice(0, 3)}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+            <Button variant="outline" className="min-h-11 md:min-h-9" onClick={addToDays} disabled={!quickReady}>
+              <Plus aria-hidden="true" />
+              {quick.days.length > 1 ? `Add to ${quick.days.length} days` : 'Add lesson'}
+            </Button>
+          </section>
+
+          <section className="space-y-3" aria-label="Lessons">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-semibold">
+                Lessons <span className="font-normal text-muted-foreground">({slots.length})</span>
+              </h3>
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-11 md:min-h-9"
+                onClick={() =>
+                  setSlots((list) => [...list, { key: nextKey++, name: '', day_of_week: '', start_time: '', end_time: '', class_id: '' }])
                 }
-                id="is_active"
-              />
-              <Label htmlFor="is_active">Active</Label>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="timeslots" className="space-y-6 pt-4">
-            {/* Quick Add Section */}
-            <div className="p-4 border border-indigo-100 rounded-xl bg-indigo-50/30 space-y-4 shadow-sm transition-all hover:shadow-md">
-              <h4 className="text-sm font-bold text-indigo-900 flex items-center gap-2">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] text-white">1</span>
-                Quick Add (Multi-Day Support)
-              </h4>
-              <div className="grid grid-cols-12 gap-3 items-end">
-                <div className="col-span-3 space-y-1.5">
-                  <Label className="text-xs font-semibold text-indigo-700">Label (Optional)</Label>
-                  <Input
-                    placeholder="e.g. Period 1"
-                    value={bulkSlot.name}
-                    onChange={e => setBulkSlot(prev => ({ ...prev, name: e.target.value }))}
-                    className="h-9 bg-white"
-                  />
-                </div>
-                <div className="col-span-4 space-y-1.5">
-                  <Label className="text-xs font-semibold text-indigo-700">Subject/Teacher</Label>
-                  <Select value={bulkSlot.class_id} onValueChange={v => setBulkSlot(prev => ({ ...prev, class_id: v }))}>
-                    <SelectTrigger className="h-9 bg-white">
-                      <SelectValue placeholder="Choose Subject" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableSubjects.map((s) => (
-                        <SelectItem key={s.id} value={s.id}>
-                          {s.subject_name || 'Unknown Subject'} ({s.teacher_name || 'No Teacher'})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="col-span-2 space-y-1.5">
-                  <Label className="text-xs font-semibold text-indigo-700">Start Time</Label>
-                  <Input type="time" value={bulkSlot.start_time} onChange={e => setBulkSlot(prev => ({ ...prev, start_time: e.target.value }))} className="h-9 bg-white" />
-                </div>
-                <div className="col-span-2 space-y-1.5">
-                  <Label className="text-xs font-semibold text-indigo-700">End Time</Label>
-                  <Input type="time" value={bulkSlot.end_time} onChange={e => setBulkSlot(prev => ({ ...prev, end_time: e.target.value }))} className="h-9 bg-white" />
-                </div>
-                <div className="col-span-1">
-                  <Button onClick={handleBulkAdd} className="w-full h-9 bg-indigo-600 hover:bg-indigo-700 shadow-sm" disabled={!bulkSlot.class_id || bulkSlot.days.length === 0}>
-                    Add
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold text-indigo-700">Select Days</Label>
-                <div className="flex flex-wrap gap-2">
-                  {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => (
-                    <div key={day} className="flex items-center space-x-1 bg-white px-2 py-1.5 rounded-md border border-indigo-100 transition-all hover:bg-indigo-50">
-                      <Checkbox
-                        id={`bulk-${day}`}
-                        checked={bulkSlot.days.includes(day)}
-                        onCheckedChange={checked => {
-                          setBulkSlot(prev => ({
-                            ...prev,
-                            days: checked ? [...prev.days, day] : prev.days.filter(d => d !== day)
-                          }));
-                        }}
-                        className="data-[state=checked]:bg-indigo-600 border-indigo-200"
-                      />
-                      <Label htmlFor={`bulk-${day}`} className="text-xs font-medium cursor-pointer capitalize">
-                        {day.substring(0, 3)}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <h4 className="text-sm font-bold text-gray-700 flex items-center gap-2 px-1">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gray-600 text-[10px] text-white">2</span>
-                Individual Slots List
-              </h4>
-              {/* Header */}
-              <div className="grid grid-cols-12 gap-2 text-sm font-medium text-gray-500 px-1">
-                <div className="col-span-2">Label</div>
-                <div className="col-span-2">Day</div>
-                <div className="col-span-2">Time</div>
-                <div className="col-span-5">Subject (Class)</div>
-                <div className="col-span-1">Action</div>
-              </div>
-
-              {form.time_slots.map((slot, idx) => (
-                <div key={idx} className="grid grid-cols-12 gap-2 items-center border-b pb-2">
-                  {/* Label */}
-                  <div className="col-span-2">
-                    <Input
-                      value={slot.name}
-                      onChange={(e) => changeSlot(idx, 'name', e.target.value)}
-                      placeholder="e.g. Period 1"
-                      className="h-8 text-sm"
-                    />
-                  </div>
-
-                  {/* Day */}
-                  <div className="col-span-2">
-                    <Select
-                      value={slot.day_of_week}
-                      onValueChange={(v) => changeSlot(idx, 'day_of_week', v)}
-                    >
-                      <SelectTrigger className="h-8 text-sm">
-                        <SelectValue placeholder="Day" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((d) => (
-                          <SelectItem key={d} value={d}>
-                            {d.charAt(0).toUpperCase() + d.slice(1)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Time Range */}
-                  <div className="col-span-2 flex flex-col gap-1">
-                    <Input
-                      type="time"
-                      value={slot.start_time}
-                      onChange={(e) => changeSlot(idx, 'start_time', e.target.value)}
-                      className="h-7 text-xs"
-                    />
-                    <Input
-                      type="time"
-                      value={slot.end_time}
-                      onChange={(e) => changeSlot(idx, 'end_time', e.target.value)}
-                      className="h-7 text-xs"
-                    />
-                  </div>
-
-                  {/* Subject Dropdown */}
-                  <div className="col-span-5">
-                    <Select
-                      value={slot.class_id}
-                      onValueChange={(v) => changeSlot(idx, 'class_id', v)}
-                    >
-                      <SelectTrigger className="h-8 text-sm">
-                        <SelectValue placeholder="Select Subject..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableSubjects.map((s) => (
-                          <SelectItem key={s.id} value={s.id}>
-                            {s.subject_name || 'Unknown Subject'} {s.teacher_name ? `(${s.teacher_name})` : '(No Teacher)'}
-                          </SelectItem>
-                        ))}
-                        {availableSubjects.length === 0 && <SelectItem value="none" disabled>No subjects found for this grade</SelectItem>}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Remove */}
-                  <div className="col-span-1 flex justify-end">
-                    <Button variant="ghost" size="sm" onClick={() => removeSlot(idx)} className="text-red-500 h-8 w-8 p-0">
-                      X
-                    </Button>
-                  </div>
-                </div>
-              ))}
-
-              <Button onClick={addSlot} variant="outline" className="w-full mt-2 border-dashed">
-                + Add Schedule Slot
+              >
+                <Plus aria-hidden="true" />
+                Add one lesson
               </Button>
             </div>
-          </TabsContent>
-        </Tabs>
+            {errors.slots ? (
+              <p role="alert" className="text-sm font-medium text-destructive">
+                {errors.slots}
+              </p>
+            ) : null}
+            {slots.length === 0 ? (
+              <p className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+                No lessons yet. Add them above.
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {slots.map((s, i) => (
+                  <li key={s.key} className="grid gap-3 rounded-xl border p-3 sm:grid-cols-2 lg:grid-cols-[8rem_7rem_7rem_7rem_minmax(0,1fr)_auto] lg:items-end">
+                    <FormField label="Day">
+                      <select className={selectClass} value={s.day_of_week} onChange={(e) => changeSlot(s.key, { day_of_week: e.target.value })}>
+                        <option value="">Choose</option>
+                        {WEEKDAYS.map((d) => (
+                          <option key={d} value={d}>
+                            {dayLabel(d)}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+                    <FormField label="Label">
+                      <Input className={inputClass} placeholder="Period" value={s.name} onChange={(e) => changeSlot(s.key, { name: e.target.value })} />
+                    </FormField>
+                    <FormField label="Starts">
+                      <Input type="time" className={inputClass} value={s.start_time} onChange={(e) => changeSlot(s.key, { start_time: e.target.value })} />
+                    </FormField>
+                    <FormField label="Ends">
+                      <Input type="time" className={inputClass} value={s.end_time} onChange={(e) => changeSlot(s.key, { end_time: e.target.value })} />
+                    </FormField>
+                    <FormField label="Subject">
+                      <select className={selectClass} value={s.class_id} onChange={(e) => changeSlot(s.key, { class_id: e.target.value })}>
+                        {subjectOptions}
+                        {s.class_id && !subjectList.some((o) => o.id === s.class_id) ? (
+                          <option value={s.class_id}>
+                            {timetable?.time_slots.find((t) => t.class_id === s.class_id)?.subject_name || 'Current subject'}
+                          </option>
+                        ) : null}
+                      </select>
+                    </FormField>
+                    <Button
+                      variant="ghost"
+                      className="min-h-11 text-destructive hover:text-destructive md:min-h-9"
+                      onClick={() => setSlots((list) => list.filter((x) => x.key !== s.key))}
+                    >
+                      <Trash2 aria-hidden="true" />
+                      <span className="lg:sr-only">Remove lesson {i + 1}</span>
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
 
-        <div className="flex justify-end space-x-2 pt-4">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={onSubmit} disabled={loading}>Save Timetable</Button>
+        <div className="sticky bottom-0 -mx-6 -mb-6 mt-6 flex flex-col-reverse gap-2 border-t bg-background px-6 py-4 sm:flex-row sm:justify-end">
+          <Button variant="outline" className="min-h-11 md:min-h-9" onClick={onClose} disabled={save.isPending}>
+            Cancel
+          </Button>
+          <Button className="min-h-11 md:min-h-9" onClick={submit} disabled={save.isPending}>
+            {save.isPending ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Save aria-hidden="true" />}
+            {timetable ? 'Save timetable' : 'Create timetable'}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

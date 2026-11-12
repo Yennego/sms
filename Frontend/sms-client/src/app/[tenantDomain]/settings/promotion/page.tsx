@@ -1,295 +1,431 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useAcademicYearService } from '@/services/api/academic-year-service';
-import { useAcademicGradeService } from '@/services/api/academic-grade-service';
-import { usePromotionService, PromotionCriteria } from '@/services/api/promotion-service';
-import { AcademicYear } from '@/types/enrollment';
-import { AcademicGrade } from '@/types/academic-grade';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+// Promotion rules: what a student needs to move up, per grade level and school year
+// (promotion_criteria, used by Students → Promotion). Without rules of its own a grade level uses the
+// school's pass mark (Grading settings): any failed subject means Conditional (remedial work).
+
+import * as React from 'react';
+import type { ColumnDef } from '@tanstack/react-table';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ListChecks, Loader2, Lock, Pencil } from 'lucide-react';
+
+import { useGradeLevels, useSchoolYears, useSubjects } from '@/components/classes/queries';
+import { useGradingSettings } from '@/components/report-cards/queries';
+import { selectClass } from '@/components/students/admission-form';
+import { errorMessage } from '@/components/students/format';
+import { useSchoolKey } from '@/components/students/queries';
+import PermissionGuard from '@/components/auth/permission-guard';
 import { Button } from '@/components/ui/button';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
-} from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { toast } from 'sonner';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { DataTable } from '@/components/ui/data-table';
+import { EmptyState } from '@/components/ui/empty-state';
+import { FormField } from '@/components/ui/form-field';
+import { Input } from '@/components/ui/input';
+import { PageShell } from '@/components/ui/page-shell';
+import { Sheet } from '@/components/ui/sheet';
+import { Skeleton } from '@/components/ui/skeleton';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { Switch } from '@/components/ui/switch';
+import { notify } from '@/components/ui/toaster';
+import { usePromotionService, type PromotionCriteria } from '@/services/api/promotion-service';
+import type { AcademicGrade } from '@/types/academic-grade';
 
-export default function PromotionSettingsPage() {
-  const yearService = useAcademicYearService();
-  const gradeService = useAcademicGradeService();
-  const { getCriteria, setCriteria, setCriteriaBulk } = usePromotionService();
+const inputClass = 'h-11 text-base md:h-9 md:text-sm';
 
-  const [years, setYears] = useState<AcademicYear[]>([]);
-  const [grades, setGrades] = useState<AcademicGrade[]>([]);
-  const [selectedYearId, setSelectedYearId] = useState<string>('');
-  const [selectedGradeId, setSelectedGradeId] = useState<string>('');
-  const [selectedGradeIds, setSelectedGradeIds] = useState<string[]>([]);
-  const [scope, setScope] = useState<'tenant' | 'grade' | 'multi'>('grade');
+const rulesKey = (school: string | null, yearId: string) => ['promotion-rules', school, yearId] as const;
 
-  const [criteria, setCriteriaState] = useState<Partial<PromotionCriteria>>({
-    passing_mark: 70,
-    min_passed_subjects: 0,
-    require_core_pass: true,
-    core_subject_ids: [],
-    aggregate_method: 'average',
-    weighting_schema: {
-      assignment: 20,
-      exam: 60,
-      attendance: 10,
-      quiz: 5,
-      test: 5
-    }
+function usePromotionRules(yearId: string) {
+  const { listCriteria } = usePromotionService();
+  const school = useSchoolKey();
+  return useQuery({
+    queryKey: rulesKey(school, yearId),
+    queryFn: () => listCriteria(yearId),
+    enabled: Boolean(school && yearId),
   });
+}
 
-  const [gradeCriteria, setGradeCriteria] = useState<Record<string, { passing_mark: number; min_passed_subjects: number; require_core_pass: boolean }>>({});
+function useSaveRules(yearId: string) {
+  const { setCriteria, deleteCriteria } = usePromotionService();
+  const school = useSchoolKey();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { rules?: PromotionCriteria; removeId?: string }) => {
+      if (vars.removeId) await deleteCriteria(vars.removeId);
+      else if (vars.rules) await setCriteria(vars.rules);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: rulesKey(school, yearId) }),
+  });
+}
 
-  const assessmentTypes = ['assignment', 'exam', 'attendance', 'quiz', 'test', 'project', 'other'];
+/** Attendance's share of the overall score shown in Promotion (decisions use the subjects passed). */
+function attendanceShare(rules?: PromotionCriteria | null): number {
+  if (!rules || rules.aggregate_method !== 'weighted' || !rules.weighting_schema) return 0;
+  const total = Object.values(rules.weighting_schema).reduce((a, b) => a + Number(b), 0);
+  return total > 0 ? Math.round((Number(rules.weighting_schema.attendance ?? 0) / total) * 100) : 0;
+}
 
-  useEffect(() => {
-    (async () => {
-      const results = await Promise.allSettled([
-        yearService.getAcademicYears(),
-        gradeService.getActiveGrades()
-      ]);
-      const yrs = results[0].status === 'fulfilled' ? results[0].value : [];
-      const grs = results[1].status === 'fulfilled' ? results[1].value : [];
-      setYears(yrs || []);
-      setGrades(grs || []);
-    })();
-  }, [yearService, gradeService]);
+interface Row {
+  grade: AcademicGrade;
+  rules: PromotionCriteria | null;
+}
 
-  useEffect(() => {
-    (async () => {
-      if (!selectedYearId) return;
-      const gradeParam = scope === 'grade' ? selectedGradeId : undefined;
-      const c = await getCriteria(selectedYearId, gradeParam);
-      if (c) {
-        setCriteriaState({
-          ...c,
-          weighting_schema: c.weighting_schema || criteria.weighting_schema
-        });
-      }
-    })();
-  }, [selectedYearId, selectedGradeId, scope, getCriteria]);
+interface Draft {
+  passMark: string;
+  minPassed: string;
+  requireCore: boolean;
+  coreIds: string[];
+  attendance: string;
+}
 
-  const handleWeightChange = (type: string, value: number) => {
-    setCriteriaState(prev => ({
-      ...prev,
-      weighting_schema: {
-        ...(prev.weighting_schema || {}),
-        [type]: value
-      }
-    }));
-  };
+function RulesSheet({
+  row,
+  yearId,
+  schoolPassMark,
+  onClose,
+}: {
+  row: Row | null;
+  yearId: string;
+  schoolPassMark: number;
+  onClose: () => void;
+}) {
+  const subjects = useSubjects();
+  const save = useSaveRules(yearId);
+  const [draft, setDraft] = React.useState<Draft | null>(null);
+  const [errors, setErrors] = React.useState<Partial<Record<keyof Draft, string>>>({});
 
-  const totalWeight = Object.values(criteria.weighting_schema || {}).reduce((a, b) => a + Number(b), 0);
+  React.useEffect(() => {
+    if (!row) return;
+    setErrors({});
+    setDraft({
+      passMark: String(row.rules?.passing_mark ?? schoolPassMark),
+      minPassed: row.rules?.min_passed_subjects != null ? String(row.rules.min_passed_subjects) : '',
+      requireCore: row.rules?.require_core_pass ?? true,
+      coreIds: (row.rules?.core_subject_ids ?? []).map(String),
+      attendance: String(attendanceShare(row.rules)),
+    });
+  }, [row, schoolPassMark]);
 
   const onSave = async () => {
-    if (!selectedYearId) {
-      toast.error('Select academic year');
-      return;
-    }
-    if (scope === 'grade' && !selectedGradeId) {
-      toast.error('Select grade');
-      return;
-    }
-    if (scope === 'multi' && selectedGradeIds.length === 0) {
-      toast.error('Select at least one grade');
-      return;
-    }
-
-    if (criteria.aggregate_method === 'weighted' && totalWeight !== 100) {
-      toast.warning(`Total weight is ${totalWeight}%. It should ideally be 100% for proper percentage calculation.`);
-    }
-
+    if (!row || !draft) return;
+    const next: typeof errors = {};
+    const pass = Number(draft.passMark);
+    if (!Number.isInteger(pass) || pass < 0 || pass > 100) next.passMark = 'Enter a whole number from 0 to 100.';
+    const min = draft.minPassed.trim() === '' ? null : Number(draft.minPassed);
+    if (min !== null && (!Number.isInteger(min) || min < 0)) next.minPassed = 'Enter a whole number, or leave it empty.';
+    const att = Number(draft.attendance || 0);
+    if (!Number.isInteger(att) || att < 0 || att > 100) next.attendance = 'Enter a whole number from 0 to 100.';
+    setErrors(next);
+    if (Object.keys(next).length) return;
     try {
-      if (scope === 'multi') {
-        const items: PromotionCriteria[] = selectedGradeIds.map(gid => {
-          const row = gradeCriteria[gid] || { passing_mark: criteria.passing_mark ?? 70, min_passed_subjects: criteria.min_passed_subjects ?? 0, require_core_pass: !!criteria.require_core_pass };
-          return {
-            academic_year_id: selectedYearId,
-            grade_id: gid,
-            passing_mark: Math.max(0, Math.min(100, row.passing_mark)),
-            min_passed_subjects: row.min_passed_subjects,
-            require_core_pass: row.require_core_pass,
-            core_subject_ids: criteria.core_subject_ids ?? [],
-            weighting_schema: criteria.weighting_schema,
-            aggregate_method: criteria.aggregate_method as any
-          };
-        });
-        const res = await setCriteriaBulk(items);
-        toast.success(`Saved: ${res.created} created, ${res.updated} updated`);
-      } else {
-        const payload: PromotionCriteria = {
-          academic_year_id: selectedYearId,
-          grade_id: scope === 'grade' ? selectedGradeId : undefined,
-          passing_mark: Math.max(0, Math.min(100, criteria.passing_mark ?? 70)),
-          min_passed_subjects: criteria.min_passed_subjects ?? 0,
-          require_core_pass: !!criteria.require_core_pass,
-          core_subject_ids: criteria.core_subject_ids ?? [],
-          weighting_schema: criteria.weighting_schema,
-          aggregate_method: criteria.aggregate_method as any
-        };
-        await setCriteria(payload);
-        toast.success('Criteria saved');
-      }
-    } catch {
-      toast.error('Failed to save criteria');
+      await save.mutateAsync({
+        rules: {
+          academic_year_id: yearId,
+          grade_id: row.grade.id,
+          passing_mark: pass,
+          min_passed_subjects: min as number,
+          require_core_pass: draft.requireCore,
+          core_subject_ids: draft.coreIds,
+          aggregate_method: att > 0 ? 'weighted' : 'average',
+          weighting_schema: att > 0 ? { subjects: 100 - att, attendance: att } : undefined,
+        },
+      });
+      notify.success(`Promotion rules saved for ${row.grade.name}.`);
+      onClose();
+    } catch (err) {
+      notify.error(errorMessage(err, "The rules weren't saved. Try again."));
     }
   };
 
+  const list = (subjects.data ?? []).filter((s) => s.is_active !== false);
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader><CardTitle>Promotion Criteria</CardTitle></CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="block text-sm font-medium">Academic Year</label>
-              <select className="border rounded p-2 w-full text-sm" value={selectedYearId} onChange={(e) => setSelectedYearId(e.target.value)}>
-                <option value="">Select year</option>
-                {years.map(y => <option key={y.id} value={y.id}>{y.name}</option>)}
-              </select>
+    <Sheet
+      open={Boolean(row)}
+      onOpenChange={(open) => !open && onClose()}
+      title={`Promotion rules: ${row?.grade.name ?? ''}`}
+      description="A subject is passed when its yearly average reaches the pass mark. Any failed subject means remedial work (Conditional); the rules below decide when a student repeats instead."
+      className="sm:max-w-lg"
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" className="min-h-11 md:min-h-9" onClick={onClose} disabled={save.isPending}>
+            Cancel
+          </Button>
+          <Button className="min-h-11 md:min-h-9" onClick={onSave} disabled={save.isPending || !draft}>
+            {save.isPending ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+            Save rules
+          </Button>
+        </div>
+      }
+    >
+        {draft ? (
+          <div className="grid gap-4">
+            <FormField label="Pass mark" required error={errors.passMark} description={`The school's pass mark is ${schoolPassMark}.`}>
+              <Input
+                type="number"
+                inputMode="numeric"
+                className={inputClass}
+                value={draft.passMark}
+                onChange={(e) => setDraft({ ...draft, passMark: e.target.value })}
+              />
+            </FormField>
+            <FormField
+              label="Repeat if fewer subjects passed than"
+              error={errors.minPassed}
+              description="Leave empty for no minimum."
+            >
+              <Input
+                type="number"
+                inputMode="numeric"
+                className={inputClass}
+                value={draft.minPassed}
+                onChange={(e) => setDraft({ ...draft, minPassed: e.target.value })}
+              />
+            </FormField>
+            <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+              <label htmlFor="require-core" className="text-sm font-medium">
+                Repeat if a core subject is failed
+              </label>
+              <Switch
+                id="require-core"
+                checked={draft.requireCore}
+                onCheckedChange={(on) => setDraft({ ...draft, requireCore: on })}
+              />
             </div>
-            <div className="space-y-1.5">
-              <label className="block text-sm font-medium">Scope</label>
-              <select className="border rounded p-2 w-full text-sm" value={scope} onChange={(e) => setScope(e.target.value as 'tenant' | 'grade' | 'multi')}>
-                <option value="tenant">School-wide (Default)</option>
-                <option value="grade">Per Grade Level</option>
-                <option value="multi">Multi Grade Selection</option>
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="block text-sm font-medium">Specific Grade</label>
-              <select className="border rounded p-2 w-full text-sm" value={selectedGradeId} onChange={(e) => setSelectedGradeId(e.target.value)} disabled={scope !== 'grade'}>
-                <option value="">Select grade</option>
-                {grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="border-t pt-6 grid grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <h3 className="font-semibold text-lg border-b pb-2">Pass Requirements</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="block text-sm font-medium">Passing Mark (%)</label>
-                  <input type="number" className="border rounded p-2 w-full text-sm" value={criteria.passing_mark ?? 70} onChange={(e) => setCriteriaState(s => ({ ...s, passing_mark: Number(e.target.value) }))} />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="block text-sm font-medium">Min Passed Subjects</label>
-                  <input type="number" className="border rounded p-2 w-full text-sm" value={criteria.min_passed_subjects ?? 0} onChange={(e) => setCriteriaState(s => ({ ...s, min_passed_subjects: Number(e.target.value) }))} />
-                </div>
-                <div className="col-span-2 flex items-center gap-2 mt-2">
-                  <input id="require_core" type="checkbox" checked={!!criteria.require_core_pass} onChange={(e) => setCriteriaState(s => ({ ...s, require_core_pass: e.target.checked }))} />
-                  <label htmlFor="require_core" className="text-sm font-medium">Require core subject pass for promotion</label>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <h3 className="font-semibold text-lg border-b pb-2 flex justify-between items-center">
-                Weighting Strategy
-                <select
-                  className="text-xs border rounded p-1 font-normal"
-                  value={criteria.aggregate_method}
-                  onChange={(e) => setCriteriaState(s => ({ ...s, aggregate_method: e.target.value as any }))}
-                >
-                  <option value="average">Simple Average</option>
-                  <option value="weighted">Weighted Aggregation</option>
-                </select>
-              </h3>
-
-              {criteria.aggregate_method === 'weighted' ? (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                    {assessmentTypes.map(type => (
-                      <div key={type} className="flex items-center justify-between gap-2 p-2 border rounded bg-gray-50/50">
-                        <span className="text-xs font-bold uppercase text-gray-500">{type}</span>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            className="w-16 border rounded p-1 text-right text-sm"
-                            value={criteria.weighting_schema?.[type] ?? 0}
-                            onChange={(e) => handleWeightChange(type, Number(e.target.value))}
-                          />
-                          <span className="text-xs text-gray-400">%</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className={`mt-2 p-2 rounded text-xs font-bold flex justify-between ${totalWeight === 100 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                    <span>TOTAL WEIGHT</span>
-                    <span>{totalWeight}%</span>
-                  </div>
-                  <p className="text-[10px] text-gray-500 italic">
-                    * Assessments of the same type (e.g., multiple quizzes) are averaged first, then weighted.
-                  </p>
-                </div>
+            <fieldset className="space-y-2" disabled={!draft.requireCore}>
+              <legend className="text-sm font-medium">Core subjects</legend>
+              {subjects.isLoading ? (
+                <Skeleton className="h-24 w-full" />
+              ) : list.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No subjects yet. Add them under Classes → Subjects.</p>
               ) : (
-                <div className="flex items-center justify-center h-full text-sm text-gray-400 italic">
-                  All assessment types contribute equally to the subject average.
-                </div>
+                <ul className="grid gap-1 sm:grid-cols-2">
+                  {list.map((s) => {
+                    const id = String(s.id);
+                    const on = draft.coreIds.includes(id);
+                    return (
+                      <li key={id}>
+                        <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-2 hover:bg-muted md:min-h-9">
+                          <input
+                            type="checkbox"
+                            className="size-4"
+                            checked={on}
+                            onChange={() =>
+                              setDraft({
+                                ...draft,
+                                coreIds: on ? draft.coreIds.filter((x) => x !== id) : [...draft.coreIds, id],
+                              })
+                            }
+                          />
+                          <span className="text-sm">{s.name}</span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
-            </div>
+            </fieldset>
+            <FormField
+              label="Attendance in the overall score (%)"
+              error={errors.attendance}
+              description="Only changes the score shown in Promotion; decisions use the subjects passed. 0 leaves attendance out."
+            >
+              <Input
+                type="number"
+                inputMode="numeric"
+                className={inputClass}
+                value={draft.attendance}
+                onChange={(e) => setDraft({ ...draft, attendance: e.target.value })}
+              />
+            </FormField>
           </div>
+        ) : null}
+    </Sheet>
+  );
+}
 
-          <div className="flex justify-end border-t pt-6">
-            <Button size="lg" className="bg-indigo-600 hover:bg-indigo-700" onClick={onSave}>Save Promotion Criteria</Button>
+function PromotionRules() {
+  const { years, current, isLoading: yearsLoading } = useSchoolYears();
+  const [pickedYear, setPickedYear] = React.useState('');
+  const yearId = pickedYear || current?.id || '';
+  const grades = useGradeLevels();
+  const rules = usePromotionRules(yearId);
+  const subjects = useSubjects();
+  const grading = useGradingSettings();
+  const save = useSaveRules(yearId);
+  const schoolPassMark = grading.data?.pass_mark ?? 70;
+  const [editing, setEditing] = React.useState<Row | null>(null);
+  const [resetting, setResetting] = React.useState<Row | null>(null);
+
+  const subjectName = React.useMemo(
+    () => new Map((subjects.data ?? []).map((s) => [String(s.id), s.name])),
+    [subjects.data]
+  );
+  const rows = React.useMemo<Row[]>(
+    () =>
+      (grades.data ?? []).map((grade) => ({
+        grade,
+        rules: (rules.data ?? []).find((r) => String(r.grade_id) === String(grade.id)) ?? null,
+      })),
+    [grades.data, rules.data]
+  );
+
+  const columns = React.useMemo<ColumnDef<Row>[]>(
+    () => [
+      {
+        id: 'grade',
+        accessorFn: (r) => r.grade.sequence,
+        header: 'Grade level',
+        cell: ({ row }) => (
+          <div className="flex flex-col gap-1">
+            <span className="font-medium">{row.original.grade.name}</span>
+            {row.original.rules ? null : <StatusBadge status="neutral" label="School defaults" />}
           </div>
-        </CardContent>
-      </Card>
+        ),
+      },
+      {
+        id: 'pass',
+        header: 'Pass mark',
+        enableSorting: false,
+        cell: ({ row }) => row.original.rules?.passing_mark ?? schoolPassMark,
+      },
+      {
+        id: 'min',
+        header: 'Repeat if fewer passed than',
+        enableSorting: false,
+        cell: ({ row }) => row.original.rules?.min_passed_subjects ?? '–',
+      },
+      {
+        id: 'core',
+        header: 'Core subjects',
+        enableSorting: false,
+        cell: ({ row }) => {
+          const r = row.original.rules;
+          const ids = (r?.core_subject_ids ?? []).map(String);
+          if (!r?.require_core_pass || ids.length === 0) return '–';
+          return ids.map((id) => subjectName.get(id) ?? 'Removed subject').join(', ');
+        },
+      },
+      {
+        id: 'attendance',
+        header: 'Attendance in score',
+        enableSorting: false,
+        meta: { hideOnMobile: true },
+        cell: ({ row }) => `${attendanceShare(row.original.rules)}%`,
+      },
+      {
+        id: 'actions',
+        header: '',
+        enableSorting: false,
+        meta: { label: 'Actions', className: 'text-right' },
+        cell: ({ row }) => (
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" size="sm" className="min-h-11 md:min-h-9" onClick={() => setEditing(row.original)}>
+              <Pencil aria-hidden="true" />
+              Edit rules
+            </Button>
+            {row.original.rules?.id ? (
+              <Button variant="ghost" size="sm" className="min-h-11 md:min-h-9" onClick={() => setResetting(row.original)}>
+                Use school defaults
+              </Button>
+            ) : null}
+          </div>
+        ),
+      },
+    ],
+    [schoolPassMark, subjectName]
+  );
 
-      {scope === 'multi' && selectedGradeIds.length > 0 && (
-        <Card>
-          <CardHeader><CardTitle>Bulk Pass Requirements Override</CardTitle></CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Grade</TableHead>
-                  <TableHead>Passing Mark (%)</TableHead>
-                  <TableHead>Min Passed Subjects</TableHead>
-                  <TableHead>Require Core</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {selectedGradeIds.map(gid => {
-                  const row = gradeCriteria[gid] || { passing_mark: criteria.passing_mark ?? 70, min_passed_subjects: criteria.min_passed_subjects ?? 0, require_core_pass: !!criteria.require_core_pass };
-                  return (
-                    <TableRow key={gid}>
-                      <TableCell className="font-medium">{grades.find(g => g.id === gid)?.name || gid}</TableCell>
-                      <TableCell>
-                        <input type="number" className="border rounded p-2 w-24 text-sm" value={row.passing_mark} onChange={(e) => {
-                          const v = Number(e.target.value);
-                          setGradeCriteria(s => ({ ...s, [gid]: { ...row, passing_mark: v } }));
-                        }} />
-                      </TableCell>
-                      <TableCell>
-                        <input type="number" className="border rounded p-2 w-24 text-sm" value={row.min_passed_subjects} onChange={(e) => {
-                          const v = Number(e.target.value);
-                          setGradeCriteria(s => ({ ...s, [gid]: { ...row, min_passed_subjects: v } }));
-                        }} />
-                      </TableCell>
-                      <TableCell>
-                        <input type="checkbox" checked={row.require_core_pass} onChange={(e) => {
-                          const v = e.target.checked;
-                          setGradeCriteria(s => ({ ...s, [gid]: { ...row, require_core_pass: v } }));
-                        }} />
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+  const yearName = years.find((y) => y.id === yearId)?.name;
+  return (
+    <PageShell
+      title="Promotion rules"
+      description="What a student needs to move up to the next grade level. Any failed subject means remedial work; these rules decide when a student repeats."
+    >
+      <div className="grid gap-2 sm:max-w-xs">
+        <label htmlFor="rules-year" className="text-sm font-medium">
+          School year
+        </label>
+        <select
+          id="rules-year"
+          className={selectClass}
+          value={yearId}
+          onChange={(e) => setPickedYear(e.target.value)}
+          disabled={yearsLoading}
+        >
+          {years.map((y) => (
+            <option key={y.id} value={y.id}>
+              {y.name}
+              {y.is_current ? ' (current)' : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {!yearsLoading && years.length === 0 ? (
+        <EmptyState icon={ListChecks} description="There is no school year yet. Create one under Classes → Years and terms." />
+      ) : rules.isError || grades.isError ? (
+        <EmptyState
+          icon={ListChecks}
+          title="The rules didn't load"
+          description={`${errorMessage(rules.error ?? grades.error, 'The server didn’t answer.')} Check your connection and try again.`}
+          action={
+            <Button
+              onClick={() => {
+                rules.refetch();
+                grades.refetch();
+              }}
+            >
+              Try again
+            </Button>
+          }
+        />
+      ) : (
+        <DataTable
+          label={`Promotion rules${yearName ? ` for ${yearName}` : ''}`}
+          columns={columns}
+          data={rows}
+          loading={grades.isLoading || rules.isLoading}
+          pageSize={0}
+          getRowId={(r) => r.grade.id}
+          initialSorting={[{ id: 'grade', desc: false }]}
+          emptyState={<EmptyState icon={ListChecks} description="No grade levels yet. Add them under Classes → Grade levels." />}
+        />
       )}
-    </div>
+
+      <RulesSheet row={editing} yearId={yearId} schoolPassMark={schoolPassMark} onClose={() => setEditing(null)} />
+      <ConfirmDialog
+        open={Boolean(resetting)}
+        onOpenChange={(open) => !open && setResetting(null)}
+        title={`Use the school defaults for ${resetting?.grade.name ?? 'this grade level'}?`}
+        description={`Its own rules are removed: the school's pass mark (${schoolPassMark}) applies, with no minimum and no core subjects.`}
+        confirmLabel="Use school defaults"
+        loading={save.isPending}
+        onConfirm={async () => {
+          if (!resetting?.rules?.id) return;
+          try {
+            await save.mutateAsync({ removeId: resetting.rules.id });
+            notify.success(`${resetting.grade.name} uses the school defaults.`);
+          } catch (err) {
+            notify.error(errorMessage(err, "The rules weren't removed. Try again."));
+            throw err;
+          }
+        }}
+      />
+    </PageShell>
+  );
+}
+
+export default function PromotionRulesPage() {
+  return (
+    // The admin and the principal (manage_academic_year, like the server's criteria changes)
+    <PermissionGuard
+      requiredPermissions={['manage_academic_year']}
+      fallback={
+        <PageShell title="Promotion rules">
+          <EmptyState icon={Lock} description="Only staff who run promotion can change these rules." />
+        </PageShell>
+      }
+    >
+      <PromotionRules />
+    </PermissionGuard>
   );
 }

@@ -211,7 +211,7 @@ The areas are what a school can use. Students, classes, the school year, grades 
 **Who:** the school admin. **Where:** the user menu (tap your name at the top right).
 
 1. Sign in with the details from the operator, and choose your own password.
-2. **Name and colours:** open **School settings**, then **Tenant Settings**. Check the name and the colours, then save.
+2. **Logo and colours:** open **School settings**, then **Logo and colours**. Choose the logo and colours, then tap **Save logo and colours**. The school's name and web address are shown there too, but only the platform operator changes them: ask the operator if they're wrong.
 3. **School profile:** open **School profile** from the user menu.
    - Fill in **Address**, **Motto**, **Phone** and **Email**. These are printed on report cards.
    - Under **Who signs as principal**, choose the principal. Under **Title under the signature**, type the title, for example "Principal".
@@ -336,6 +336,12 @@ To move one student, find them on the **Placed** tab, tap **Move**, choose the c
    - Add each category with its **Weight (%)**, for example Tests 40, Assignments 30, Quizzes 20, Participation 10.
    - The weights must add up to exactly 100%.
    - Tap **Create Schema**.
+3. **Promotion rules** (optional), under **Grades → Promotion rules**: for each grade level, tap **Edit rules** to set:
+   - its own **Pass mark** (otherwise the school's applies);
+   - **Repeat if fewer subjects passed than** a number;
+   - **Core subjects**: with **Repeat if a core subject is failed** on, failing one of them means the student repeats;
+   - **Attendance in the overall score**, which only changes the score shown in Promotion.
+   Without rules of its own, a grade level uses the school's pass mark, and any failed subject means remedial work (Conditional). **Use school defaults** removes a grade level's own rules.
 
 **Check:** in **Grades → Gradebook**, when a teacher adds an assessment, the **Category** list shows these categories.
 
@@ -366,11 +372,11 @@ Students admitted after the invoices were issued are billed automatically.
 1. Open **Attendance rules** from the user menu and check:
    - **School timezone** (Africa/Monrovia);
    - **School days**;
-   - **Late after**, **Scanning closes** and **Auto-absent at**;
+   - **Late after**, **Scanning closes** and **Absent after**;
    - **Check-out scanning**.
-2. Tap **Save settings**.
-3. Under **Holidays & make-up days**, add each holiday with its **Date** and **Label**, then tap **Add**.
-4. Open **Attendance → ID cards**, choose a class, and tap **Print cards**. Repeat for each class.
+2. Tap **Save rules**.
+3. Under **Holidays and make-up days**, add each holiday with its **Date** and **Name**, then tap **Add day**.
+4. Open **Attendance → ID cards**, choose a class, and tap **Print N cards**. Repeat for each class. If a card is lost, tap **Issue a new card** under it: the old card stops working.
 5. Cut out the cards and give them to the students.
 6. Give the gate scanner an account: **Users → Add staff member**, role **Gate scanner** (see Step 6 and 4.8).
 
@@ -524,7 +530,7 @@ Open **Billing → Price list**. Edit the text under **How schools pay** and tap
 | Staff | Directory, Add teacher, Subject assignments |
 | Classes | Classes, Class rosters, Sections, Subjects, Grade levels, Years and terms, Semesters, Timetable, Setup |
 | Attendance | Today, Mark, Scan, Excuses, Reports, ID cards |
-| Grades | Gradebook, Review and publish, Report cards, Assignments, Grading settings, Remedial |
+| Grades | Gradebook, Review and publish, Report cards, Assignments, Grading settings, Promotion rules, Remedial |
 | Fees | Overview, Student accounts, Payments, Fee setup, Reports, Expenses, Settings (only when Fees is on) |
 | Messages | Announcements, Inbox |
 
@@ -543,15 +549,15 @@ On a phone, the bottom bar shows **Home**, **Students**, **Staff**, **Classes** 
 1. **Attendance → Today:** see who is present, late, absent or not marked, class by class. Tap a class to open its roster.
 2. **Excuses** (if the Today page says excuses are waiting):
    - Open **Attendance → Excuses**.
-   - On the **Pending** tab, tap **Approve** or **Reject** for each excuse.
+   - On **Waiting for review**, tap **Approve** or **Reject** for each excuse (when rejecting, you can say why).
 3. **Fees:** check **Fees → Overview** for today's payments.
 
 #### Weekly
 
 1. **New students:** admit them under **Students → Admit** (section 3, Step 7).
 2. **Attendance report:**
-   - Open **Attendance → Reports**, choose a **Class**, and tap **Show report**.
-   - Tap **Export CSV** to keep a copy.
+   - Open **Attendance → Reports** and choose a **Class**: the report appears. Add **From** and **To** dates for a period, or leave them empty for the school year so far.
+   - Tap **Download as CSV** to keep a copy.
 3. **Billing:** check the banner at the top of the screen. If there is one, open **Billing** from the user menu.
 
 #### Add or remove a guardian on an existing student
@@ -626,7 +632,7 @@ Open **Delivery log** from the user menu. Look at the **Failed** tab and tap **R
 | Staff | Directory, Add teacher, Subject assignments |
 | Classes | Classes, Class rosters, Sections, Subjects, Grade levels, Years and terms, Semesters, Timetable, Setup |
 | Attendance | Today, Reports |
-| Grades | Gradebook, Review and publish, Report cards, Grading settings, Remedial |
+| Grades | Gradebook, Review and publish, Report cards, Grading settings, Promotion rules, Remedial |
 | Fees | Overview, Student accounts, Payments, Fee setup, Reports (only when Fees is on) |
 | Messages | Announcements, Inbox |
 
@@ -735,7 +741,7 @@ After signing in, you land on **Students → Directory**.
   1. Tick **Show only rows with problems**.
   2. Fix those rows in the file.
   3. Upload it again and tap **Check rows**.
-- **A class is over its seats:** move some students, or raise the class's **Class Capacity** under **Classes → Classes** (Edit).
+- **A class is over its seats:** move some students, or raise the class's **Class capacity** under **Classes → Classes** (Edit).
 
 ### 4.5 Accountant and financial admin
 
@@ -883,16 +889,16 @@ A **class sponsor** is the teacher in charge of a class. The sponsor marks the c
 
 #### Daily: mark attendance (sponsors)
 
-1. Open **Attendance → My class**. Your class is chosen for you.
+1. Open **Attendance → My class**. Your class is chosen for you (with several classes, choose one).
 2. Students who scanned their card at the gate are already marked.
 3. Tap a status for each other student: **Present**, **Late**, **Absent**, **Excused** or **Sick**.
-   - Or tap **Mark unmarked present**, then change only the students who are not present.
+   - Or tap **Mark the rest present**, then change only the students who are not present.
    - **Excused** needs a reason. You can add a photo of a note.
-4. Tap **Save N changes**.
+4. A bar at the bottom shows how many changes are not saved. Tap **Save attendance** (or **Undo**).
 
 The home page card **My class today** shows how many are present, late, absent and not marked. The home page also shows **Today's lessons** from the timetable.
 
-You can also open **My classes**: on a class you sponsor, tap **Attendance** to mark that class. The button only shows on classes you sponsor.
+You can also open **My classes**: on a class you sponsor, tap **Mark attendance**. The button only shows on classes you sponsor.
 
 After the school's cut-off time, unmarked students are recorded absent automatically. You can still correct any student.
 
@@ -1128,9 +1134,9 @@ A school year has 2 semesters. Each semester has 3 periods and one exam:
    - Use **Choose what to copy** to copy last year's classes, sponsors and subjects.
 4. **Promotion**, one grade at a time (school admin or principal):
    - Open **Students → Promotion**.
-   - Choose the **Academic Year** (the year that is ending), **Promote into** (the new year) and the **Grade**, and tap **Evaluate Eligibility**.
+   - Choose the school year that is ending, the year to promote into (the new year) and the **Grade**, and tap **Check results**.
    - Check the results. Each student is **Eligible**, **Repeating**, **Conditional** or **Not graded**.
-   - Tap **Execute Transition**, then **Confirm & Execute**. Eligible students move up one grade into the new year. Repeating and Conditional students repeat their grade: they go into the same grade's class in the new year (their own section if it has a class, otherwise the class with the most free places) and get remedial sessions. Not graded students are skipped: grade them and run it again, or place them by hand.
+   - Tap **Move students to** (new year), read what will happen, and confirm. Eligible students move up one grade into the new year. Repeating and Conditional students repeat their grade: they go into the same grade's class in the new year (their own section if it has a class, otherwise the class with the most free places) and get remedial sessions. Not graded students are skipped: grade them and run it again, or place them by hand.
    - A Conditional student who passes their remedial work in every failed subject moves up automatically. If they passed before this step, they are promoted with everyone else. If they pass later, the app moves them to the next grade's class (same section when there is one) as soon as the last remedial result is saved, and their unpaid bill takes the new grade's fees. If the bill already has a payment, it keeps the old grade's fees: check their fee statement.
    - Repeat for each grade. Running it again for the same grade is safe.
    - The final grade is not moved: those students graduate in the next step.
@@ -1255,9 +1261,6 @@ Open the student's profile, then **ID card → Issue a new card**, then **Print 
 
 **I don't want alert emails.**
 Open **Notification settings** from the user menu and switch off the alerts you don't want by email. They still arrive in your inbox.
-
-**Why are some pages in a different style?**
-Some older pages, such as **Enrollments**, **Promotion**, **Remedial**, **Subject assignments** and most **Classes** tabs, still use an older design. They work, but their words may differ a little from this guide.
 
 ---
 

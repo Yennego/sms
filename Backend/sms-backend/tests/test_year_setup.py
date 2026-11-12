@@ -91,3 +91,32 @@ def test_wizard_is_scoped_to_the_school_and_needs_permission(env):
     other_school = headers(ids, "admin_b")
     assert client.get(f"/api/v1/academics/year-setup/{s['this']}", headers=other_school).status_code == 404
     assert client.get(f"/api/v1/academics/year-setup/{s['this']}", headers=headers(ids, "student_a")).status_code == 403
+
+
+def test_a_class_name_comes_back_every_year_but_not_twice_in_one(env):
+    """"Grade 1 - A" exists every school year: the duplicate check looks in the class's own year only."""
+    import asyncio
+    from src.core.exceptions.business import DuplicateEntityError
+    from src.db.models.academics.class_model import Class
+    from src.schemas.academics.class_schema import ClassCreate
+    from src.services.academics.class_service import ClassService
+
+    client, ids = env
+    s = _seed(ids)
+    gen = main.app.dependency_overrides[get_db]()
+    db = next(gen)
+    section = db.query(Section).filter(Section.grade_id == s["g1"]).order_by(Section.name).first()
+    db.add(Class(tenant_id=ids["tenant_a"], name="Grade 1 - A", academic_year_id=s["last"], grade_id=s["g1"],
+                 section_id=section.id, capacity=30, is_active=True, start_date=date(2025, 9, 1)))
+    db.flush()
+    service = ClassService(tenant=ids["tenant_a"], db=db)
+    new = lambda year: ClassCreate(name="Grade 1 - A", academic_year_id=year, grade_id=s["g1"],  # noqa: E731
+                                   section_id=section.id, start_date=date(2026, 9, 1))
+    assert asyncio.run(service.get_by_name("Grade 1 - A", s["this"])) is None  # another year: free
+    assert asyncio.run(service.get_by_name("Grade 1 - A", s["last"])) is not None
+    try:
+        asyncio.run(service.create(obj_in=new(s["last"])))
+        raise AssertionError("the same name twice in one year must be refused")
+    except DuplicateEntityError:
+        pass
+    next(gen, None)

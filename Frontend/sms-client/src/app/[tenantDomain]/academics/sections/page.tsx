@@ -1,251 +1,299 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+// Sections: each grade level is split into sections (A, B, ...). Every school year, each section of
+// a level becomes a class, which holds the seats. Staff who manage classes add, rename and delete them.
+
+import * as React from 'react';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import type { ColumnDef } from '@tanstack/react-table';
+import { Layers, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
+
+import { LabeledSelect } from '@/components/class-placement/roster-controls';
+import {
+  useClassesAccess,
+  useCreateSection,
+  useDeleteSection,
+  useGradeLevels,
+  useGradeSections,
+  useUpdateSection,
+} from '@/components/classes/queries';
+import { errorMessage } from '@/components/students/format';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { DataTable } from '@/components/ui/data-table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { EmptyState } from '@/components/ui/empty-state';
+import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { PageShell } from '@/components/ui/page-shell';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Edit, Trash2, Users, BookOpen, Loader2, AlertCircle } from 'lucide-react';
-import { useEnrollmentGrades } from '@/hooks/queries/enrollments';
-import { useSectionsByGrade, useCreateSection, useUpdateSection, useDeleteSection } from '@/hooks/queries/sections';
-import ConfirmationModal from '@/components/common/ConfirmationModal';
-import { toast } from 'sonner';
+import { notify } from '@/components/ui/toaster';
+import type { Section } from '@/types/section';
 
 export default function SectionsPage() {
-  const { data: grades = [], isLoading: gradesLoading } = useEnrollmentGrades();
-  const [selectedGradeId, setSelectedGradeId] = useState<string>('');
+  const params = useParams();
+  const school = params?.tenantDomain as string;
+  const { canManageClasses } = useClassesAccess();
 
-  // Auto-select first grade if none selected
-  React.useEffect(() => {
-    if (grades.length > 0 && !selectedGradeId) {
-      setSelectedGradeId(grades[0].id);
-    }
-  }, [grades, selectedGradeId]);
+  const levelsQuery = useGradeLevels();
+  const levels = React.useMemo(() => levelsQuery.data ?? [], [levelsQuery.data]);
+  const [chosenGradeId, setGradeId] = React.useState('');
+  const gradeId = chosenGradeId || levels[0]?.id || '';
+  const level = levels.find((l) => l.id === gradeId) ?? null;
 
-  const { data: apiSections = [], isLoading: sectionsLoading } = useSectionsByGrade(selectedGradeId);
-  const createMutation = useCreateSection();
-  const updateMutation = useUpdateSection();
-  const deleteMutation = useDeleteSection();
-
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingSection, setEditingSection] = useState<any | null>(null);
-  const [formData, setFormData] = useState({ name: '', description: '' });
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [sectionToDelete, setSectionToDelete] = useState<any | null>(null);
-
-  const sections = useMemo(() => apiSections.map((s: any) => ({
-    id: s.id,
-    name: s.name,
-    gradeId: s.grade_id,
-    gradeName: s.grade_name,
-    description: s.description,
-    studentCount: s.student_count || 0,
-    classCount: s.class_count || 0
-  })), [apiSections]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedGradeId) {
-      toast.error('Please select a grade first');
-      return;
-    }
-    const payload = {
-      name: formData.name,
-      grade_id: selectedGradeId,
-      description: formData.description || undefined
-    };
-
-    try {
-      if (editingSection) {
-        await updateMutation.mutateAsync({ id: editingSection.id, data: payload });
-        toast.success('Section updated');
-      } else {
-        await createMutation.mutateAsync(payload);
-        toast.success('Section created');
-      }
-      setIsDialogOpen(false);
-      setEditingSection(null);
-      setFormData({ name: '', description: '' });
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to save section');
-    }
-  };
-
-  const handleEdit = (section: any) => {
-    setEditingSection(section);
-    setFormData({
-      name: section.name,
-      description: section.description ?? ''
-    });
-    setIsDialogOpen(true);
-  };
+  const sectionsQuery = useGradeSections(gradeId);
+  const sections = sectionsQuery.data ?? [];
+  const deleteSection = useDeleteSection();
+  const [form, setForm] = React.useState<{ section: Section | null } | null>(null);
+  const [deleting, setDeleting] = React.useState<Section | null>(null);
 
   const confirmDelete = async () => {
-    if (!sectionToDelete) return;
+    if (!deleting) return;
     try {
-      await deleteMutation.mutateAsync(sectionToDelete.id);
-      toast.success('Section deleted');
-      setIsDeleteDialogOpen(false);
-      setSectionToDelete(null);
+      await deleteSection.mutateAsync(deleting.id);
+      notify.success(`${deleting.name} is deleted.`);
     } catch (err) {
-      toast.error('Failed to delete section');
+      notify.error(errorMessage(err, `${deleting.name} wasn't deleted. Try again.`));
+      throw err;
     }
   };
 
-  const isLoading = gradesLoading || (selectedGradeId && sectionsLoading);
+  const columns = React.useMemo<ColumnDef<Section>[]>(
+    () => [
+      {
+        accessorKey: 'name',
+        header: 'Section',
+        cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+      },
+      {
+        accessorKey: 'description',
+        header: 'Notes',
+        cell: ({ row }) => row.original.description || <span className="text-muted-foreground">No notes</span>,
+      },
+      ...(canManageClasses
+        ? [
+            {
+              id: 'actions',
+              header: '',
+              enableSorting: false,
+              meta: { label: 'Actions', className: 'text-right' },
+              cell: ({ row }) => (
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="min-h-11 md:min-h-9"
+                    onClick={() => setForm({ section: row.original })}
+                  >
+                    <Pencil aria-hidden="true" />
+                    Edit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="min-h-11 text-destructive hover:text-destructive md:min-h-9"
+                    onClick={() => setDeleting(row.original)}
+                    aria-label={`Delete ${row.original.name}`}
+                  >
+                    <Trash2 aria-hidden="true" />
+                    <span className="md:sr-only">Delete</span>
+                  </Button>
+                </div>
+              ),
+            } satisfies ColumnDef<Section>,
+          ]
+        : []),
+    ],
+    [canManageClasses]
+  );
 
-  if (isLoading && grades.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <Loader2 className="h-12 w-12 animate-spin text-blue-500" />
-        <p className="text-gray-500 animate-pulse">Loading academic structure...</p>
-      </div>
-    );
-  }
+  const description = `Each grade level is split into sections, for example A and B. Every school year, each section becomes a class.${
+    canManageClasses ? '' : ' You can look, but only staff who manage classes can change them.'
+  }`;
+
+  const addButton =
+    canManageClasses && level ? (
+      <Button className="min-h-11 md:min-h-9" onClick={() => setForm({ section: null })}>
+        <Plus aria-hidden="true" />
+        Add a section
+      </Button>
+    ) : undefined;
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Sections</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Organize groups of students within each grade level</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Label className="text-xs font-medium text-muted-foreground">Grade:</Label>
-            <Select value={selectedGradeId} onValueChange={setSelectedGradeId}>
-              <SelectTrigger className="w-[180px] h-9">
-                <SelectValue placeholder="Select grade" />
-              </SelectTrigger>
-              <SelectContent>
-                {grades.map(g => (
-                  <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button onClick={() => {
-            setEditingSection(null);
-            setFormData({ name: '', description: '' });
-            setIsDialogOpen(true);
-          }}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Section
-          </Button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="bg-purple-50/30 border-purple-100">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div><p className="text-sm font-medium text-purple-600">Total Sections</p><p className="text-2xl font-bold">{sections.length}</p></div>
-            <BookOpen className="w-8 h-8 text-purple-500 opacity-50" />
-          </CardContent>
-        </Card>
-        <Card className="bg-blue-50/30 border-blue-100">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div><p className="text-sm font-medium text-blue-600">Current Grade</p><p className="text-xl font-bold truncate max-w-[150px]">{grades.find(g => g.id === selectedGradeId)?.name ?? 'None'}</p></div>
-            <Users className="w-8 h-8 text-blue-500 opacity-50" />
-          </CardContent>
-        </Card>
-        <Card className="bg-green-50/30 border-green-100">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div><p className="text-sm font-medium text-green-600">Total Students</p><p className="text-2xl font-bold">{sections.reduce((sum, s) => sum + s.studentCount, 0)}</p></div>
-            <Users className="w-8 h-8 text-green-500 opacity-50" />
-          </CardContent>
-        </Card>
-      </div>
-
-      {sectionsLoading ? (
-        <div className="flex flex-col items-center justify-center py-20 gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-400" />
-          <p className="text-sm text-muted-foreground">Fetching sections...</p>
-        </div>
-      ) : sections.length === 0 ? (
-        <Card className="border-dashed border-2 py-20 bg-muted/10">
-          <CardContent className="flex flex-col items-center gap-4 text-center">
-            <AlertCircle className="h-10 w-10 text-muted-foreground opacity-20" />
-            <div>
-              <h3 className="font-semibold text-lg">No sections in this grade</h3>
-              <p className="text-muted-foreground text-sm max-w-xs">Create your first section to start enrolling students.</p>
-            </div>
-            <Button variant="outline" onClick={() => setIsDialogOpen(true)} className="mt-2">Create Section</Button>
-          </CardContent>
-        </Card>
+    <PageShell title="Sections" description={description} primaryAction={addButton}>
+      {levelsQuery.isLoading ? (
+        <Skeleton className="h-64 w-full rounded-xl" />
+      ) : levelsQuery.isError ? (
+        <EmptyState
+          icon={RefreshCw}
+          title="The grade levels didn't load"
+          description={`${errorMessage(levelsQuery.error, "The server didn't answer.")} Check your connection and try again.`}
+          action={<Button onClick={() => levelsQuery.refetch()}>Try again</Button>}
+        />
+      ) : levels.length === 0 ? (
+        <EmptyState
+          icon={Layers}
+          title="No grade levels yet"
+          description="Sections belong to a grade level. Add the grade levels first."
+          action={
+            <Button asChild>
+              <Link href={`/${school}/academics/grades`}>Open grade levels</Link>
+            </Button>
+          }
+        />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {sections.map((section) => (
-            <Card key={section.id} className="hover:shadow-md transition-all group border-l-4 border-l-blue-500">
-              <CardHeader className="pb-2">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <CardTitle className="text-xl">{section.name}</CardTitle>
-                    <CardDescription className="text-xs uppercase font-medium tracking-wider">
-                      {section.gradeName}
-                    </CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground italic line-clamp-2 min-h-[40px]">
-                  {section.description || 'No section notes.'}
-                </p>
-                <div className="flex items-center gap-4 text-xs font-medium py-2 border-y border-muted/50">
-                  <div className="flex items-center gap-1.5"><Users className="h-3.5 w-3.5 text-blue-500" /> <span>{section.studentCount} Students</span></div>
-                  <div className="flex items-center gap-1.5"><BookOpen className="h-3.5 w-3.5 text-purple-500" /> <span>{section.classCount} Subjects</span></div>
-                </div>
-                <div className="flex gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
-                  <Button size="sm" variant="outline" onClick={() => handleEdit(section)} className="flex-1 h-8 text-xs">
-                    <Edit className="w-3 h-3 mr-1" /> Edit
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => { setSectionToDelete(section); setIsDeleteDialogOpen(true); }} className="h-8 w-8 p-0 text-destructive hover:text-destructive">
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <>
+          <LabeledSelect label="Grade level" value={gradeId} onChange={setGradeId} hideLabel={false}>
+            {levels.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </LabeledSelect>
+
+          {sectionsQuery.isError ? (
+            <EmptyState
+              icon={RefreshCw}
+              title="The sections didn't load"
+              description={`${errorMessage(sectionsQuery.error, "The server didn't answer.")} Check your connection and try again.`}
+              action={<Button onClick={() => sectionsQuery.refetch()}>Try again</Button>}
+            />
+          ) : (
+            <DataTable
+              label={`Sections of ${level?.name ?? 'the grade level'}`}
+              columns={columns}
+              data={sections}
+              loading={sectionsQuery.isLoading}
+              getRowId={(s) => s.id}
+              initialSorting={[{ id: 'name', desc: false }]}
+              pageSize={0}
+              emptyState={
+                <EmptyState
+                  icon={Layers}
+                  title={`${level?.name ?? 'This grade level'} has no sections yet`}
+                  description={
+                    canManageClasses
+                      ? 'Add a section to start making classes for this grade level.'
+                      : 'Staff who manage classes add sections here.'
+                  }
+                  action={
+                    canManageClasses ? (
+                      <Button onClick={() => setForm({ section: null })}>Add a section</Button>
+                    ) : undefined
+                  }
+                />
+              }
+            />
+          )}
+        </>
       )}
 
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>{editingSection ? 'Edit Section' : 'Create Section'}</DialogTitle>
-            <DialogDescription>Add a new student group to {grades.find(g => g.id === selectedGradeId)?.name}.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="name">Section Name</Label>
-              <Input id="name" value={formData.name} onChange={(e) => setFormData(p => ({ ...p, name: e.target.value }))} placeholder="e.g., Alpha, A, or Blue" required />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea id="description" value={formData.description} onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))} placeholder="Brief details about this section..." />
-            </div>
-            <div className="flex justify-end gap-2 pt-4">
-              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-                {editingSection ? 'Update' : 'Create'}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {form && level ? (
+        <SectionFormDialog
+          key={form.section?.id ?? 'new'}
+          section={form.section}
+          gradeId={level.id}
+          gradeName={level.name}
+          onClose={() => setForm(null)}
+        />
+      ) : null}
 
-      <ConfirmationModal
-        isOpen={isDeleteDialogOpen}
-        onCancel={() => setIsDeleteDialogOpen(false)}
+      <ConfirmDialog
+        open={Boolean(deleting)}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={`Delete ${deleting?.name ?? 'this section'} of ${level?.name ?? 'this grade level'}?`}
+        description="Its timetables are deleted with it. This can't be undone."
+        confirmLabel="Delete section"
+        destructive
         onConfirm={confirmDelete}
-        title="Delete Section"
-        message={`Delete section ${sectionToDelete?.name}? This cannot be undone.`}
-        confirmButtonText="Delete"
-        confirmButtonColor="red"
       />
-    </div>
+    </PageShell>
+  );
+}
+
+/** Add a section to a grade level, or rename one. */
+function SectionFormDialog({
+  section,
+  gradeId,
+  gradeName,
+  onClose,
+}: {
+  section: Section | null;
+  gradeId: string;
+  gradeName: string;
+  onClose: () => void;
+}) {
+  const createSection = useCreateSection();
+  const updateSection = useUpdateSection();
+  const busy = createSection.isPending || updateSection.isPending;
+  const [name, setName] = React.useState(section?.name ?? '');
+  const [notes, setNotes] = React.useState(section?.description ?? '');
+  const [nameError, setNameError] = React.useState<string>();
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setNameError('Enter the section name, for example A.');
+      return;
+    }
+    setNameError(undefined);
+    const data = { name: trimmed, grade_id: gradeId, description: notes.trim() || undefined };
+    try {
+      if (section) {
+        await updateSection.mutateAsync({ id: section.id, data: { ...data, description: notes.trim() } });
+        notify.success(`${trimmed} is saved.`);
+      } else {
+        await createSection.mutateAsync(data);
+        notify.success(`${trimmed} is added to ${gradeName}.`);
+      }
+      onClose();
+    } catch (err) {
+      notify.error(errorMessage(err, section ? "The section wasn't saved. Try again." : "The section wasn't added. Try again."));
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{section ? `Edit ${section.name}` : `Add a section to ${gradeName}`}</DialogTitle>
+          <DialogDescription>
+            {section ? `A section of ${gradeName}.` : 'Every school year, the section becomes a class of this grade level.'}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={save} className="mt-4 grid gap-4" noValidate>
+          <FormField label="Section name" error={nameError} required>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="For example, A or Blue"
+              className="h-11 md:h-9"
+              maxLength={50}
+            />
+          </FormField>
+          <FormField label="Notes" description="Optional.">
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
+          </FormField>
+          <DialogFooter className="mt-2 gap-2 sm:space-x-0">
+            <Button type="button" variant="outline" className="min-h-11 md:min-h-9" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="submit" className="min-h-11 md:min-h-9" disabled={busy}>
+              {section ? 'Save section' : 'Add section'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

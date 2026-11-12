@@ -268,6 +268,12 @@ def test_conditional_student_moves_up_after_passing_remedial_work(env, clock):
     # Recording it again moves nothing more
     again = client.put(f"{A}/remedial/sessions/{session_id}", headers=h, json={"passed": True}).json()
     assert again["moved_up"] is None
+    # The school-wide list and a student's list both carry the names (no "Unknown")
+    listed = client.get(f"{A}/remedial/sessions", headers=h).json()
+    row = next(x for x in listed if x["id"] == session_id)
+    assert row["student_name"] and row["student_name"] != "Unknown" and row["subject_name"]
+    mine = client.get(f"{A}/remedial/sessions", headers=h, params={"enrollment_id": row["enrollment_id"]}).json()
+    assert mine and all(x["student_name"] and x["subject_name"] for x in mine)
 
 
 def test_conditional_student_who_passed_remedial_work_is_promoted_at_year_end(env, clock):
