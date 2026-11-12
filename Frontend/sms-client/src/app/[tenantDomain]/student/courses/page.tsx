@@ -1,157 +1,86 @@
 'use client';
 
-import { useAuth } from '@/hooks/use-auth';
-import { useTenant } from '@/hooks/use-tenant';
-import {
-    BookOpen, Users, ChevronRight, GraduationCap, FileText
-} from 'lucide-react';
+// The student's courses (phone first): the subjects of their class and who teaches each one.
+
+import * as React from 'react';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import { Award, BookOpen, GraduationCap, User } from 'lucide-react';
 
-import { useEnrollmentService } from '@/services/api/enrollment-service';
-import { useClassService } from '@/services/api/class-service';
-import { useEffect, useState } from 'react';
+import { enrollmentLabel, useMyCourses, useMyEnrollment } from '@/components/teaching/queries';
+import { errorMessage } from '@/components/students/format';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { PageShell } from '@/components/ui/page-shell';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useAuth } from '@/hooks/use-auth';
 
-export default function StudentCourses() {
-    const { user } = useAuth();
-    const { tenant } = useTenant();
-    const [courses, setCourses] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [enrollment, setEnrollment] = useState<any>(null);
+export default function StudentCoursesPage() {
+  const { tenantDomain } = useParams<{ tenantDomain: string }>();
+  const { user } = useAuth();
+  const enrollment = useMyEnrollment(user?.id ?? '');
+  const courses = useMyCourses(enrollment.data);
 
-    const enrollmentService = useEnrollmentService();
-    const classService = useClassService();
+  const className = enrollmentLabel(enrollment.data);
+  const loading = !user?.id || enrollment.isLoading || (Boolean(enrollment.data) && courses.isLoading);
+  const failed = enrollment.isError || courses.isError;
+  const list = courses.data ?? [];
 
-    useEffect(() => {
-        const loadData = async () => {
-            if (!user?.id) return;
-            setLoading(true);
-            try {
-                // 1. Get current enrollment
-                const currentEnrollment = await enrollmentService.getCurrentEnrollment(user.id);
-                setEnrollment(currentEnrollment);
-
-                if (currentEnrollment) {
-                    // 2. Get classes for the student's grade/section
-                    const classes = await classService.getClasses({
-                        grade_id: currentEnrollment.grade_id,
-                        section_id: currentEnrollment.section_id,
-                        academic_year_id: currentEnrollment.academic_year_id,
-                        is_active: true
-                    });
-
-                    // 3. For each class, get full details (subjects)
-                    const coursesWithSubjects: any[] = [];
-                    for (const cls of classes) {
-                        const details = await classService.getClassWithDetails(cls.id);
-                        if (details && details.subjects) {
-                            details.subjects.forEach(sub => {
-                                coursesWithSubjects.push({
-                                    id: sub.id,
-                                    name: sub.subject_name || 'Unknown Subject',
-                                    teacher: sub.teacher_name || 'TBA',
-                                    grade: `${details.grade_name || ''} ${details.section_name || ''}`,
-                                    status: 'Active',
-                                });
-                            });
-                        }
-                    }
-                    setCourses(coursesWithSubjects);
-                }
-            } catch (error) {
-                console.error('Failed to load student courses:', error);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        loadData();
-    }, [user?.id]);
-
-    return (
-        <div className="min-h-screen bg-[#f8fafc] p-6 lg:p-10">
-            <div className="mx-auto max-w-7xl space-y-8">
-
-                {/* Header */}
-                <div className="flex justify-between items-end">
-                    <div>
-                        <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-3">
-                            <BookOpen className="h-8 w-8 text-indigo-600" />
-                            My Courses
-                        </h1>
-                        <p className="text-slate-500 mt-1">
-                            {enrollment
-                                ? `Enrolled in ${enrollment.grade_name || enrollment.grade} - ${enrollment.section_name || enrollment.section}`
-                                : 'View all your registered subjects and academic progress.'}
-                        </p>
-                    </div>
-                </div>
-
-                {/* Courses Grid */}
-                {loading ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                        {[1, 2, 3].map(i => (
-                            <div key={i} className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8 space-y-6">
-                                <div className="flex justify-between">
-                                    <Skeleton className="h-12 w-12 rounded-2xl" />
-                                    <Skeleton className="h-6 w-20 rounded-full" />
-                                </div>
-                                <div className="space-y-2">
-                                    <Skeleton className="h-8 w-3/4" />
-                                    <Skeleton className="h-4 w-1/4" />
-                                </div>
-                                <div className="space-y-4 pt-4">
-                                    <Skeleton className="h-4 w-full" />
-                                    <Skeleton className="h-6 w-full rounded-full" />
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                ) : courses.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                        {courses.map((course) => (
-                            <div key={course.id} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-xl transition-all group flex flex-col">
-                                <div className="p-8 flex-1">
-                                    <div className="flex justify-between items-start mb-6">
-                                        <div className="p-3 bg-indigo-50 rounded-2xl group-hover:bg-indigo-600 transition-colors">
-                                            <GraduationCap className="h-7 w-7 text-indigo-600 group-hover:text-white" />
-                                        </div>
-                                        <span className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-bold uppercase tracking-widest">
-                                            {course.status}
-                                        </span>
-                                    </div>
-
-                                    <h3 className="text-xl font-bold text-slate-900 mb-6">{course.name}</h3>
-
-                                    <div className="flex items-center gap-3 text-sm text-slate-500">
-                                        <Users className="h-4 w-4 text-slate-400" />
-                                        <span>Instructor: <span className="font-bold text-slate-700">{course.teacher}</span></span>
-                                    </div>
-                                </div>
-
-                                <div className="px-8 py-5 bg-slate-50/50 border-t border-slate-100">
-                                    <Link
-                                        href="./grades"
-                                        className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
-                                    >
-                                        See my results
-                                        <ChevronRight className="h-3 w-3" />
-                                    </Link>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="bg-white rounded-3xl p-20 text-center border border-dashed border-slate-200">
-                        <div className="p-4 bg-slate-50 rounded-full w-fit mx-auto mb-6">
-                            <FileText className="h-10 w-10 text-slate-300" />
-                        </div>
-                        <h3 className="text-xl font-bold text-slate-900">No Courses Found</h3>
-                        <p className="text-slate-500 mt-2">You don't seem to be enrolled in any active courses yet.</p>
-                    </div>
-                )}
-
-            </div>
+  return (
+    <PageShell
+      title="My courses"
+      description={className ? `Your subjects in ${className}.` : 'Your subjects this school year.'}
+      primaryAction={
+        <Button asChild className="min-h-11 md:min-h-9">
+          <Link href={`/${tenantDomain}/student/grades`}>
+            <Award aria-hidden="true" />
+            See my results
+          </Link>
+        </Button>
+      }
+    >
+      {loading ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-20 w-full rounded-xl" />
+          ))}
         </div>
-    );
+      ) : failed ? (
+        <EmptyState
+          icon={BookOpen}
+          description={`${errorMessage(enrollment.error ?? courses.error, "Your courses didn't load.")} Check your connection and try again.`}
+          action={
+            <Button
+              variant="outline"
+              onClick={() => {
+                void enrollment.refetch();
+                void courses.refetch();
+              }}
+            >
+              Try again
+            </Button>
+          }
+        />
+      ) : !enrollment.data ? (
+        <EmptyState icon={GraduationCap} description="You aren't in a class this year yet. Ask the school office to enroll you." />
+      ) : list.length === 0 ? (
+        <EmptyState icon={BookOpen} description="Your class has no subjects yet. Check again later." />
+      ) : (
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="Courses">
+          {list.map((c) => (
+            <li key={c.id} className="flex items-start gap-3 rounded-xl border bg-card p-4">
+              <BookOpen className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <div className="min-w-0">
+                <p className="font-medium">{c.subject}</p>
+                <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <User className="size-4 shrink-0" aria-hidden="true" />
+                  {c.teacher ? `Teacher: ${c.teacher}` : 'No teacher yet'}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </PageShell>
+  );
 }

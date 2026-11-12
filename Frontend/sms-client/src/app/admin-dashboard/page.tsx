@@ -23,9 +23,9 @@ export default function AdminDashboardRedirect() {
     if (isSuperAdmin) {
       router.push('/platform/dashboard');
     } else {
-      // There is no school-less /dashboard: go to the school's home, or sign in
+      // There is no school-less dashboard: the school's address sends each role to its home, or sign in
       const school = currentSchoolSlug();
-      router.push(school ? `/${school}/dashboard` : '/login');
+      router.push(school ? `/${school}` : '/login');
     }
   }, [router, user]);
   

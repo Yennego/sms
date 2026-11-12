@@ -1,108 +1,125 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
-import { Enrollment, EnrollmentFilters } from '@/types/enrollment';
+// Enrollments: every student's place in a class, year by year, one server page at a time. Office
+// staff filter by year, grade, section and status, enroll students one by one or from a file, and
+// edit, promote, transfer, archive or delete an enrollment. Admins only.
+
+import React, { useCallback, useRef, useState } from 'react';
+import { ClipboardList, Download, Lock, SearchX } from 'lucide-react';
+
 import PermissionGuard from '@/components/auth/permission-guard';
-import { useTenant } from '@/hooks/use-tenant';
-import EnrollmentDialogs from './components/EnrollmentDialogs';
-import EnrollmentStatsCards from './components/EnrollmentStatsCards';
+import { errorMessage } from '@/components/students/format';
+import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { EmptyState } from '@/components/ui/empty-state';
+import { PageShell } from '@/components/ui/page-shell';
+import { notify } from '@/components/ui/toaster';
+import { enrollmentStudent, nameOf } from '@/components/year-end/format';
+import {
+  useAllSections,
+  useCurrentSchoolYear,
+  useDeleteEnrollment,
+  useEnrollmentList,
+  useGradeLevels,
+  useSchoolYears,
+  useStudentChoices,
+  useUpdateEnrollment,
+} from '@/components/year-end/queries';
+import { useAcademicYear } from '@/contexts/academic-year-context';
+import { useDebounce } from '@/hooks/use-debounce';
+import { Enrollment, EnrollmentFilters } from '@/types/enrollment';
+import { Student } from '@/types/student';
+import EnrollmentDialogs, { type EnrollmentDialogsHandle } from './components/EnrollmentDialogs';
 import EnrollmentFiltersComponent from './components/EnrollmentFiltersComponent';
 import EnrollmentTable from './components/EnrollmentTable';
-import { toast } from 'sonner';
-import ConfirmationModal from '@/components/common/ConfirmationModal';
-import { useAcademicYear } from '@/contexts/academic-year-context';
-import { Button } from '@/components/ui/button';
-import {
-  useEnrollments,
-  useEnrollmentGrades,
-  useEnrollmentSections,
-  useAcademicYears,
-  useCurrentAcademicYear,
-  useDeleteEnrollment,
-  useUpdateEnrollment
-} from '@/hooks/queries/enrollments';
-import { useStudentsPaged } from '@/hooks/queries/students';
-import { useDebounce } from '@/hooks/use-debounce';
+
+const NO_STUDENTS: Student[] = [];
 
 export default function EnrollmentManagementPage() {
-  // State management for filters and pagination
+  return (
+    // The admin and the principal (manage_enrollment, like the server checks); the menu shows it to both
+    <PermissionGuard
+      requiredPermissions={['manage_enrollment']}
+      fallback={
+        <PageShell title="Enrollments">
+          <EmptyState icon={Lock} description="Only staff who manage enrollments can open this page." />
+        </PageShell>
+      }
+    >
+      <EnrollmentsView />
+    </PermissionGuard>
+  );
+}
+
+function EnrollmentsView() {
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 500);
   const [filters, setFilters] = useState<EnrollmentFilters>({});
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
-
-  const { tenant } = useTenant();
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const { setSelectedAcademicYearId } = useAcademicYear();
 
-  // Queries using TanStack Query
-  const { data: enrollmentData, isLoading: enrollmentsLoading } = useEnrollments(
-    (currentPage - 1) * itemsPerPage,
-    itemsPerPage,
-    { ...filters, search: debouncedSearch, include_archived: filters.include_archived }
-  );
+  const list = useEnrollmentList((currentPage - 1) * itemsPerPage, itemsPerPage, {
+    ...filters,
+    search: debouncedSearch,
+    include_archived: filters.include_archived,
+  });
+  const studentsQuery = useStudentChoices();
+  const students = (studentsQuery.data?.items as Student[] | undefined) ?? NO_STUDENTS;
+  const { data: academicYears = [] } = useSchoolYears();
+  const { data: grades = [] } = useGradeLevels();
+  const { data: sections = [] } = useAllSections();
+  const { data: currentAcademicYear = null } = useCurrentSchoolYear();
 
-  // Load auxiliary data with TanStack query caching
-  const { data: studentsData } = useStudentsPaged(0, 1000);
-  const students = studentsData?.items || [];
-  const { data: academicYears = [] } = useAcademicYears();
-  const { data: grades = [] } = useEnrollmentGrades();
-  const { data: sections = [] } = useEnrollmentSections();
-  const { data: currentAcademicYear = null } = useCurrentAcademicYear();
+  const enrollments = list.data?.items ?? [];
+  const totalItems = list.data?.total ?? 0;
 
-  const enrollments = enrollmentData?.items || [];
-  const totalItems = enrollmentData?.total || 0;
-  const totalPages = Math.ceil(totalItems / itemsPerPage);
-
-  // Mutations
   const deleteMutation = useDeleteEnrollment();
   const updateMutation = useUpdateEnrollment();
 
-  // Dialog states
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showBulkDialog, setShowBulkDialog] = useState(false);
   const [editingEnrollment, setEditingEnrollment] = useState<Enrollment | null>(null);
-  const [statusTogglingEnrollment, setStatusTogglingEnrollment] = useState<{ id: string, active: boolean } | null>(null);
-  const dialogsRef = useRef<{ setTransferEnrollment: (e: Enrollment | null) => void; setPromoteEnrollment: (e: Enrollment | null) => void } | null>(null);
+  const [archiving, setArchiving] = useState<{ enrollment: Enrollment; active: boolean } | null>(null);
+  const [deleting, setDeleting] = useState<Enrollment | null>(null);
+  const dialogsRef = useRef<EnrollmentDialogsHandle | null>(null);
 
-  const handleArchive = async (id: string) => {
-    setStatusTogglingEnrollment({ id, active: false });
-  };
+  const nameOfEnrollment = (e: Enrollment) => enrollmentStudent(e, students).name;
+  const classOfEnrollment = (e: Enrollment) =>
+    [nameOf(e.grade), nameOf(e.section)].filter(Boolean).join(' - ') +
+    (nameOf(e.academic_year) ? `, ${nameOf(e.academic_year)}` : '');
 
-  const handleUnarchive = async (id: string) => {
-    setStatusTogglingEnrollment({ id, active: true });
-  };
-
-  const confirmStatusToggle = async () => {
-    if (!statusTogglingEnrollment) return;
-    const { id, active } = statusTogglingEnrollment;
+  const confirmArchive = async () => {
+    if (!archiving) return;
+    const { enrollment, active } = archiving;
     try {
-      await updateMutation.mutateAsync({ id, data: { is_active: active } });
-      toast.success(`Enrollment ${active ? 'unarchived' : 'archived'}`);
-      setStatusTogglingEnrollment(null);
+      await updateMutation.mutateAsync({ id: enrollment.id, data: { is_active: active } });
+      notify.success(active ? 'Enrollment unarchived.' : 'Enrollment archived.');
     } catch (error) {
-      toast.error(`Failed to ${active ? 'unarchive' : 'archive'} enrollment`);
-      setStatusTogglingEnrollment(null);
+      notify.error(
+        errorMessage(error, active ? "The enrollment wasn't unarchived. Try again." : "The enrollment wasn't archived. Try again.")
+      );
+    }
+    setArchiving(null);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    try {
+      await deleteMutation.mutateAsync(deleting.id);
+      notify.success('Enrollment deleted.');
+    } catch (error) {
+      notify.error(errorMessage(error, "The enrollment wasn't deleted. Try again."));
+      throw error;
     }
   };
 
-  const handleDeleteEnrollment = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this enrollment?')) return;
-    try {
-      await deleteMutation.mutateAsync(id);
-      toast.success('Enrollment deleted');
-    } catch (error) {
-      toast.error('Failed to delete enrollment');
-    }
-  };
-
-  const handleTransfer = (e: Enrollment) => {
-    dialogsRef.current?.setTransferEnrollment(e);
-  };
-
-  const handlePromote = (e: Enrollment) => {
-    dialogsRef.current?.setPromoteEnrollment(e);
-  };
+  const onEdit = useCallback((e: Enrollment) => setEditingEnrollment(e), []);
+  const onPromote = useCallback((e: Enrollment) => dialogsRef.current?.setPromoteEnrollment(e), []);
+  const onTransfer = useCallback((e: Enrollment) => dialogsRef.current?.setTransferEnrollment(e), []);
+  const onArchive = useCallback((e: Enrollment) => setArchiving({ enrollment: e, active: false }), []);
+  const onUnarchive = useCallback((e: Enrollment) => setArchiving({ enrollment: e, active: true }), []);
+  const onDelete = useCallback((e: Enrollment) => setDeleting(e), []);
 
   const handleSuccess = () => {
     setEditingEnrollment(null);
@@ -111,19 +128,14 @@ export default function EnrollmentManagementPage() {
   };
 
   const handleFilterChange = (key: keyof EnrollmentFilters, value: string) => {
-    setFilters(prev => {
+    setFilters((prev) => {
       const next = { ...prev };
-      if (value) {
-        next[key] = value;
-      } else {
-        delete next[key];
-      }
+      if (value) next[key] = value;
+      else delete next[key];
       if (key === 'grade_id') delete next.section_id; // the section belongs to the old grade
       return next;
     });
-    if (key === 'academic_year_id') {
-      setSelectedAcademicYearId(value || '');
-    }
+    if (key === 'academic_year_id') setSelectedAcademicYearId(value || '');
     setCurrentPage(1);
   };
 
@@ -144,23 +156,25 @@ export default function EnrollmentManagementPage() {
       'Student Name', 'Admission Number', 'Academic Year', 'Grade', 'Section', 'Semester', 'Enrollment Date', 'Status', 'Active',
     ];
     const rows = enrollments.map((e) => {
-      // Use nested student data if available, fallback to lookup
-      const student = e.student || students.find((s: any) => s.id === e.student_id);
-      const studentName = student ? (`${student.firstName} ${student.lastName}`) : '';
+      const student = e.student || students.find((s) => s.id === e.student_id);
+      const studentName = student ? `${student.firstName} ${student.lastName}` : '';
       const admissionNumber = student ? (student.admission_number ?? '') : '';
-      const academicYearLabel = typeof e.academic_year === 'string' ? e.academic_year : (e.academic_year?.name ?? '');
-      const gradeLabel = typeof e.grade === 'string' ? e.grade : (e.grade?.name ?? '');
-      const sectionLabel = typeof e.section === 'string' ? e.section : (e.section?.name ?? '');
       const enrollmentDate = e.enrollment_date ? e.enrollment_date.split('T')[0] : '';
-      const active = e.is_active ? 'Yes' : 'No';
       return [
-        studentName, admissionNumber, academicYearLabel, gradeLabel, sectionLabel, e.semester ?? '1', enrollmentDate, e.status, active,
+        studentName,
+        admissionNumber,
+        nameOf(e.academic_year),
+        nameOf(e.grade),
+        nameOf(e.section),
+        e.semester ?? '1',
+        enrollmentDate,
+        e.status,
+        e.is_active ? 'Yes' : 'No',
       ];
     });
     const csv = [headers, ...rows]
       .map((r) => r.map((f) => `"${String(f).replace(/"/g, '""')}"`).join(','))
       .join('\r\n');
-
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -170,83 +184,146 @@ export default function EnrollmentManagementPage() {
     URL.revokeObjectURL(url);
   };
 
+  const filtered = Boolean(searchTerm || Object.keys(filters).length);
+
   return (
-    <PermissionGuard requiredRole="admin" fallback={<div>Access denied</div>}>
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-3xl font-bold">Enrollment Management</h1>
-            <p className="text-muted-foreground">Manage student enrollments across academic years, grades, and sections</p>
-          </div>
-          <div className="flex gap-2 items-center">
-            <PermissionGuard requiredRole="admin">
-              <Button variant="outline" onClick={exportEnrollments}>Export CSV</Button>
-            </PermissionGuard>
-            <EnrollmentDialogs
-              ref={dialogsRef}
-              showCreateDialog={showCreateDialog}
-              setShowCreateDialog={setShowCreateDialog}
-              showBulkDialog={showBulkDialog}
-              setShowBulkDialog={setShowBulkDialog}
-              editingEnrollment={editingEnrollment}
-              setEditingEnrollment={setEditingEnrollment}
-              students={students}
-              academicYears={academicYears}
-              grades={grades}
-              sections={sections}
-              currentAcademicYear={currentAcademicYear}
-              onSuccess={handleSuccess}
-            />
-          </div>
-        </div>
+    <PageShell
+      title="Enrollments"
+      description={
+        currentAcademicYear
+          ? `Which class each student is in, year by year. The current school year is ${currentAcademicYear.name}.`
+          : 'Which class each student is in, year by year.'
+      }
+      secondaryActions={
+        <>
+          <Button
+            variant="outline"
+            className="min-h-11 md:min-h-9"
+            onClick={exportEnrollments}
+            disabled={enrollments.length === 0}
+          >
+            <Download aria-hidden="true" />
+            Download this page (CSV)
+          </Button>
+          <Button variant="outline" className="min-h-11 md:min-h-9" onClick={() => setShowBulkDialog(true)}>
+            Enroll from a file
+          </Button>
+        </>
+      }
+      primaryAction={
+        <Button className="min-h-11 md:min-h-9" onClick={() => setShowCreateDialog(true)}>
+          Enroll a student
+        </Button>
+      }
+    >
+      <EnrollmentFiltersComponent
+        searchTerm={searchTerm}
+        setSearchTerm={handleSearchChange}
+        filters={filters}
+        onFilterChange={handleFilterChange}
+        onClearFilters={clearFilters}
+        academicYears={academicYears}
+        grades={grades}
+        sections={sections}
+      />
 
-        <EnrollmentStatsCards
-          totalItems={totalItems}
-          enrollments={enrollments}
-          currentAcademicYear={currentAcademicYear}
-          gradesCount={grades.length}
+      {list.isError ? (
+        <EmptyState
+          icon={ClipboardList}
+          title="The enrollments didn't load"
+          description={`${errorMessage(list.error, 'The server didn’t answer.')} Check your connection and try again.`}
+          action={<Button onClick={() => list.refetch()}>Try again</Button>}
         />
-        <EnrollmentFiltersComponent
-          searchTerm={searchTerm}
-          setSearchTerm={handleSearchChange}
-          filters={filters}
-          onFilterChange={handleFilterChange}
-          onClearFilters={clearFilters}
-          academicYears={academicYears} // Pass the fetched academic years
-          grades={grades}
-          sections={sections}
-        />
-
+      ) : (
         <EnrollmentTable
           enrollments={enrollments}
-          loading={enrollmentsLoading}
+          loading={list.isLoading}
           totalItems={totalItems}
           currentPage={currentPage}
-          totalPages={totalPages}
           itemsPerPage={itemsPerPage}
-          onEdit={setEditingEnrollment}
-          onDelete={handleDeleteEnrollment}
           onPageChange={setCurrentPage}
+          onPageSizeChange={(size) => {
+            setItemsPerPage(size);
+            setCurrentPage(1);
+          }}
           students={students}
-          onTransfer={handleTransfer}
-          onPromote={handlePromote}
-          onArchive={handleArchive}
-          onUnarchive={handleUnarchive}
+          onEdit={onEdit}
+          onPromote={onPromote}
+          onTransfer={onTransfer}
+          onArchive={onArchive}
+          onUnarchive={onUnarchive}
+          onDelete={onDelete}
+          emptyState={
+            filtered ? (
+              <EmptyState
+                icon={SearchX}
+                description="No enrollments match these filters. Change or clear the filters."
+                action={
+                  <Button variant="outline" onClick={clearFilters}>
+                    Clear filters
+                  </Button>
+                }
+              />
+            ) : (
+              <EmptyState
+                icon={ClipboardList}
+                description="No students are enrolled yet. Enroll a student to put them in a class."
+                action={<Button onClick={() => setShowCreateDialog(true)}>Enroll a student</Button>}
+              />
+            )
+          }
         />
+      )}
 
-        <ConfirmationModal
-          isOpen={!!statusTogglingEnrollment}
-          onCancel={() => setStatusTogglingEnrollment(null)}
-          onConfirm={confirmStatusToggle}
-          title={statusTogglingEnrollment?.active ? "Unarchive Enrollment" : "Archive Enrollment"}
-          message={statusTogglingEnrollment?.active
-            ? "Are you sure you want to unarchive this enrollment? It will appear in active lists again."
-            : "Are you sure you want to archive this enrollment? It will be hidden from default views."}
-          confirmButtonText={statusTogglingEnrollment?.active ? "Unarchive" : "Archive"}
-          cancelButtonText="Cancel"
-          confirmButtonColor={statusTogglingEnrollment?.active ? "blue" : "amber"}
-        />
-      </div>
-    </PermissionGuard>
+      <EnrollmentDialogs
+        ref={dialogsRef}
+        hideButtons
+        showCreateDialog={showCreateDialog}
+        setShowCreateDialog={setShowCreateDialog}
+        showBulkDialog={showBulkDialog}
+        setShowBulkDialog={setShowBulkDialog}
+        editingEnrollment={editingEnrollment}
+        setEditingEnrollment={setEditingEnrollment}
+        students={students}
+        academicYears={academicYears}
+        grades={grades}
+        sections={sections}
+        currentAcademicYear={currentAcademicYear}
+        onSuccess={handleSuccess}
+      />
+
+      <ConfirmDialog
+        open={Boolean(archiving)}
+        onOpenChange={(open) => !open && setArchiving(null)}
+        title={
+          archiving
+            ? `${archiving.active ? 'Unarchive' : 'Archive'} ${nameOfEnrollment(archiving.enrollment)}'s enrollment?`
+            : ''
+        }
+        description={
+          archiving?.active
+            ? 'It shows in the enrollment lists again.'
+            : 'It is hidden from the enrollment lists. Turn on "Show archived enrollments" to see it again.'
+        }
+        confirmLabel={archiving?.active ? 'Unarchive enrollment' : 'Archive enrollment'}
+        loading={updateMutation.isPending}
+        onConfirm={confirmArchive}
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleting)}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        destructive
+        title={deleting ? `Delete ${nameOfEnrollment(deleting)}'s enrollment?` : ''}
+        description={
+          deleting
+            ? `Their enrollment in ${classOfEnrollment(deleting) || 'this class'} is deleted. This can't be undone. To only hide it, archive it instead.`
+            : undefined
+        }
+        confirmLabel="Delete enrollment"
+        loading={deleteMutation.isPending}
+        onConfirm={confirmDelete}
+      />
+    </PageShell>
   );
 }

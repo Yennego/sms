@@ -1,329 +1,420 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+// Years and terms: the school years, which one is current, and their dates. Add a year, edit its
+// name and dates, make it current, archive it (read-only) or delete it.
+
+import * as React from 'react';
+import type { ColumnDef } from '@tanstack/react-table';
+import { AlertTriangle, Archive, CalendarDays, CheckCircle2, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
+
+import { errorMessage, formatDate, isoDay } from '@/components/students/format';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { DataTable } from '@/components/ui/data-table';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { EmptyState } from '@/components/ui/empty-state';
+import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Calendar, Plus, Edit, Trash2, CheckCircle, AlertTriangle, Loader2, Archive } from 'lucide-react';
+import { PageShell } from '@/components/ui/page-shell';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { Switch } from '@/components/ui/switch';
-import { toast } from 'sonner';
-import ConfirmationModal from '@/components/common/ConfirmationModal';
+import { notify } from '@/components/ui/toaster';
 import {
   useAcademicYearsList,
+  useArchiveAcademicYear,
   useCreateAcademicYear,
-  useUpdateAcademicYear,
   useDeleteAcademicYear,
   useSetCurrentAcademicYear,
-  useArchiveAcademicYear
+  useUpdateAcademicYear,
 } from '@/hooks/queries/academic-years';
 
+type Year = {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  isCurrent: boolean;
+  isArchived: boolean;
+  isUpcoming: boolean;
+  totalStudents: number;
+  totalClasses: number;
+};
+
+type RawYear = {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  is_current: boolean;
+  is_archived?: boolean;
+  status?: string;
+  total_students?: number;
+  total_classes?: number;
+};
+
+type FormValues = { name: string; startDate: string; endDate: string; isCurrent: boolean };
+const emptyForm: FormValues = { name: '', startDate: '', endDate: '', isCurrent: false };
+const inputClass = 'h-11 text-base md:h-9 md:text-sm';
+
+function YearStatus({ year }: { year: Year }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {year.isCurrent ? (
+        <StatusBadge status="success" label="Current" />
+      ) : year.isUpcoming ? (
+        <StatusBadge status="info" label="Upcoming" />
+      ) : (
+        <StatusBadge status="neutral" label="Not current" />
+      )}
+      {year.isArchived ? <StatusBadge status="warning" icon={Archive} label="Archived" /> : null}
+    </div>
+  );
+}
+
 export default function AcademicYearsPage() {
-  const [includeArchived, setIncludeArchived] = useState(false);
-  const { data: rawYears = [], isLoading } = useAcademicYearsList(includeArchived);
+  const [includeArchived, setIncludeArchived] = React.useState(false);
+  const list = useAcademicYearsList(includeArchived);
+  const createYear = useCreateAcademicYear();
+  const updateYear = useUpdateAcademicYear();
+  const deleteYear = useDeleteAcademicYear();
+  const setCurrent = useSetCurrentAcademicYear();
+  const archiveYear = useArchiveAcademicYear();
 
-  const createMutation = useCreateAcademicYear();
-  const updateMutation = useUpdateAcademicYear();
-  const deleteMutation = useDeleteAcademicYear();
-  const setCurrentMutation = useSetCurrentAcademicYear();
-  const archiveMutation = useArchiveAcademicYear();
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [editing, setEditing] = React.useState<Year | null>(null);
+  const [form, setForm] = React.useState<FormValues>(emptyForm);
+  const [formError, setFormError] = React.useState('');
+  const [toDelete, setToDelete] = React.useState<Year | null>(null);
+  const [toArchive, setToArchive] = React.useState<Year | null>(null);
 
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingYear, setEditingYear] = useState<any | null>(null);
-  const [formData, setFormData] = useState({
-    name: '', startDate: '', endDate: '', isCurrent: false
-  });
+  const years = React.useMemo<Year[]>(() => {
+    const today = isoDay(new Date());
+    return ((list.data ?? []) as RawYear[]).map((y) => ({
+      id: y.id,
+      name: y.name,
+      startDate: (y.start_date || '').slice(0, 10),
+      endDate: (y.end_date || '').slice(0, 10),
+      isCurrent: Boolean(y.is_current),
+      isArchived: Boolean(y.is_archived || y.status === 'archived'),
+      isUpcoming: (y.start_date || '').slice(0, 10) > today,
+      totalStudents: y.total_students || 0,
+      totalClasses: y.total_classes || 0,
+    }));
+  }, [list.data]);
+  const currentYear = years.find((y) => y.isCurrent);
+  const saving = createYear.isPending || updateYear.isPending;
 
-  // Confirmation modal states
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
-  const [yearToAction, setYearToAction] = useState<any | null>(null);
+  const openCreate = () => {
+    setEditing(null);
+    setForm(emptyForm);
+    setFormError('');
+    setDialogOpen(true);
+  };
 
-  const academicYears = useMemo(() => rawYears.map((ay: any) => ({
-    id: ay.id,
-    name: ay.name,
-    startDate: ay.start_date,
-    endDate: ay.end_date,
-    isCurrent: ay.is_current,
-    status: ay.is_current ? 'active' : (new Date(ay.start_date) > new Date() ? 'upcoming' : 'inactive'),
-    totalStudents: ay.total_students || 0,
-    totalClasses: ay.total_classes || 0,
-    isArchived: ay.is_archived || ay.status === 'archived'
-  })), [rawYears]);
+  const openEdit = (year: Year) => {
+    setEditing(year);
+    setForm({ name: year.name, startDate: year.startDate, endDate: year.endDate, isCurrent: year.isCurrent });
+    setFormError('');
+    setDialogOpen(true);
+  };
 
-  const currentYear = useMemo(() => academicYears.find(y => y.isCurrent), [academicYears]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    const payload = {
-      name: formData.name,
-      start_date: formData.startDate,
-      end_date: formData.endDate,
-      is_current: formData.isCurrent,
-    };
-
+    if (!form.name.trim() || !form.startDate || !form.endDate) {
+      setFormError('Enter a name, a start date and an end date.');
+      return;
+    }
+    if (form.endDate <= form.startDate) {
+      setFormError('Enter an end date after the start date.');
+      return;
+    }
+    const payload = { name: form.name.trim(), start_date: form.startDate, end_date: form.endDate, is_current: form.isCurrent };
     try {
-      if (editingYear) {
-        await updateMutation.mutateAsync({ id: editingYear.id, data: payload });
-        toast.success('Academic year updated');
+      if (editing) {
+        await updateYear.mutateAsync({ id: editing.id, data: payload });
+        notify.success(`${payload.name} is saved.`);
       } else {
-        await createMutation.mutateAsync(payload as any);
-        toast.success('Academic year created');
+        await createYear.mutateAsync(payload);
+        notify.success(`${payload.name} is added. Add its semesters next.`);
       }
-      setIsDialogOpen(false);
-      setEditingYear(null);
-      setFormData({ name: '', startDate: '', endDate: '', isCurrent: false });
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to save academic year');
+      setDialogOpen(false);
+      setEditing(null);
+    } catch (err) {
+      setFormError(errorMessage(err, "The year wasn't saved. Check the dates and try again."));
     }
   };
 
-  const handleEdit = (year: any) => {
-    setEditingYear(year);
-    setIsDialogOpen(true);
-    setFormData({
-      name: year.name,
-      startDate: year.startDate.split('T')[0],
-      endDate: year.endDate.split('T')[0],
-      isCurrent: year.isCurrent,
-    });
-  };
-
-  const handleSetCurrent = async (id: string) => {
+  const makeCurrent = async (year: Year) => {
     try {
-      await setCurrentMutation.mutateAsync(id);
-      toast.success('Current academic year updated');
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to set current year');
+      await setCurrent.mutateAsync(year.id);
+      notify.success(`${year.name} is now the current year.`);
+    } catch (err) {
+      notify.error(errorMessage(err, "The current year wasn't changed. Try again."));
     }
   };
 
-  const handleArchive = async (id: string) => {
+  const archive = async () => {
+    if (!toArchive) return;
     try {
-      await archiveMutation.mutateAsync(id);
-      toast.success('Academic year archived');
-      setArchiveDialogOpen(false);
-      setYearToAction(null);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to archive');
+      await archiveYear.mutateAsync(toArchive.id);
+      notify.success(`${toArchive.name} is archived.`);
+    } catch (err) {
+      notify.error(errorMessage(err, "The year wasn't archived. Try again."));
+      throw err;
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const remove = async () => {
+    if (!toDelete) return;
     try {
-      await deleteMutation.mutateAsync(id);
-      toast.success('Academic year deleted');
-      setDeleteDialogOpen(false);
-      setYearToAction(null);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to delete');
+      await deleteYear.mutateAsync(toDelete.id);
+      notify.success(`${toDelete.name} is deleted.`);
+    } catch (err) {
+      notify.error(errorMessage(err, "The year wasn't deleted. Try again."));
+      throw err;
     }
   };
 
-  const promptDelete = (year: any) => {
-    setYearToAction(year);
-    setDeleteDialogOpen(true);
-  };
-
-  const promptArchive = (year: any) => {
-    setYearToAction(year);
-    setArchiveDialogOpen(true);
-  };
-
-  if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <Loader2 className="h-12 w-12 animate-spin text-blue-500" />
-        <p className="text-gray-500 animate-pulse">Synchronizing academic periods...</p>
-      </div>
-    );
-  }
+  const columns = React.useMemo<ColumnDef<Year>[]>(
+    () => [
+      {
+        accessorKey: 'name',
+        header: 'Year',
+        cell: ({ row }) => (
+          <div>
+            <p className="font-medium">{row.original.name}</p>
+            <p className="text-sm text-muted-foreground">
+              {formatDate(row.original.startDate)} to {formatDate(row.original.endDate)}
+            </p>
+          </div>
+        ),
+      },
+      {
+        id: 'status',
+        accessorFn: (y) => (y.isCurrent ? 'Current' : y.isUpcoming ? 'Upcoming' : 'Not current'),
+        header: 'Status',
+        cell: ({ row }) => <YearStatus year={row.original} />,
+      },
+      {
+        accessorKey: 'totalStudents',
+        header: 'Students',
+        meta: { className: 'tabular-nums', hideOnMobile: true },
+      },
+      {
+        accessorKey: 'totalClasses',
+        header: 'Classes',
+        meta: { className: 'tabular-nums', hideOnMobile: true },
+      },
+      {
+        id: 'actions',
+        header: '',
+        enableSorting: false,
+        meta: { label: 'Actions', className: 'text-right' },
+        cell: ({ row }) => {
+          const year = row.original;
+          return (
+            <div className="flex flex-wrap justify-end gap-2">
+              {!year.isArchived ? (
+                <>
+                  <Button variant="outline" size="sm" className="min-h-11 md:min-h-9" onClick={() => openEdit(year)}>
+                    <Pencil aria-hidden="true" />
+                    Edit
+                  </Button>
+                  {!year.isCurrent ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="min-h-11 md:min-h-9"
+                      onClick={() => makeCurrent(year)}
+                      disabled={setCurrent.isPending}
+                    >
+                      <CheckCircle2 aria-hidden="true" />
+                      Make current
+                    </Button>
+                  ) : null}
+                  <Button variant="outline" size="sm" className="min-h-11 md:min-h-9" onClick={() => setToArchive(year)}>
+                    <Archive aria-hidden="true" />
+                    Archive
+                  </Button>
+                </>
+              ) : null}
+              {!year.isCurrent && !year.isArchived ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="min-h-11 text-destructive hover:text-destructive md:min-h-9"
+                  onClick={() => setToDelete(year)}
+                >
+                  <Trash2 aria-hidden="true" />
+                  Delete
+                </Button>
+              ) : null}
+            </div>
+          );
+        },
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [setCurrent.isPending]
+  );
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Academic Years</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Manage school cycles and session periods</p>
+    <PageShell
+      title="Years and terms"
+      description="The school years and which one is current. Classes, enrollments, fees and attendance follow the current year."
+      secondaryActions={
+        <div className="flex items-center gap-2">
+          <Switch id="show-archived" checked={includeArchived} onCheckedChange={setIncludeArchived} />
+          <label htmlFor="show-archived" className="text-sm font-medium">
+            Show archived years
+          </label>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 group cursor-pointer">
-            <Label htmlFor="includeArchived" className="text-xs text-muted-foreground group-hover:text-foreground">Show archived</Label>
-            <Switch
-              id="includeArchived"
-              checked={includeArchived}
-              onCheckedChange={setIncludeArchived}
-            />
-          </div>
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={() => {
-                setEditingYear(null);
-                setFormData({ name: '', startDate: '', endDate: '', isCurrent: false });
-              }}>
-                <Plus className="w-4 h-4 mr-2" />
-                Add Session
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
-              <DialogHeader>
-                <DialogTitle>{editingYear ? 'Edit Session' : 'New Academic Session'}</DialogTitle>
-                <DialogDescription>Define the start and end dates for the academic year.</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Session Name</Label>
-                  <Input id="name" value={formData.name} onChange={(e) => setFormData(p => ({ ...p, name: e.target.value }))} placeholder="2024/2025" required />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="startDate">Start Date</Label>
-                    <Input id="startDate" type="date" value={formData.startDate} onChange={(e) => setFormData(p => ({ ...p, startDate: e.target.value }))} required />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="endDate">End Date</Label>
-                    <Input id="endDate" type="date" value={formData.endDate} onChange={(e) => setFormData(p => ({ ...p, endDate: e.target.value }))} required />
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2 pt-2">
-                  <Switch id="isCurrent" checked={formData.isCurrent} onCheckedChange={(c) => setFormData(p => ({ ...p, isCurrent: c }))} />
-                  <Label htmlFor="isCurrent">Default Session</Label>
-                </div>
-                <div className="flex justify-end gap-2 pt-4">
-                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} disabled={createMutation.isPending || updateMutation.isPending}>Cancel</Button>
-                  <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-                    {createMutation.isPending || updateMutation.isPending ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        {editingYear ? 'Updating...' : 'Creating...'}
-                      </>
-                    ) : (
-                      editingYear ? 'Update' : 'Create'
-                    )}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+      }
+      primaryAction={
+        <Button className="min-h-11 md:min-h-9" onClick={openCreate}>
+          <Plus aria-hidden="true" />
+          Add school year
+        </Button>
+      }
+    >
+      {list.isLoading ? null : currentYear ? (
+        <div role="status" className="flex gap-3 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-900">
+          <CheckCircle2 className="size-5 shrink-0" aria-hidden="true" />
+          <p>
+            <span className="font-semibold">Current year: {currentYear.name}</span>, {formatDate(currentYear.startDate)} to{' '}
+            {formatDate(currentYear.endDate)}.
+          </p>
         </div>
-      </div>
+      ) : list.isSuccess && years.length > 0 ? (
+        <div role="status" className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <AlertTriangle className="size-5 shrink-0" aria-hidden="true" />
+          <p>No year is current, so enrollments, fees and attendance can&apos;t start. Make a year current.</p>
+        </div>
+      ) : null}
 
-      {currentYear ? (
-        <Alert className="border-green-500 bg-green-50/50">
-          <CheckCircle className="h-4 w-4 text-green-600" />
-          <AlertDescription>
-            Active Session: <strong className="text-green-900">{currentYear.name}</strong>
-            <span className="mx-2 text-muted-foreground">•</span>
-            {new Date(currentYear.startDate).toLocaleDateString()} - {new Date(currentYear.endDate).toLocaleDateString()}
-          </AlertDescription>
-        </Alert>
+      {list.isError ? (
+        <EmptyState
+          icon={CalendarDays}
+          title="The school years didn't load"
+          description={`${errorMessage(list.error, 'The server didn’t answer.')} Check your connection and try again.`}
+          action={<Button onClick={() => list.refetch()}>Try again</Button>}
+        />
       ) : (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>No active academic session. Some operations may be restricted.</AlertDescription>
-        </Alert>
+        <DataTable
+          label="School years"
+          columns={columns}
+          data={years}
+          loading={list.isLoading}
+          pageSize={0}
+          getRowId={(y) => y.id}
+          initialSorting={[{ id: 'name', desc: true }]}
+          emptyState={
+            <EmptyState
+              icon={CalendarDays}
+              description="No school years yet. Add the first year to start enrolling students and creating classes."
+              action={<Button onClick={openCreate}>Add school year</Button>}
+            />
+          }
+        />
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {academicYears.map((year: any) => (
-          <Card key={year.id} className={`${year.isCurrent ? "border-green-500 bg-green-50/20" : ""} group relative hover:shadow-lg transition-all`}>
-            <CardHeader>
-              <div className="flex justify-between items-start">
-                <div className="space-y-1">
-                  <CardTitle className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-muted-foreground" />
-                    {year.name}
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    {new Date(year.startDate).toLocaleDateString()} — {new Date(year.endDate).toLocaleDateString()}
-                  </CardDescription>
-                </div>
-                <div className="flex flex-col gap-2 items-end">
-                  <Badge variant={year.isCurrent ? "default" : (year.status === 'upcoming' ? "secondary" : "outline")} className="text-[10px] uppercase">
-                    {year.isCurrent ? "Active" : year.status}
-                  </Badge>
-                  {year.isArchived && <Badge variant="destructive" className="text-[10px] uppercase">Archived</Badge>}
-                </div>
+      <Dialog open={dialogOpen} onOpenChange={(open) => !saving && setDialogOpen(open)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editing ? `Edit ${editing.name}` : 'Add school year'}</DialogTitle>
+            <DialogDescription>The name and the first and last day of the school year.</DialogDescription>
+          </DialogHeader>
+          <form id="year-form" onSubmit={save} className="grid gap-4" noValidate>
+            {editing ? (
+              <div role="note" className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <AlertTriangle className="size-5 shrink-0" aria-hidden="true" />
+                <p>
+                  Changing the start date changes the year on new receipt numbers; changing semester dates changes fee due
+                  dates.
+                </p>
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1"><p className="text-xs text-muted-foreground font-medium">Students</p><p className="font-bold text-lg">{year.totalStudents}</p></div>
-                  <div className="space-y-1"><p className="text-xs text-muted-foreground font-medium">Classes</p><p className="font-bold text-lg">{year.totalClasses}</p></div>
-                </div>
-
-                <div className="flex gap-2 pt-4 border-t opacity-40 group-hover:opacity-100 transition-opacity">
-                  {!year.isArchived && (
-                    <>
-                      <Button size="sm" variant="outline" onClick={() => handleEdit(year)} className="flex-1 px-1">
-                        <Edit className="w-3 h-3 mr-1" /> Edit
-                      </Button>
-                      {!year.isCurrent && (
-                        <Button size="sm" variant="outline" onClick={() => handleSetCurrent(year.id)} className="flex-1 px-1">
-                          Activate
-                        </Button>
-                      )}
-                      <Button size="sm" variant="outline" onClick={() => promptArchive(year)} title="Archive">
-                        <Archive className="w-3 h-3" />
-                      </Button>
-                    </>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => promptDelete(year)}
-                    className="text-destructive hover:text-destructive"
-                    disabled={year.isCurrent || year.isArchived}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {academicYears.length === 0 && !isLoading && (
-        <Card className="border-dashed border-2 py-20 bg-muted/20">
-          <CardContent className="flex flex-col items-center gap-4">
-            <Calendar className="h-12 w-12 text-muted-foreground opacity-20" />
-            <div className="text-center">
-              <h3 className="font-semibold text-lg">No sessions configured</h3>
-              <p className="text-muted-foreground max-w-xs">Define your school sessions to enable enrollment and class management.</p>
+            ) : null}
+            <FormField label="Name" required>
+              <Input
+                className={inputClass}
+                placeholder="2026/2027"
+                value={form.name}
+                onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+              />
+            </FormField>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label="Start date" required>
+                <Input
+                  type="date"
+                  className={inputClass}
+                  value={form.startDate}
+                  onChange={(e) => setForm((p) => ({ ...p, startDate: e.target.value }))}
+                />
+              </FormField>
+              <FormField label="End date" required>
+                <Input
+                  type="date"
+                  className={inputClass}
+                  value={form.endDate}
+                  min={form.startDate || undefined}
+                  onChange={(e) => setForm((p) => ({ ...p, endDate: e.target.value }))}
+                />
+              </FormField>
             </div>
-            <Button onClick={() => setIsDialogOpen(true)} className="mt-4">Setup First Session</Button>
-          </CardContent>
-        </Card>
-      )}
+            <div className="flex items-center gap-3">
+              <Switch
+                id="year-current"
+                checked={form.isCurrent}
+                onCheckedChange={(checked) => setForm((p) => ({ ...p, isCurrent: checked }))}
+              />
+              <label htmlFor="year-current" className="text-sm font-medium">
+                Make this the current year
+              </label>
+            </div>
+            {formError ? (
+              <p role="alert" className="text-sm font-medium text-destructive">
+                {formError}
+              </p>
+            ) : null}
+          </form>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11 md:min-h-9"
+              onClick={() => setDialogOpen(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" form="year-form" className="min-h-11 md:min-h-9" disabled={saving}>
+              {saving ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+              {editing ? 'Save year' : 'Add year'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      {/* Delete Confirmation Modal */}
-      <ConfirmationModal
-        isOpen={deleteDialogOpen}
-        onCancel={() => setDeleteDialogOpen(false)}
-        onConfirm={() => yearToAction && handleDelete(yearToAction.id)}
-        title="Delete Academic Year"
-        message={`Are you sure you want to delete ${yearToAction?.name}? This action cannot be undone.`}
-        confirmButtonText={deleteMutation.isPending ? "Deleting..." : "Delete"}
-        confirmButtonColor="red"
-        isLoading={deleteMutation.isPending}
+      <ConfirmDialog
+        open={Boolean(toArchive)}
+        onOpenChange={(open) => !open && setToArchive(null)}
+        title={`Archive ${toArchive?.name ?? 'this year'}?`}
+        description="The year becomes read-only: its classes, enrollments and results can be viewed but not changed."
+        confirmLabel="Archive year"
+        loading={archiveYear.isPending}
+        onConfirm={archive}
       />
 
-      {/* Archive Confirmation Modal */}
-      <ConfirmationModal
-        isOpen={archiveDialogOpen}
-        onCancel={() => setArchiveDialogOpen(false)}
-        onConfirm={() => yearToAction && handleArchive(yearToAction.id)}
-        title="Archive Academic Year"
-        message={`Are you sure you want to archive ${yearToAction?.name}? It will become read-only.`}
-        confirmButtonText={archiveMutation.isPending ? "Archiving..." : "Archive"}
-        confirmButtonColor="yellow"
-        isLoading={archiveMutation.isPending}
+      <ConfirmDialog
+        open={Boolean(toDelete)}
+        onOpenChange={(open) => !open && setToDelete(null)}
+        title={`Delete ${toDelete?.name ?? 'this year'}?`}
+        description="The year is removed with its dates. This can't be undone. To keep its records, archive it instead."
+        confirmLabel="Delete year"
+        destructive
+        loading={deleteYear.isPending}
+        onConfirm={remove}
       />
-    </div>
+    </PageShell>
   );
 }

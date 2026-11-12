@@ -1,300 +1,332 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+// Semesters of a school year: add them, edit their names and dates, or delete them. Fee due dates
+// follow the semester dates.
+
+import * as React from 'react';
+import type { ColumnDef } from '@tanstack/react-table';
+import { AlertTriangle, CalendarRange, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
+
+import { useCurrentSemester } from '@/components/classes/queries-setup';
+import { selectClass } from '@/components/students/admission-form';
+import { errorMessage, formatDate } from '@/components/students/format';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { DataTable } from '@/components/ui/data-table';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { EmptyState } from '@/components/ui/empty-state';
+import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Calendar, Plus, Edit, Trash2 } from 'lucide-react';
-import { useEnrollmentService } from '@/services/api/enrollment-service';
-import { useSemesterService, Semester } from '@/services/api/semester-service';
+import { PageShell } from '@/components/ui/page-shell';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { notify } from '@/components/ui/toaster';
+import { useAcademicYears } from '@/hooks/queries/enrollments';
+import { useCreateSemester, useDeleteSemester, useSemesters, useUpdateSemester } from '@/hooks/queries/semesters-periods';
+import type { Semester } from '@/services/api/semester-service';
+
+type FormValues = { name: string; startDate: string; endDate: string; number: string };
+const emptyForm: FormValues = { name: '', startDate: '', endDate: '', number: '' };
+const inputClass = 'h-11 text-base md:h-9 md:text-sm';
 
 export default function SemestersPage() {
-  const { getAcademicYears } = useEnrollmentService();
-  const { getSemesters, createSemester, updateSemester, deleteSemester, getCurrentSemester } = useSemesterService();
+  const years = useAcademicYears();
+  const [yearChoice, setYearChoice] = React.useState('');
+  const yearList = years.data ?? [];
+  const yearId = yearChoice || (yearList.find((y) => y.is_current) ?? yearList[0])?.id || '';
+  const yearName = yearList.find((y) => y.id === yearId)?.name ?? '';
 
-  // NEW: deletion modal state
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [semesterToDelete, setSemesterToDelete] = useState<Semester | null>(null);
+  const semesters = useSemesters(yearId || null);
+  const currentSemester = useCurrentSemester();
+  const createSemester = useCreateSemester();
+  const updateSemester = useUpdateSemester();
+  const deleteSemester = useDeleteSemester(yearId);
 
-  // NEW: current semester state
-  const [currentSemesterInfo, setCurrentSemesterInfo] = useState<{ current_semester?: number; semester?: number } | null>(null);
-  const [years, setYears] = useState<any[]>([]);
-  const [selectedYearId, setSelectedYearId] = useState<string>('');
-  const [semesters, setSemesters] = useState<Semester[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [editing, setEditing] = React.useState<Semester | null>(null);
+  const [form, setForm] = React.useState<FormValues>(emptyForm);
+  const [formError, setFormError] = React.useState('');
+  const [toDelete, setToDelete] = React.useState<Semester | null>(null);
+  const saving = createSemester.isPending || updateSemester.isPending;
 
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingSemester, setEditingSemester] = useState<Semester | null>(null);
-  const [formData, setFormData] = useState<{ name: string; startDate: string; endDate: string; semester_number?: string }>({
-    name: '',
-    startDate: '',
-    endDate: '',
-    semester_number: ''
-  });
-  const [errorMessage, setErrorMessage] = useState<string>('');
-
-  useEffect(() => {
-    (async () => {
-      const list = await getAcademicYears();
-      setYears(list || []);
-      const current = (list || []).find((y: any) => y.is_current) || list?.[0];
-      if (current?.id) setSelectedYearId(current.id);
-
-      // NEW: also fetch current semester info once
-      try {
-        const info = await getCurrentSemester();
-        setCurrentSemesterInfo(info);
-      } catch (err) {
-        console.warn('Failed to load current semester info', err);
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (!selectedYearId) return;
-    (async () => {
-      try {
-        setLoading(true);
-        const data = await getSemesters(selectedYearId);
-        setSemesters(data || []);
-      } catch (err) {
-        console.error('Failed to load semesters', err);
-        setErrorMessage('Failed to load semesters');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [selectedYearId]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      if (editingSemester) {
-        await updateSemester(editingSemester.id, {
-          name: formData.name || undefined,
-          start_date: formData.startDate || undefined,
-          end_date: formData.endDate || undefined,
-          semester_number: formData.semester_number ? parseInt(formData.semester_number, 10) : undefined
-        });
-      } else {
-        await createSemester({
-          name: formData.name,
-          academic_year_id: selectedYearId,
-          start_date: formData.startDate,
-          end_date: formData.endDate,
-          semester_number: formData.semester_number ? parseInt(formData.semester_number, 10) : 1
-        } as any);
-      }
-      setIsDialogOpen(false);
-      setEditingSemester(null);
-      setFormData({ name: '', startDate: '', endDate: '', semester_number: '' });
-      const refreshed = await getSemesters(selectedYearId);
-      setSemesters(refreshed || []);
-    } catch (err) {
-      console.error('Error saving semester', err);
-      setErrorMessage('Error saving semester');
-    }
+  const openCreate = () => {
+    setEditing(null);
+    setForm(emptyForm);
+    setFormError('');
+    setDialogOpen(true);
   };
 
-  const handleEdit = (s: Semester) => {
-    setEditingSemester(s);
-    setFormData({
+  const openEdit = (s: Semester) => {
+    setEditing(s);
+    setForm({
       name: s.name,
-      startDate: s.start_date,
-      endDate: s.end_date,
-      semester_number: typeof s.semester_number === 'number' ? String(s.semester_number) : ''
+      startDate: (s.start_date || '').slice(0, 10),
+      endDate: (s.end_date || '').slice(0, 10),
+      number: typeof s.semester_number === 'number' ? String(s.semester_number) : '',
     });
-    setIsDialogOpen(true);
+    setFormError('');
+    setDialogOpen(true);
   };
 
-  // REPLACED: delete flow uses modal
-  const handleDelete = (s: Semester) => {
-    setSemesterToDelete(s);
-    setIsDeleteDialogOpen(true);
-  };
-
-  // NEW: confirm delete
-  const confirmDelete = async () => {
-    if (!semesterToDelete) return;
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name.trim() || !form.startDate || !form.endDate) {
+      setFormError('Enter a name, a start date and an end date.');
+      return;
+    }
+    if (form.endDate <= form.startDate) {
+      setFormError('Enter an end date after the start date.');
+      return;
+    }
+    const number = form.number ? parseInt(form.number, 10) : undefined;
     try {
-      await deleteSemester(semesterToDelete.id);
-      const refreshed = await getSemesters(selectedYearId);
-      setSemesters(refreshed || []);
+      if (editing) {
+        await updateSemester.mutateAsync({
+          id: editing.id,
+          data: { name: form.name.trim(), start_date: form.startDate, end_date: form.endDate, semester_number: number },
+        });
+        notify.success(`${form.name.trim()} is saved.`);
+      } else {
+        await createSemester.mutateAsync({
+          name: form.name.trim(),
+          academic_year_id: yearId,
+          start_date: form.startDate,
+          end_date: form.endDate,
+          semester_number: number ?? 1,
+        });
+        notify.success(`${form.name.trim()} is added to ${yearName}.`);
+      }
+      setDialogOpen(false);
+      setEditing(null);
     } catch (err) {
-      console.error('Error deleting semester', err);
-      setErrorMessage('Error deleting semester');
-    } finally {
-      setIsDeleteDialogOpen(false);
-      setSemesterToDelete(null);
+      setFormError(errorMessage(err, "The semester wasn't saved. Check the dates and try again."));
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[40vh]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
-      </div>
-    );
-  }
+  const remove = async () => {
+    if (!toDelete) return;
+    try {
+      await deleteSemester.mutateAsync(toDelete.id);
+      notify.success(`${toDelete.name} is deleted.`);
+    } catch (err) {
+      notify.error(errorMessage(err, "The semester wasn't deleted. Try again."));
+      throw err;
+    }
+  };
+
+  const columns = React.useMemo<ColumnDef<Semester>[]>(
+    () => [
+      {
+        accessorKey: 'name',
+        header: 'Semester',
+        cell: ({ row }) => (
+          <div>
+            <p className="font-medium">{row.original.name}</p>
+            {typeof row.original.semester_number === 'number' ? (
+              <p className="text-sm text-muted-foreground">Semester {row.original.semester_number}</p>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'start_date',
+        header: 'Dates',
+        cell: ({ row }) => `${formatDate(row.original.start_date)} to ${formatDate(row.original.end_date)}`,
+      },
+      {
+        id: 'status',
+        accessorFn: (s) => (s.is_current ? 'Current' : 'Not current'),
+        header: 'Status',
+        cell: ({ row }) =>
+          row.original.is_current ? (
+            <StatusBadge status="success" label="Current" />
+          ) : (
+            <StatusBadge status="neutral" label="Not current" />
+          ),
+      },
+      {
+        id: 'actions',
+        header: '',
+        enableSorting: false,
+        meta: { label: 'Actions', className: 'text-right' },
+        cell: ({ row }) => (
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" size="sm" className="min-h-11 md:min-h-9" onClick={() => openEdit(row.original)}>
+              <Pencil aria-hidden="true" />
+              Edit
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="min-h-11 text-destructive hover:text-destructive md:min-h-9"
+              onClick={() => setToDelete(row.original)}
+            >
+              <Trash2 aria-hidden="true" />
+              Delete
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    []
+  );
+
+  const currentNumber = currentSemester.data;
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Semesters</h1>
-          <p className="text-gray-600 mt-2">
-            Manage semesters per academic year
-          </p>
-          {/* NEW: Current semester indicator */}
-          {currentSemesterInfo && (
-            <p className="text-sm text-gray-500 mt-1">
-              Current Semester: {currentSemesterInfo.current_semester ?? currentSemesterInfo.semester ?? 'N/A'}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          <Select value={selectedYearId} onValueChange={setSelectedYearId}>
-            <SelectTrigger className="w-[240px]">
-              <SelectValue placeholder="Select Academic Year" />
-            </SelectTrigger>
-            <SelectContent>
-              {years.map(y => (
-                <SelectItem key={y.id} value={y.id}>{y.name} {y.is_current && '(Current)'}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={() => {
-                setEditingSemester(null);
-                setFormData({ name: '', startDate: '', endDate: '', semester_number: '' });
-              }}>
-                <Plus className="w-4 h-4 mr-2" />
-                Add Semester
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>
-                  {editingSemester ? 'Edit Semester' : 'Add New Semester'}
-                </DialogTitle>
-                <DialogDescription>
-                  Configure semester details in the selected academic year.
-                </DialogDescription>
-              </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <Label htmlFor="name">Name</Label>
-                  <Input id="name" value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} required />
-                </div>
-                <div>
-                  <Label htmlFor="startDate">Start Date</Label>
-                  <Input id="startDate" type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))} required />
-                </div>
-                <div>
-                  <Label htmlFor="endDate">End Date</Label>
-                  <Input id="endDate" type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))} required />
-                </div>
-                <div>
-                  <Label htmlFor="semester_number">Semester Number (1 or 2)</Label>
-                  <Input id="semester_number" type="number" min={1} max={4} value={formData.semester_number} onChange={(e) => setFormData(prev => ({ ...prev, semester_number: e.target.value }))} />
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-                  <Button type="submit">{editingSemester ? 'Update' : 'Create'}</Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
-        </div>
+    <PageShell
+      title="Semesters"
+      description={
+        currentNumber !== null && currentNumber !== undefined
+          ? `The semesters of each school year. The school is in semester ${currentNumber}.`
+          : 'The semesters of each school year.'
+      }
+      primaryAction={
+        <Button className="min-h-11 md:min-h-9" onClick={openCreate} disabled={!yearId}>
+          <Plus aria-hidden="true" />
+          Add semester
+        </Button>
+      }
+    >
+      <div className="grid gap-2 sm:max-w-xs">
+        <label htmlFor="semester-year" className="text-sm font-medium">
+          School year
+        </label>
+        <select
+          id="semester-year"
+          className={selectClass}
+          value={yearId}
+          disabled={years.isLoading}
+          onChange={(e) => setYearChoice(e.target.value)}
+        >
+          {years.isLoading ? <option value="">Loading years…</option> : null}
+          {!years.isLoading && yearList.length === 0 ? <option value="">No school years</option> : null}
+          {yearList.map((y) => (
+            <option key={y.id} value={y.id}>
+              {y.name}
+              {y.is_current ? ' (current)' : ''}
+            </option>
+          ))}
+        </select>
       </div>
 
-      {/* List */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {semesters.map((s) => (
-          <Card key={s.id}>
-            <CardHeader>
-              <div className="flex justify-between items-start">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Calendar className="w-5 h-5" />
-                    {s.name}
-                  </CardTitle>
-                  <CardDescription>
-                    {new Date(s.start_date).toLocaleDateString()} - {new Date(s.end_date).toLocaleDateString()}
-                  </CardDescription>
-                </div>
-                <Badge variant={s.is_current ? 'default' : 'secondary'}>
-                  {s.is_current ? 'Current' : 'Inactive'}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => handleEdit(s)} className="flex-1">
-                  <Edit className="w-3 h-3 mr-1" />
-                  Edit
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleDelete(s)}
-                  className="flex-1 text-red-600 hover:text-red-700"
-                >
-                  <Trash2 className="w-3 h-3 mr-1" />
-                  Delete
-                </Button>
+      {years.isError || semesters.isError ? (
+        <EmptyState
+          icon={CalendarRange}
+          title="The semesters didn't load"
+          description={`${errorMessage(years.error ?? semesters.error, 'The server didn’t answer.')} Check your connection and try again.`}
+          action={
+            <Button onClick={() => (years.isError ? years.refetch() : semesters.refetch())}>Try again</Button>
+          }
+        />
+      ) : !years.isLoading && yearList.length === 0 ? (
+        <EmptyState
+          icon={CalendarRange}
+          description="Add a school year in Years and terms first, then its semesters."
+        />
+      ) : (
+        <DataTable
+          label={`Semesters of ${yearName}`}
+          columns={columns}
+          data={semesters.data ?? []}
+          loading={years.isLoading || semesters.isLoading}
+          pageSize={0}
+          getRowId={(s) => s.id}
+          initialSorting={[{ id: 'start_date', desc: false }]}
+          emptyState={
+            <EmptyState
+              icon={CalendarRange}
+              description={`${yearName || 'This year'} has no semesters yet. Add the first one.`}
+              action={<Button onClick={openCreate}>Add semester</Button>}
+            />
+          }
+        />
+      )}
 
-                {/* Delete confirmation modal (uses global state) */}
-                <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-                  <DialogContent className="max-w-sm">
-                    <DialogHeader>
-                      <DialogTitle>Delete Semester</DialogTitle>
-                      <DialogDescription>
-                        Are you sure you want to delete "{semesterToDelete?.name}"? This action cannot be undone.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="flex justify-end gap-2">
-                      <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
-                        Cancel
-                      </Button>
-                      <Button className="bg-red-600 text-white hover:bg-red-700" onClick={confirmDelete}>
-                        Delete
-                      </Button>
-                    </div>
-                  </DialogContent>
-                </Dialog>
+      <Dialog open={dialogOpen} onOpenChange={(open) => !saving && setDialogOpen(open)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editing ? `Edit ${editing.name}` : `Add a semester to ${yearName}`}</DialogTitle>
+            <DialogDescription>The semester&apos;s name, number and first and last day.</DialogDescription>
+          </DialogHeader>
+          <form id="semester-form" onSubmit={save} className="grid gap-4" noValidate>
+            {editing ? (
+              <div role="note" className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <AlertTriangle className="size-5 shrink-0" aria-hidden="true" />
+                <p>Changing semester dates changes fee due dates.</p>
               </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {semesters.length === 0 && (
-        <Card>
-          <CardContent className="text-center py-12">
-            <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">No Semesters Configured</h3>
-            <p className="text-gray-600 mb-4">Create your first semester for this academic year.</p>
-            <Button onClick={() => setIsDialogOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Add Semester
+            ) : null}
+            <FormField label="Name" required>
+              <Input
+                className={inputClass}
+                placeholder="First semester"
+                value={form.name}
+                onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+              />
+            </FormField>
+            <FormField label="Semester number" description="1 for the first semester, 2 for the second.">
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={4}
+                className={inputClass}
+                value={form.number}
+                onChange={(e) => setForm((p) => ({ ...p, number: e.target.value }))}
+              />
+            </FormField>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label="Start date" required>
+                <Input
+                  type="date"
+                  className={inputClass}
+                  value={form.startDate}
+                  onChange={(e) => setForm((p) => ({ ...p, startDate: e.target.value }))}
+                />
+              </FormField>
+              <FormField label="End date" required>
+                <Input
+                  type="date"
+                  className={inputClass}
+                  value={form.endDate}
+                  min={form.startDate || undefined}
+                  onChange={(e) => setForm((p) => ({ ...p, endDate: e.target.value }))}
+                />
+              </FormField>
+            </div>
+            {formError ? (
+              <p role="alert" className="text-sm font-medium text-destructive">
+                {formError}
+              </p>
+            ) : null}
+          </form>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11 md:min-h-9"
+              onClick={() => setDialogOpen(false)}
+              disabled={saving}
+            >
+              Cancel
             </Button>
-          </CardContent>
-        </Card>
-      )}
+            <Button type="submit" form="semester-form" className="min-h-11 md:min-h-9" disabled={saving}>
+              {saving ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+              {editing ? 'Save semester' : 'Add semester'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      {errorMessage && (
-        <Alert className="border-red-200 bg-red-50">
-          <AlertDescription className="text-red-800">{errorMessage}</AlertDescription>
-        </Alert>
-      )}
-    </div>
+      <ConfirmDialog
+        open={Boolean(toDelete)}
+        onOpenChange={(open) => !open && setToDelete(null)}
+        title={`Delete ${toDelete?.name ?? 'this semester'}?`}
+        description="The semester and its dates are removed. This can't be undone."
+        confirmLabel="Delete semester"
+        destructive
+        loading={deleteSemester.isPending}
+        onConfirm={remove}
+      />
+    </PageShell>
   );
 }

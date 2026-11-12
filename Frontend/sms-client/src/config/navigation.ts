@@ -129,6 +129,7 @@ const GRADES: NavArea = {
     tab('Report cards', '/academics/report-cards'),
     tab('Assignments', '/academics/assignments', 'enable_homework'),
     tab('Grading settings', '/academics/grading-schemas'),
+    tab('Promotion rules', '/settings/promotion'),
     tab('Remedial', '/academics/remedial'),
   ],
 };
