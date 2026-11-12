@@ -13,19 +13,15 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/empty-state';
-import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Switch } from '@/components/ui/switch';
-import { Textarea } from '@/components/ui/textarea';
 import { notify } from '@/components/ui/toaster';
 import {
   useAssignSponsor,
   useCreateAssignment,
-  useUpdateAssignment,
 } from '@/hooks/queries/teacher-assignments';
 import type { Teacher } from '@/types/teacher';
-import type { ClassSubjectAssignment, TeacherSubjectAssignment } from '@/types/teacher-subject-assignment';
+import type { ClassSubjectAssignment } from '@/types/teacher-subject-assignment';
 
 const inputClass = 'h-11 text-base md:h-9 md:text-sm';
 const footerButton = 'min-h-11 md:min-h-9';
@@ -85,7 +81,6 @@ export function AssignSubjectsDialog({
   const [search, setSearch] = React.useState('');
   const [gradeId, setGradeId] = React.useState('');
   const [subjectId, setSubjectId] = React.useState('');
-  const [room, setRoom] = React.useState('');
   const [selected, setSelected] = React.useState<string[]>([]);
   const [saving, setSaving] = React.useState(false);
 
@@ -94,7 +89,6 @@ export function AssignSubjectsDialog({
     setSearch('');
     setGradeId('');
     setSubjectId('');
-    setRoom('');
     setSelected([]);
   }, [teacher?.id]);
 
@@ -133,7 +127,6 @@ export function AssignSubjectsDialog({
           section_id: s.section_id,
           subject_id: s.subject_id,
           academic_year_id: academicYearId,
-          room: room.trim() || undefined,
           is_active: true,
           start_date: new Date().toISOString().split('T')[0],
         })
@@ -262,10 +255,6 @@ export function AssignSubjectsDialog({
           )}
         </div>
 
-        <FormField label="Room" description="Optional. Used for every subject you assign now.">
-          <Input className={inputClass} value={room} onChange={(e) => setRoom(e.target.value)} placeholder="Room 101" />
-        </FormField>
-
         <DialogFooter>
           <Button variant="outline" className={footerButton} onClick={onClose} disabled={saving}>
             Cancel
@@ -280,81 +269,6 @@ export function AssignSubjectsDialog({
   );
 }
 
-/** Room, active and notes of one assignment. */
-export function EditAssignmentDialog({
-  assignment,
-  title,
-  teacherLabel,
-  onClose,
-}: {
-  assignment: TeacherSubjectAssignment | null;
-  /** "Mathematics, Grade 7 - A" */
-  title: string;
-  teacherLabel: string;
-  onClose: () => void;
-}) {
-  const update = useUpdateAssignment();
-  const [room, setRoom] = React.useState('');
-  const [active, setActive] = React.useState(true);
-  const [notes, setNotes] = React.useState('');
-
-  React.useEffect(() => {
-    if (!assignment) return;
-    setRoom(assignment.room || '');
-    setActive(assignment.is_active ?? true);
-    setNotes(assignment.notes || '');
-  }, [assignment]);
-
-  const save = async () => {
-    if (!assignment) return;
-    try {
-      await update.mutateAsync({
-        id: assignment.id,
-        data: { room: room || undefined, is_active: active, notes: notes || undefined },
-      });
-      notify.success('The assignment is saved.');
-      onClose();
-    } catch (err) {
-      notify.error(errorMessage(err, "The assignment wasn't saved. Try again."));
-    }
-  };
-
-  return (
-    <Dialog open={Boolean(assignment)} onOpenChange={(o) => !o && !update.isPending && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Edit {title}</DialogTitle>
-          <DialogDescription>Taught by {teacherLabel}.</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4">
-          <FormField label="Room">
-            <Input className={inputClass} value={room} onChange={(e) => setRoom(e.target.value)} placeholder="Room 204" />
-          </FormField>
-          <div className="flex items-center gap-3">
-            <Switch id="assignment-active" checked={active} onCheckedChange={setActive} />
-            <label htmlFor="assignment-active" className="text-sm font-medium">
-              Active assignment
-            </label>
-          </div>
-          <FormField label="Notes" description="Only staff see these.">
-            <Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </FormField>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" className={footerButton} onClick={onClose} disabled={update.isPending}>
-            Cancel
-          </Button>
-          <Button className={footerButton} onClick={save} disabled={update.isPending}>
-            {update.isPending ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
-            Save assignment
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/** Choose a teacher for one subject, or for several selected assignments at once. */
 export function ChooseTeacherDialog({
   open,
   title,

@@ -5,14 +5,13 @@
 
 import * as React from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { BookOpen, Pencil, Trash2, UserPlus, Users } from 'lucide-react';
+import { BookOpen, Trash2, UserPlus, Users } from 'lucide-react';
 
 import { CountTiles } from '@/components/attendance/attendance-ui';
 import {
   AssignmentStudentsDialog,
   AssignSubjectsDialog,
   ChooseTeacherDialog,
-  EditAssignmentDialog,
   SponsorDialog,
   slotKey,
   teacherName,
@@ -44,7 +43,7 @@ import {
 import { useTeachers } from '@/hooks/queries/teachers';
 import { cn } from '@/lib/utils';
 import type { Teacher } from '@/types/teacher';
-import type { ClassSponsor, ClassSubjectAssignment, TeacherSubjectAssignment } from '@/types/teacher-subject-assignment';
+import type { ClassSponsor, ClassSubjectAssignment } from '@/types/teacher-subject-assignment';
 
 type View = 'subject' | 'allocation' | 'class';
 const VIEWS: Array<{ key: View; label: string }> = [
@@ -68,7 +67,8 @@ export default function SubjectAssignmentsPage() {
   const { selectedAcademicYearName, selectedAcademicYearId, isLoading: yearLoading } = useAcademicYear();
   const yearId = selectedAcademicYearId || '';
   const { user } = useAuth();
-  // Assigning, editing and removing from the teacher view needs manage_teacher_assignments
+  // Assigning and removing from the teacher view needs manage_teacher_assignments (move to another
+  // teacher with the bulk action)
   const canManage = Boolean(user?.permissions?.includes('manage_teacher_assignments'));
 
   const teachersQuery = useTeachers();
@@ -95,7 +95,6 @@ export default function SubjectAssignmentsPage() {
   const [search, setSearch] = React.useState('');
   const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
   const [assignTo, setAssignTo] = React.useState<Teacher | null>(null);
-  const [editing, setEditing] = React.useState<Assignment | null>(null);
   const [studentsOf, setStudentsOf] = React.useState<Assignment | null>(null);
   const [toRemove, setToRemove] = React.useState<Assignment | null>(null);
   const [removeSelected, setRemoveSelected] = React.useState(false);
@@ -374,7 +373,7 @@ export default function SubjectAssignmentsPage() {
                       <label htmlFor={`pick-${id}`} className="min-w-0">
                         <span className="block font-medium">{a.subject_name}</span>
                         <span className="block text-sm text-muted-foreground">
-                          {[classLabel(a), a.room ? `Room ${a.room}` : ''].filter(Boolean).join(' · ')}
+                          {classLabel(a)}
                         </span>
                       </label>
                     </div>
@@ -385,10 +384,6 @@ export default function SubjectAssignmentsPage() {
                       </Button>
                       {canManage ? (
                         <>
-                          <Button variant="ghost" size="sm" className="min-h-11 md:min-h-9" onClick={() => setEditing(a)}>
-                            <Pencil aria-hidden="true" />
-                            Edit
-                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -411,7 +406,6 @@ export default function SubjectAssignmentsPage() {
     );
   };
 
-  const editingTeacher = editing ? teachers.find((t) => norm(t.id) === norm(editing.teacher_id)) : undefined;
 
   return (
     <PageShell
@@ -534,12 +528,7 @@ export default function SubjectAssignmentsPage() {
         academicYearId={yearId}
       />
 
-      <EditAssignmentDialog
-        assignment={editing as unknown as TeacherSubjectAssignment | null}
-        title={editing ? `${editing.subject_name}, ${classLabel(editing)}` : ''}
-        teacherLabel={editingTeacher ? teacherName(editingTeacher) : editing?.teacher_name || 'an unknown teacher'}
-        onClose={() => setEditing(null)}
-      />
+
 
       <AssignmentStudentsDialog
         assignment={

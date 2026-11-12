@@ -37,11 +37,12 @@ const NO_STUDENTS: Student[] = [];
 
 export default function EnrollmentManagementPage() {
   return (
+    // The admin and the principal (manage_enrollment, like the server checks); the menu shows it to both
     <PermissionGuard
-      requiredRole="admin"
+      requiredPermissions={['manage_enrollment']}
       fallback={
         <PageShell title="Enrollments">
-          <EmptyState icon={Lock} description="Only the school's admins manage enrollments." />
+          <EmptyState icon={Lock} description="Only staff who manage enrollments can open this page." />
         </PageShell>
       }
     >

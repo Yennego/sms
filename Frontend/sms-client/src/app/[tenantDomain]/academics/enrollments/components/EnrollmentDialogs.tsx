@@ -5,7 +5,6 @@
 
 import React from 'react';
 
-import { selectClass } from '@/components/students/admission-form';
 import { errorMessage, formatDate } from '@/components/students/format';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -66,7 +65,6 @@ export default React.forwardRef<EnrollmentDialogsHandle, Props>(function Enrollm
   const [transferDate, setTransferDate] = React.useState<string>(today());
   const [transferReason, setTransferReason] = React.useState('');
   const [transferSchool, setTransferSchool] = React.useState('');
-  const [promoteToGradeId, setPromoteToGradeId] = React.useState('');
   const promote = usePromoteEnrollment();
   const transfer = useTransferEnrollment();
 
@@ -81,7 +79,6 @@ export default React.forwardRef<EnrollmentDialogsHandle, Props>(function Enrollm
 
   const closePromote = () => {
     setPromoteEnrollment(null);
-    setPromoteToGradeId('');
   };
 
   const closeTransfer = () => {
@@ -91,20 +88,15 @@ export default React.forwardRef<EnrollmentDialogsHandle, Props>(function Enrollm
     setTransferSchool('');
   };
 
-  const higherGrades = React.useMemo(() => {
-    if (!promoteEnrollment) return [];
+  // The server moves the student to the next grade level (it takes no target grade): show which one
+  const nextGrade = React.useMemo(() => {
+    if (!promoteEnrollment) return null;
     const currentLevel = grades.find((g) => g.id === promoteEnrollment.grade_id)?.level ?? -Infinity;
-    return grades.filter((g) => g.level > currentLevel);
+    return [...grades].filter((g) => g.level > currentLevel).sort((a, b) => a.level - b.level)[0] ?? null;
   }, [grades, promoteEnrollment]);
 
   const runPromote = async () => {
-    if (!promoteEnrollment || !promoteToGradeId || !currentAcademicYear?.name) return;
-    const from = grades.find((g) => g.id === promoteEnrollment.grade_id);
-    const to = grades.find((g) => g.id === promoteToGradeId);
-    if ((to?.level ?? -Infinity) <= (from?.level ?? -Infinity)) {
-      notify.error('Choose a grade higher than the current one.');
-      return;
-    }
+    if (!promoteEnrollment || !nextGrade || !currentAcademicYear?.name) return;
     try {
       const result = await promote.mutateAsync({ id: promoteEnrollment.id, targetYearName: currentAcademicYear.name });
       const problem = result?.errors?.[0]?.error;
@@ -229,25 +221,15 @@ export default React.forwardRef<EnrollmentDialogsHandle, Props>(function Enrollm
                 : 'There is no current school year. Set one before promoting students.'}
             </DialogDescription>
           </DialogHeader>
-          <FormField
-            label="Promote to"
-            required
-            description={higherGrades.length === 0 ? 'There is no higher grade.' : undefined}
-          >
-            <select
-              className={selectClass}
-              value={promoteToGradeId}
-              onChange={(e) => setPromoteToGradeId(e.target.value)}
-              disabled={higherGrades.length === 0}
-            >
-              <option value="">Choose a higher grade</option>
-              {higherGrades.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
-            </select>
-          </FormField>
+          <p className="rounded-lg border bg-muted/40 p-3 text-sm">
+            {nextGrade ? (
+              <>
+                Moves to <span className="font-medium">{nextGrade.name}</span>, the next grade level.
+              </>
+            ) : (
+              'This student is already in the highest grade level. Use Graduation instead.'
+            )}
+          </p>
           <DialogFooter className="mt-6 gap-2">
             <Button variant="outline" className="min-h-11 md:min-h-9" onClick={closePromote} disabled={promote.isPending}>
               Cancel
@@ -255,7 +237,7 @@ export default React.forwardRef<EnrollmentDialogsHandle, Props>(function Enrollm
             <Button
               className="min-h-11 md:min-h-9"
               onClick={runPromote}
-              disabled={!promoteToGradeId || !currentAcademicYear?.name || promote.isPending}
+              disabled={!nextGrade || !currentAcademicYear?.name || promote.isPending}
             >
               {promote.isPending ? 'Promoting…' : 'Promote student'}
             </Button>
