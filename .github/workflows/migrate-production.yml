@@ -1,0 +1,36 @@
+# Run the database migrations on production, by hand (Actions → Migrate production → Run workflow).
+# FastAPI Cloud has no pre-deploy step: run this BEFORE deploying code that needs a new migration
+# (docs/deployment.md, "Every release"). Uses the database owner's connection (migrations change
+# tables; the API itself connects as the restricted sms_app role).
+name: Migrate production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "migrate" to run alembic upgrade head on the production database'
+        required: true
+
+jobs:
+  migrate:
+    if: inputs.confirm == 'migrate' && github.repository == 'Yennego/sms'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    defaults:
+      run:
+        working-directory: ./Backend/sms-backend
+    env:
+      ALEMBIC_DATABASE_URL: ${{ secrets.PROD_ALEMBIC_DATABASE_URL }}
+      DATABASE_URL: ${{ secrets.PROD_ALEMBIC_DATABASE_URL }}
+      SECRET_KEY: ${{ secrets.PROD_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen --no-dev
+      - name: Where the database is now
+        run: uv run --frozen --no-dev alembic current
+      - name: Upgrade to the latest version
+        run: uv run --frozen --no-dev alembic upgrade head
+      - name: Where the database is after
+        run: uv run --frozen --no-dev alembic current

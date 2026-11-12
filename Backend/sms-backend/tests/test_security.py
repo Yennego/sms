@@ -436,6 +436,12 @@ def test_deactivated_student_can_no_longer_sign_in(env):
     assert client.get("/api/v1/auth/me", headers=h_student).status_code == 200
 
 
+def test_health_is_public_and_checks_the_database(env):
+    client, _ = env
+    r = client.get("/health")
+    assert r.status_code == 200 and r.json() == {"status": "ok", "database": "ok"}
+
+
 def test_school_audit_log_applies_filters_together_with_dates(env):
     """The action and record-type filters still apply when dates are given (they used to be dropped)."""
     from datetime import datetime, timedelta
