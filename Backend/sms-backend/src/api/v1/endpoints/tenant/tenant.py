@@ -99,7 +99,8 @@ def update_own_tenant(
     tenant_in: TenantSelfUpdate,
     current_user: User = Depends(has_permission("manage_tenant_settings"))
 ) -> Any:
-    """A school admin updates their own school's branding (name, logo, colours)."""
+    """A school admin updates their own school's logo and colours (the name and web address are
+    the platform operator's)."""
     tenant_obj = tenant_crud.get(db, id=tenant_id)
     if not tenant_obj:
         raise HTTPException(

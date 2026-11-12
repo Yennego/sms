@@ -32,7 +32,7 @@ const SECTIONS: { id: string; title: string; links: SettingsLink[] }[] = [
         href: '/settings/school-profile',
         icon: Building2,
       },
-      { title: 'Name and colours', description: "The school's name, logo and colours in the app", href: '/settings/tenant', icon: Palette },
+      { title: 'Logo and colours', description: 'How the school looks in the app', href: '/settings/tenant', icon: Palette },
       { title: 'Billing', description: 'Amount due, invoices, receipts and the data export', href: '/settings/billing', icon: CreditCard },
     ],
   },

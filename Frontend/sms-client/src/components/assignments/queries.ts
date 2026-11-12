@@ -16,12 +16,15 @@ import { useSubjectService } from '@/services/api/subject-service';
 import { useSubmissionService, type SubmissionCreate } from '@/services/api/submission-service';
 import { useTeacherService } from '@/services/api/teacher-service';
 import type { Enrollment } from '@/types/enrollment';
+import { useSchoolYears } from '@/components/classes/queries';
 
 export interface AssignmentListFilters {
   subjectId: string;
   teacherId: string;
   gradeId: string;
   sectionId: string;
+  /** School year: left out = the current year (the usual view); '' = every year */
+  yearId?: string;
 }
 
 type Item = { id: string; name: string };
@@ -44,11 +47,15 @@ export const assignmentKeys = {
 export function useAssignmentList(filters: AssignmentListFilters, enrollment?: Enrollment | null) {
   const { getAssignments } = useAssignmentService();
   const school = useSchoolKey();
+  const years = useSchoolYears();
+  // The current school year unless another (or every year) is chosen; past years stay one click away
+  const yearId = filters.yearId ?? years.current?.id ?? '';
   return useQuery({
-    queryKey: assignmentKeys.list(school, filters, enrollment?.id ?? ''),
+    queryKey: assignmentKeys.list(school, { ...filters, yearId }, enrollment?.id ?? ''),
     queryFn: async (): Promise<Assignment[]> => {
       const list = await getAssignments({
         limit: 50,
+        academic_year_id: yearId || undefined,
         subject_id: filters.subjectId || undefined,
         teacher_id: filters.teacherId || undefined,
         grade_id: enrollment?.grade_id || filters.gradeId || undefined,
@@ -57,7 +64,7 @@ export function useAssignmentList(filters: AssignmentListFilters, enrollment?: E
       const rows = Array.isArray(list) ? list : [];
       return enrollment ? rows.filter((a) => !a.section_id || a.section_id === enrollment.section_id) : rows;
     },
-    enabled: Boolean(school),
+    enabled: Boolean(school) && !years.isLoading,
     placeholderData: (previous) => previous,
   });
 }
