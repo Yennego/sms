@@ -17,6 +17,7 @@ import {
   useAttendanceAccess,
 } from '@/components/attendance/attendance-ui';
 import { useAttendanceOverview } from '@/components/attendance/queries';
+import { navigationFor } from '@/config/navigation';
 import { errorMessage, formatDate } from '@/components/students/format';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
@@ -46,7 +47,7 @@ export default function AttendanceTodayPage() {
 
   React.useEffect(() => {
     if (isLoading || !user || viewsSchool) return;
-    router.replace(`${base}${OWN_SCREEN[user.role ?? ''] ?? '/dashboard'}`);
+    router.replace(`${base}${OWN_SCREEN[user.role ?? ''] ?? navigationFor(user).home}`);
   }, [isLoading, user, viewsSchool, router, base]);
 
   const data = overview.data;

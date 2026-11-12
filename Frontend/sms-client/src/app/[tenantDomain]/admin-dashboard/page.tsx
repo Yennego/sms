@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { PageShell } from '@/components/ui/page-shell';
 import { Skeleton } from '@/components/ui/skeleton';
 import { contextualCookies, getCurrentContext } from '@/utils/cookie-manager';
+import { homePath } from '@/config/navigation';
 
 export default function AdminDashboardPage() {
   const router = useRouter();
@@ -76,22 +77,10 @@ export default function AdminDashboardPage() {
   // Handle non-admin redirect
   useEffect(() => {
     if (!authLoading && user && !isAdmin) {
-      // Redirect non-admin users to appropriate dashboard
-      if (userRole === 'super_admin') {
-        router.push('/platform/dashboard');
-      } else if (userRole === 'teacher') {
-        router.push(`/${stableTenant?.domain || stableTenant?.id}/teacher/dashboard`);
-      } else if (userRole === 'student') {
-        router.push(`/${stableTenant?.domain || stableTenant?.id}/student/dashboard`);
-      } else if (userRole === 'attendance-scanner') {
-        router.push(`/${stableTenant?.domain || stableTenant?.id}/attendance/scan`);
-      } else if (userRole === 'parent') {
-        router.push(`/${stableTenant?.domain || stableTenant?.id}/parent/attendance`);
-      } else {
-        router.push(`/${stableTenant?.domain || stableTenant?.id}/dashboard`);
-      }
+      // Everyone else goes to their role's own home page
+      router.push(homePath(user, stableTenant?.domain || stableTenant?.id));
     }
-  }, [user, authLoading, isAdmin, userRole, router, stableTenant]);
+  }, [user, authLoading, isAdmin, router, stableTenant]);
 
   // Loading, or on the way somewhere else (signed out, or another role's home)
   if (tenantLoading || authLoading || !user || (!isAdmin && !error)) {
