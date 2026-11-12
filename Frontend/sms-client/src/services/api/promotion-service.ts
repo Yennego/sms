@@ -101,6 +101,13 @@ export function usePromotionService() {
       return Array.isArray(res) && res.length > 0 ? res[0] : null;
     },
 
+    // Every grade level's rules for one school year
+    listCriteria: async (academic_year_id: string): Promise<PromotionCriteria[]> => {
+      const client = await waitForApiClientReady();
+      const res = await client.get<PromotionCriteria[] | null>(`/academics/promotions/criteria?academic_year_id=${academic_year_id}`);
+      return Array.isArray(res) ? res : [];
+    },
+
     // Create criteria explicitly
     createCriteria: async (criteria: PromotionCriteria): Promise<PromotionCriteria> => {
       const client = await waitForApiClientReady();
