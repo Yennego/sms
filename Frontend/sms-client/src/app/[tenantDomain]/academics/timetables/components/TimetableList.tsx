@@ -1,90 +1,131 @@
-import React from 'react';
-import { Button } from '@/components/ui/button';
-import { Timetable } from '@/services/api/timetable-service';
-import type { Section } from '@/types/enrollment';
-import type { AcademicGrade as Grade } from '@/types/academic-grade';
+'use client';
 
-export default function TimetableList({ loading, timetables, grades, sections, onDelete, onEdit, onViewSchedule, isAdmin }: {
+// The school's timetables: what each one covers, with view, edit and delete (edit rights only).
+
+import * as React from 'react';
+import type { ColumnDef } from '@tanstack/react-table';
+import { CalendarDays, Eye, Pencil, Trash2 } from 'lucide-react';
+
+import { dayLabel, WEEKDAYS } from '@/components/timetables/timetable-ui';
+import { Button } from '@/components/ui/button';
+import { DataTable } from '@/components/ui/data-table';
+import { EmptyState } from '@/components/ui/empty-state';
+import { StatusBadge } from '@/components/ui/status-badge';
+import type { Timetable } from '@/services/api/timetable-service';
+
+type Item = { id: string; name: string };
+
+/** "Grade 7 - A", or the grade alone for a grade-wide timetable. */
+export function timetableClassName(t: Timetable, grades: Item[] = [], sections: Item[] = []): string {
+  const grade = t.grade_name || grades.find((g) => g.id === t.grade_id)?.name || 'Unknown grade';
+  const section = t.section_name || sections.find((s) => s.id === t.section_id)?.name;
+  return section ? `${grade} - ${section}` : grade;
+}
+
+function daysOf(t: Timetable): string {
+  const used = new Set(t.time_slots.map((s) => (s.day_of_week || '').toLowerCase()));
+  return WEEKDAYS.filter((d) => used.has(d))
+    .map((d) => dayLabel(d).slice(0, 3))
+    .join(', ');
+}
+
+interface Props {
   loading: boolean;
   timetables: Timetable[];
-  grades: Grade[];
-  sections: Section[];
-  onDelete: (id: string) => Promise<void>;
+  grades: Item[];
+  sections: Item[];
+  canEdit: boolean;
+  /** Shown when the list is empty */
+  emptyState: React.ReactNode;
+  onView: (t: Timetable) => void;
   onEdit: (t: Timetable) => void;
-  onViewSchedule: (t: Timetable) => void;
-  isAdmin?: boolean;
-}) {
-  if (loading && timetables.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-48">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        <span className="ml-2">Loading timetables...</span>
-      </div>
-    );
-  }
+  onDelete: (t: Timetable) => void;
+}
+
+export default function TimetableList({ loading, timetables, grades, sections, canEdit, emptyState, onView, onEdit, onDelete }: Props) {
+  const columns = React.useMemo<ColumnDef<Timetable>[]>(
+    () => [
+      {
+        accessorKey: 'name',
+        header: 'Timetable',
+        cell: ({ row }) => (
+          <div className="flex flex-col gap-1">
+            <span className="font-medium">{row.original.name}</span>
+            {row.original.is_active ? (
+              <StatusBadge status="success" label="Active" />
+            ) : (
+              <StatusBadge status="neutral" label="Inactive" />
+            )}
+          </div>
+        ),
+      },
+      {
+        id: 'class',
+        header: 'Class',
+        accessorFn: (t) => timetableClassName(t, grades, sections),
+      },
+      {
+        accessorKey: 'academic_year',
+        header: 'School year',
+        meta: { hideOnMobile: true },
+        cell: ({ row }) => row.original.academic_year || '–',
+      },
+      {
+        id: 'days',
+        header: 'Days',
+        enableSorting: false,
+        meta: { hideOnMobile: true },
+        accessorFn: (t) => daysOf(t) || '–',
+      },
+      {
+        id: 'lessons',
+        header: 'Lessons',
+        accessorFn: (t) => t.time_slots.length,
+        meta: { className: 'tabular-nums' },
+      },
+      {
+        id: 'actions',
+        header: '',
+        enableSorting: false,
+        meta: { label: 'Actions', className: 'text-right' },
+        cell: ({ row }) => (
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" size="sm" className="min-h-11 md:min-h-9" onClick={() => onView(row.original)}>
+              <Eye aria-hidden="true" />
+              View
+            </Button>
+            {canEdit ? (
+              <>
+                <Button variant="ghost" size="sm" className="min-h-11 md:min-h-9" onClick={() => onEdit(row.original)}>
+                  <Pencil aria-hidden="true" />
+                  Edit
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="min-h-11 text-destructive hover:text-destructive md:min-h-9"
+                  onClick={() => onDelete(row.original)}
+                >
+                  <Trash2 aria-hidden="true" />
+                  Delete
+                </Button>
+              </>
+            ) : null}
+          </div>
+        ),
+      },
+    ],
+    [grades, sections, canEdit, onView, onEdit, onDelete]
+  );
 
   return (
-    <div className="border rounded-md overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
-          <tr>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Academic Year</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Grade & Section</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Days</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time Slots</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-          </tr>
-        </thead>
-        <tbody className="bg-white divide-y divide-gray-200">
-          {timetables.length === 0 ? (
-            <tr>
-              <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
-                No timetables found.
-              </td>
-            </tr>
-          ) : (
-            timetables.map((timetable) => {
-              const grade = grades.find((g) => g.id === timetable.grade_id);
-              const section = sections.find((s) => s.id === timetable.section_id);
-              const days = [...new Set(timetable.time_slots.map((slot) => slot.day_of_week))];
-
-              return (
-                <tr key={timetable.id}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{timetable.name}</div>
-                    <div className="text-xs text-gray-500">{timetable.is_active ? 'Active' : 'Inactive'}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{timetable.academic_year}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {timetable.grade_name || grade?.name || 'Unknown Grade'}
-                    {timetable.section_name ? ` - ${timetable.section_name}` : (section ? ` - ${section.name}` : '')}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{days.join(', ')}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {timetable.time_slots.length} periods
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <Button variant="ghost" size="sm" onClick={() => onViewSchedule(timetable)}>
-                      View Schedule
-                    </Button>
-                    {isAdmin && (
-                      <>
-                        <Button variant="ghost" size="sm" onClick={() => onEdit(timetable)}>
-                          Edit
-                        </Button>
-                        <Button variant="ghost" size="sm" className="text-red-600" onClick={() => onDelete(timetable.id)}>
-                          Delete
-                        </Button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              );
-            })
-          )}
-        </tbody>
-      </table>
-    </div>
+    <DataTable
+      label="Timetables"
+      columns={columns}
+      data={timetables}
+      loading={loading}
+      getRowId={(t) => t.id}
+      emptyState={emptyState ?? <EmptyState icon={CalendarDays} description="No timetables match these filters." />}
+    />
   );
 }
