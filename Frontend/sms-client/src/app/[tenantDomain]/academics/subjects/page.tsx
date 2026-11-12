@@ -1,254 +1,313 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { BookOpen, Plus, Edit, Trash2, Users, Clock, GraduationCap, Loader2, AlertCircle } from 'lucide-react';
-import ConfirmationModal from '@/components/common/ConfirmationModal';
-import { toast } from 'sonner';
-import { useSubjects, useCreateSubject, useUpdateSubject, useDeleteSubject } from '@/hooks/queries/subjects';
+// Subjects: the school's list of subjects. Classes are given subjects from it (Setup step 4), and
+// teachers are given subjects in their classes. Staff who manage subjects add, change and delete them.
 
-const subjectCategories = [
-  'Core', 'Science', 'Mathematics', 'Language Arts', 'Social Studies', 'Arts', 'Physical Education', 'Technology', 'Elective'
-];
+import * as React from 'react';
+import type { ColumnDef } from '@tanstack/react-table';
+import { BookOpen, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
+
+import { CountTiles } from '@/components/attendance/attendance-ui';
+import {
+  useClassesAccess,
+  useCreateSubject,
+  useDeleteSubject,
+  useSubjects,
+  useUpdateSubject,
+} from '@/components/classes/queries';
+import { errorMessage } from '@/components/students/format';
+import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { DataTable } from '@/components/ui/data-table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { EmptyState } from '@/components/ui/empty-state';
+import { FormField } from '@/components/ui/form-field';
+import { Input } from '@/components/ui/input';
+import { PageShell } from '@/components/ui/page-shell';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { Switch } from '@/components/ui/switch';
+import { notify } from '@/components/ui/toaster';
+import type { Subject } from '@/types/subject';
 
 export default function SubjectsPage() {
-  const { data: rawSubjects = [], isLoading } = useSubjects();
-  const createMutation = useCreateSubject();
-  const updateMutation = useUpdateSubject();
-  const deleteMutation = useDeleteSubject();
+  const { canManageSubjects } = useClassesAccess();
+  const subjectsQuery = useSubjects();
+  const subjects = React.useMemo(() => subjectsQuery.data ?? [], [subjectsQuery.data]);
+  const deleteSubject = useDeleteSubject();
+  const [form, setForm] = React.useState<{ subject: Subject | null } | null>(null);
+  const [deleting, setDeleting] = React.useState<Subject | null>(null);
 
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingSubject, setEditingSubject] = useState<any | null>(null);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [subjectToDelete, setSubjectToDelete] = useState<any | null>(null);
-  const [formData, setFormData] = useState({
-    name: '', code: '', description: '', category: 'Uncategorized', hoursPerWeek: '0', color: 'bg-blue-500'
-  });
-
-  const subjects = useMemo(() => rawSubjects.map(s => ({
-    id: s.id,
-    name: s.name,
-    code: s.code,
-    description: s.description || '',
-    category: 'Core', // Simplified for now since backend doesn't have category yet
-    hoursPerWeek: s.credits || 0,
-    totalTeachers: 0,
-    totalClasses: 0,
-    isActive: s.is_active,
-    color: 'bg-blue-500'
-  })), [rawSubjects]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const payload = {
-      name: formData.name,
-      code: formData.code.toUpperCase(),
-      description: formData.description || undefined,
-      is_active: true,
-      credits: parseInt(formData.hoursPerWeek) || 0,
-    };
-
-    try {
-      if (editingSubject) {
-        await updateMutation.mutateAsync({ id: editingSubject.id, data: payload });
-        toast.success(`Subject "${formData.name}" updated`);
-      } else {
-        await createMutation.mutateAsync(payload as any);
-        toast.success(`Subject "${formData.name}" created`);
-      }
-      setIsDialogOpen(false);
-      setEditingSubject(null);
-      setFormData({ name: '', code: '', description: '', category: 'Uncategorized', hoursPerWeek: '0', color: 'bg-blue-500' });
-    } catch (error) {
-      toast.error('Failed to save subject');
-    }
-  };
-
-  const handleEdit = (subject: any) => {
-    setEditingSubject(subject);
-    setFormData({
-      name: subject.name,
-      code: subject.code,
-      description: subject.description,
-      category: subject.category,
-      hoursPerWeek: subject.hoursPerWeek.toString(),
-      color: subject.color
-    });
-    setIsDialogOpen(true);
-  };
+  const active = subjects.filter((s) => s.is_active).length;
+  const hours = subjects.filter((s) => s.is_active).reduce((sum, s) => sum + (s.credits || 0), 0);
 
   const confirmDelete = async () => {
-    if (!subjectToDelete) return;
+    if (!deleting) return;
     try {
-      await deleteMutation.mutateAsync(subjectToDelete.id);
-      toast.success(`Subject "${subjectToDelete.name}" deleted`);
-      setIsDeleteDialogOpen(false);
-      setSubjectToDelete(null);
-    } catch (error) {
-      toast.error('Failed to delete subject');
+      await deleteSubject.mutateAsync(deleting.id);
+      notify.success(`${deleting.name} is deleted.`);
+    } catch (err) {
+      notify.error(errorMessage(err, `${deleting.name} wasn't deleted. Try again.`));
+      throw err;
     }
   };
 
-  const stats = useMemo(() => ({
-    total: subjects.length,
-    active: subjects.filter(s => s.isActive).length,
-    categories: new Set(subjects.map(s => s.category)).size,
-    totalHours: subjects.reduce((acc, s) => acc + s.hoursPerWeek, 0)
-  }), [subjects]);
+  const columns = React.useMemo<ColumnDef<Subject>[]>(
+    () => [
+      {
+        accessorKey: 'name',
+        header: 'Subject',
+        cell: ({ row }) => (
+          <div className="min-w-0">
+            <p className="font-medium">{row.original.name}</p>
+            {row.original.description ? (
+              <p className="line-clamp-2 text-sm text-muted-foreground">{row.original.description}</p>
+            ) : null}
+          </div>
+        ),
+      },
+      { accessorKey: 'code', header: 'Code', cell: ({ row }) => <span className="font-mono text-sm">{row.original.code}</span> },
+      {
+        id: 'hours',
+        header: 'Hours per week',
+        accessorFn: (s) => s.credits ?? 0,
+        cell: ({ getValue }) => <span className="tabular-nums">{getValue<number>()}</span>,
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        accessorFn: (s) => (s.is_active ? 'Active' : 'Not in use'),
+        cell: ({ row }) =>
+          row.original.is_active ? (
+            <StatusBadge status="success" label="Active" />
+          ) : (
+            <StatusBadge status="neutral" label="Not in use" />
+          ),
+      },
+      ...(canManageSubjects
+        ? [
+            {
+              id: 'actions',
+              header: '',
+              enableSorting: false,
+              meta: { label: 'Actions', className: 'text-right' },
+              cell: ({ row }) => (
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="min-h-11 md:min-h-9"
+                    onClick={() => setForm({ subject: row.original })}
+                  >
+                    <Pencil aria-hidden="true" />
+                    Edit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="min-h-11 text-destructive hover:text-destructive md:min-h-9"
+                    onClick={() => setDeleting(row.original)}
+                    aria-label={`Delete ${row.original.name}`}
+                  >
+                    <Trash2 aria-hidden="true" />
+                    <span className="md:sr-only">Delete</span>
+                  </Button>
+                </div>
+              ),
+            } satisfies ColumnDef<Subject>,
+          ]
+        : []),
+    ],
+    [canManageSubjects]
+  );
 
-  if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <Loader2 className="h-12 w-12 animate-spin text-blue-500" />
-        <p className="text-gray-500 animate-pulse">Loading curriculum...</p>
-      </div>
-    );
-  }
+  const addButton = canManageSubjects ? (
+    <Button className="min-h-11 md:min-h-9" onClick={() => setForm({ subject: null })}>
+      <Plus aria-hidden="true" />
+      Add a subject
+    </Button>
+  ) : undefined;
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Academic Subjects</h1>
-          <p className="text-muted-foreground mt-1">Manage subjects and curriculum configuration</p>
-        </div>
-        <Button onClick={() => {
-          setEditingSubject(null);
-          setFormData({ name: '', code: '', description: '', category: 'Uncategorized', hoursPerWeek: '0', color: 'bg-blue-500' });
-          setIsDialogOpen(true);
-        }}>
-          <Plus className="w-4 h-4 mr-2" />
-          Add Subject
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="bg-blue-50/30 border-blue-100">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div><p className="text-sm font-medium text-blue-600">Total Subjects</p><p className="text-2xl font-bold">{stats.total}</p></div>
-            <BookOpen className="w-8 h-8 text-blue-500 opacity-50" />
-          </CardContent>
-        </Card>
-        <Card className="bg-green-50/30 border-green-100">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div><p className="text-sm font-medium text-green-600">Active</p><p className="text-2xl font-bold">{stats.active}</p></div>
-            <GraduationCap className="w-8 h-8 text-green-500 opacity-50" />
-          </CardContent>
-        </Card>
-        <Card className="bg-purple-50/30 border-purple-100">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div><p className="text-sm font-medium text-purple-600">Weekly Hours</p><p className="text-2xl font-bold">{stats.totalHours}</p></div>
-            <Clock className="w-8 h-8 text-purple-500 opacity-50" />
-          </CardContent>
-        </Card>
-        <Card className="bg-orange-50/30 border-orange-100">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div><p className="text-sm font-medium text-orange-600">Categories</p><p className="text-2xl font-bold">{stats.categories}</p></div>
-            <Users className="w-8 h-8 text-orange-500 opacity-50" />
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {subjects.map((subject) => (
-          <Card key={subject.id} className="group hover:shadow-md transition-shadow">
-            <CardHeader className="pb-3">
-              <div className="flex justify-between items-start">
-                <div className="flex items-center gap-3">
-                  <div className={`w-3 h-3 rounded-full ${subject.color}`}></div>
-                  <div>
-                    <CardTitle className="text-lg">{subject.name}</CardTitle>
-                    <CardDescription className="font-mono text-xs">{subject.code}</CardDescription>
-                  </div>
-                </div>
-                <Badge variant={subject.isActive ? 'default' : 'secondary'} className="text-[10px] uppercase">
-                  {subject.isActive ? 'Active' : 'Inactive'}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground line-clamp-2 min-h-[40px] italic">
-                  {subject.description || 'No description provided.'}
-                </p>
-                <div className="grid grid-cols-2 gap-2 text-xs border-t pt-3">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Hours/Week:</span><span className="font-semibold">{subject.hoursPerWeek}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Category:</span><span className="font-semibold">{subject.category}</span></div>
-                </div>
-                <div className="flex gap-2 opacity-80 group-hover:opacity-100 transition-opacity">
-                  <Button size="sm" variant="outline" onClick={() => handleEdit(subject)} className="flex-1">
-                    <Edit className="w-3 h-3 mr-1" /> Edit
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => { setSubjectToDelete(subject); setIsDeleteDialogOpen(true); }} className="text-destructive hover:text-destructive">
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>{editingSubject ? 'Edit Subject' : 'Add New Subject'}</DialogTitle>
-            <DialogDescription>Configure curriculum requirements.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="name">Subject Name</Label>
-              <Input id="name" value={formData.name} onChange={(e) => setFormData(p => ({ ...p, name: e.target.value }))} placeholder="Mathematics" required />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="code">Code</Label>
-              <Input id="code" value={formData.code} onChange={(e) => setFormData(p => ({ ...p, code: e.target.value }))} placeholder="MATH101" required />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="hoursPerWeek">Hours per Week</Label>
-              <Input id="hoursPerWeek" type="number" value={formData.hoursPerWeek} onChange={(e) => setFormData(p => ({ ...p, hoursPerWeek: e.target.value }))} />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="description">Description (Optional)</Label>
-              <Input id="description" value={formData.description} onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))} />
-            </div>
-            <div className="flex justify-end gap-2 pt-4">
-              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-                {editingSubject ? 'Update' : 'Create'}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <ConfirmationModal
-        isOpen={isDeleteDialogOpen}
-        onCancel={() => setIsDeleteDialogOpen(false)}
-        onConfirm={confirmDelete}
-        title="Delete Subject"
-        message={`Delete ${subjectToDelete?.name}? This cannot be undone.`}
-        confirmButtonText="Delete"
-        confirmButtonColor="red"
-      />
-
-      {subjects.length === 0 && !isLoading && (
-        <Card className="border-dashed border-2 py-20">
-          <CardContent className="flex flex-col items-center gap-4">
-            <AlertCircle className="h-12 w-12 text-muted-foreground opacity-20" />
-            <div className="text-center">
-              <h3 className="font-semibold text-lg">No subjects found</h3>
-              <p className="text-muted-foreground">Start by adding your first subject to the curriculum.</p>
-            </div>
-          </CardContent>
-        </Card>
+    <PageShell
+      title="Subjects"
+      description={`The subjects your school teaches. Classes are given subjects from this list.${
+        canManageSubjects ? '' : ' You can look, but only staff who manage subjects can change them.'
+      }`}
+      primaryAction={addButton}
+    >
+      {subjectsQuery.isError ? (
+        <EmptyState
+          icon={RefreshCw}
+          title="The subjects didn't load"
+          description={`${errorMessage(subjectsQuery.error, "The server didn't answer.")} Check your connection and try again.`}
+          action={<Button onClick={() => subjectsQuery.refetch()}>Try again</Button>}
+        />
+      ) : (
+        <>
+          {!subjectsQuery.isLoading && subjects.length > 0 ? (
+            <CountTiles
+              className="lg:grid-cols-3"
+              tiles={[
+                { label: 'Subjects', value: subjects.length },
+                { label: 'Active', value: active },
+                { label: 'Hours per week (active)', value: hours },
+              ]}
+            />
+          ) : null}
+          <DataTable
+            label="Subjects"
+            columns={columns}
+            data={subjects}
+            loading={subjectsQuery.isLoading}
+            searchable
+            searchPlaceholder="Search by name or code"
+            getRowId={(s) => s.id}
+            initialSorting={[{ id: 'name', desc: false }]}
+            pageSize={50}
+            emptyState={
+              <EmptyState
+                icon={BookOpen}
+                title="No subjects yet"
+                description={
+                  canManageSubjects
+                    ? 'Add the subjects your school teaches, for example Mathematics and English.'
+                    : 'Staff who manage subjects add them here.'
+                }
+                action={
+                  canManageSubjects ? <Button onClick={() => setForm({ subject: null })}>Add a subject</Button> : undefined
+                }
+              />
+            }
+          />
+        </>
       )}
-    </div>
+
+      {form ? (
+        <SubjectFormDialog key={form.subject?.id ?? 'new'} subject={form.subject} onClose={() => setForm(null)} />
+      ) : null}
+
+      <ConfirmDialog
+        open={Boolean(deleting)}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={`Delete ${deleting?.name ?? 'this subject'}?`}
+        description="Teachers lose it from their subjects. To keep its history, switch it off instead (Edit, then Active). This can't be undone."
+        confirmLabel="Delete subject"
+        destructive
+        onConfirm={confirmDelete}
+      />
+    </PageShell>
+  );
+}
+
+type FormErrors = Partial<Record<'name' | 'code' | 'hours', string>>;
+
+/** Add a subject, or change one. */
+function SubjectFormDialog({ subject, onClose }: { subject: Subject | null; onClose: () => void }) {
+  const createSubject = useCreateSubject();
+  const updateSubject = useUpdateSubject();
+  const busy = createSubject.isPending || updateSubject.isPending;
+  const [name, setName] = React.useState(subject?.name ?? '');
+  const [code, setCode] = React.useState(subject?.code ?? '');
+  const [hours, setHours] = React.useState(String(subject?.credits ?? 0));
+  const [description, setDescription] = React.useState(subject?.description ?? '');
+  const [isActive, setIsActive] = React.useState(subject?.is_active ?? true);
+  const [errors, setErrors] = React.useState<FormErrors>({});
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const credits = Number(hours || 0);
+    const next: FormErrors = {};
+    if (!name.trim()) next.name = 'Enter the subject name, for example Mathematics.';
+    if (!code.trim()) next.code = 'Enter a short code, for example MATH.';
+    if (!Number.isInteger(credits) || credits < 0 || credits > 60) next.hours = 'Enter the hours per week, from 0 to 60.';
+    setErrors(next);
+    if (Object.keys(next).length > 0) return;
+
+    const data = {
+      name: name.trim(),
+      code: code.trim().toUpperCase(),
+      description: description.trim() || undefined,
+      is_active: isActive,
+      credits,
+    };
+    try {
+      if (subject) {
+        await updateSubject.mutateAsync({ id: subject.id, data: { ...data, description: description.trim() } });
+        notify.success(`${data.name} is saved.`);
+      } else {
+        await createSubject.mutateAsync(data);
+        notify.success(`${data.name} is added.`);
+      }
+      onClose();
+    } catch (err) {
+      notify.error(errorMessage(err, subject ? "The subject wasn't saved. Try again." : "The subject wasn't added. Try again."));
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{subject ? `Edit ${subject.name}` : 'Add a subject'}</DialogTitle>
+          <DialogDescription>
+            {subject ? 'Changes show everywhere the subject is taught.' : 'After adding it, give it to classes under Classes → Setup.'}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={save} className="mt-4 grid gap-4" noValidate>
+          <FormField label="Subject name" error={errors.name} required>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Mathematics" className="h-11 md:h-9" />
+          </FormField>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField label="Code" error={errors.code} required>
+              <Input
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="MATH"
+                className="h-11 uppercase md:h-9"
+                maxLength={20}
+              />
+            </FormField>
+            <FormField label="Hours per week" error={errors.hours}>
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={60}
+                value={hours}
+                onChange={(e) => setHours(e.target.value)}
+                className="h-11 md:h-9"
+              />
+            </FormField>
+          </div>
+          <FormField label="Description" description="Optional.">
+            <Input value={description} onChange={(e) => setDescription(e.target.value)} className="h-11 md:h-9" />
+          </FormField>
+          <div className="flex items-center justify-between gap-4 rounded-xl border p-4">
+            <div>
+              <label htmlFor="subject-active" className="text-sm font-medium">
+                Active
+              </label>
+              <p className="text-sm text-muted-foreground">Subjects that are switched off can&apos;t be given to classes.</p>
+            </div>
+            <Switch id="subject-active" checked={isActive} onCheckedChange={setIsActive} />
+          </div>
+          <DialogFooter className="mt-2 gap-2 sm:space-x-0">
+            <Button type="button" variant="outline" className="min-h-11 md:min-h-9" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="submit" className="min-h-11 md:min-h-9" disabled={busy}>
+              {subject ? 'Save subject' : 'Add subject'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
