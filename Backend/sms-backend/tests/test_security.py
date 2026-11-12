@@ -34,7 +34,7 @@ ADMIN_PERMISSIONS = [
     # academics and attendance check these instead of the admin role name (migration c3f9a1d7e2b8)
     "view_classes", "manage_classes", "view_subjects", "manage_subjects", "manage_teacher_assignments",
     "view_academic_data", "manage_academic_data", "create_assignments", "delete_assignments",
-    "delete_students", "view_school_attendance", "manage_school_attendance", "view_teachers",
+    "delete_students", "view_school_attendance", "manage_school_attendance", "view_teachers", "view_audit_logs",
 ]
 PLATFORM_ONLY = ["manage_tenants"]
 
@@ -440,3 +440,25 @@ def test_health_is_public_and_checks_the_database(env):
     client, _ = env
     r = client.get("/health")
     assert r.status_code == 200 and r.json() == {"status": "ok", "database": "ok"}
+
+
+def test_school_audit_log_applies_filters_together_with_dates(env):
+    """The action and record-type filters still apply when dates are given (they used to be dropped)."""
+    from datetime import datetime, timedelta
+    from src.db.models.logging.activity_log import ActivityLog
+
+    client, ids = env
+    gen = main.app.dependency_overrides[get_db]()
+    db = next(gen)
+    now = datetime.utcnow()
+    for action, entity in (("create", "student"), ("update", "student"), ("create", "payment")):
+        db.add(ActivityLog(tenant_id=ids["tenant_a"], user_id=ids["admin_a"], action=action, entity_type=entity))
+    next(gen, None)
+
+    params = {"action": "create", "entity_type": "student",
+              "start_date": (now - timedelta(days=1)).isoformat(), "end_date": (now + timedelta(days=1)).isoformat()}
+    r = client.get("/api/v1/logging/audit-logs", headers=headers(ids, "admin_a"), params=params)
+    assert r.status_code == 200, r.text
+    assert r.json()["total"] == 1 and r.json()["items"][0]["action"] == "create"
+    assert client.get("/api/v1/logging/audit-logs", headers=headers(ids, "admin_a"),
+                      params={"limit": 5000}).status_code == 422  # page size is capped

@@ -1,656 +1,471 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+// One class: its details, timetable periods and students, with export to CSV / Excel and a panel to
+// enroll more students of the class's grade and section in the current school year.
+
+import * as React from 'react';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import type { ColumnDef } from '@tanstack/react-table';
+import { Download, Pencil, School, UserPlus, Users } from 'lucide-react';
+
+import { CountTiles } from '@/components/attendance/attendance-ui';
+import {
+  rosterStudentId,
+  rosterStudentName,
+  useClassRoster,
+  useClassSchedules,
+  useEnrollCandidates,
+  useEnrollInClass,
+  type RosterEntry,
+} from '@/components/classes/queries-setup';
+import { selectClass } from '@/components/students/admission-form';
+import { capitalize, errorMessage, formatDate, fullName, isNotFound } from '@/components/students/format';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { DataTable } from '@/components/ui/data-table';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Input } from '@/components/ui/input';
+import { PageShell } from '@/components/ui/page-shell';
+import { Skeleton } from '@/components/ui/skeleton';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { notify } from '@/components/ui/toaster';
+import { useClass } from '@/hooks/queries/classes';
+import { useCurrentAcademicYear, useEnrollmentGrades } from '@/hooks/queries/enrollments';
+import { useSectionsByGrade } from '@/hooks/queries/sections';
 import { useTenantNavigation } from '@/hooks/use-tenant';
 import { useClassService } from '@/services/api/class-service';
-import { useScheduleService } from '@/services/api/schedule-service';
-import { ClassWithDetails } from '@/types/class';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Users, Calendar, MapPin, Edit, Download } from 'lucide-react';
-import { toast } from 'sonner';
-import { useEnrollmentService } from '@/services/api/enrollment-service';
-import { Input } from '@/components/ui/input';
-import { useStudentService } from '@/services/api/student-service';
-import { useSectionService } from '@/services/api/section-service';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
-import type { Grade, Section } from '@/types/enrollment';
-import type { Student } from '@/types/student';
 
-type RosterEntry = {
-  student_id?: string;
-  student?: { id?: string };
-  student_name?: string;
-  student_full_name?: string;
-  enrollment_date?: string;
-};
+const inputClass = 'h-11 text-base md:h-9 md:text-sm';
+
+function Panel({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-4 rounded-xl border bg-card p-4 md:p-6" aria-label={title}>
+      <div>
+        <h2 className="text-base font-semibold">{title}</h2>
+        {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+const rosterColumns: ColumnDef<RosterEntry>[] = [
+  {
+    id: 'name',
+    accessorFn: (e) => rosterStudentName(e),
+    header: 'Student',
+    cell: ({ row }) => (
+      <div>
+        <p className="font-medium">{rosterStudentName(row.original)}</p>
+        {row.original.admission_number ? (
+          <p className="text-sm text-muted-foreground">{row.original.admission_number}</p>
+        ) : null}
+      </div>
+    ),
+  },
+  {
+    id: 'enrolled',
+    accessorFn: (e) => e.enrollment_date ?? '',
+    header: 'Enrolled',
+    cell: ({ row }) => formatDate(row.original.enrollment_date) || '–',
+  },
+];
 
 export default function ClassDetailPage() {
-  const router = useRouter();
-  const params = useParams();
+  const { id: classId } = useParams<{ id: string }>();
   const { createTenantPath } = useTenantNavigation();
-  const classService = useClassService();
-  const scheduleService = useScheduleService();
-  const enrollmentService = useEnrollmentService();
-  const studentService = useStudentService();
-  const sectionApi = useSectionService();
+  const { exportClassEnrollments } = useClassService();
+  const details = useClass(classId, 'full');
+  const roster = useClassRoster(classId);
+  const schedules = useClassSchedules(classId);
+  const year = useCurrentAcademicYear();
+  const enroll = useEnrollInClass(classId);
+  const backPath = createTenantPath('/classes');
 
-  const classId = params.id as string;
-  
+  // Enroll panel: grade and section default to the class's own
+  const { data: grades = [] } = useEnrollmentGrades();
+  const [gradeChoice, setGradeChoice] = React.useState<string | null>(null);
+  const [sectionChoice, setSectionChoice] = React.useState<string | null>(null);
+  const gradeId = gradeChoice ?? details.data?.grade_id ?? '';
+  const { data: sections = [] } = useSectionsByGrade(gradeId);
+  const wantedSection = sectionChoice ?? details.data?.section_id ?? '';
+  const sectionId = sections.some((s) => s.id === wantedSection) ? wantedSection : (sections[0]?.id ?? '');
+  const gradeName = grades.find((g) => g.id === gradeId)?.name ?? '';
+  const sectionName = sections.find((s) => s.id === sectionId)?.name ?? '';
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [classDetails, setClassDetails] = useState<ClassWithDetails | null>(null);
-  const [enrollmentCount, setEnrollmentCount] = useState<number>(0);
-  const [enrollments, setEnrollments] = useState<RosterEntry[]>([]);
-  const [schedules, setSchedules] = useState<Array<{ id: string; day_of_week: string; period?: number; start_time: string; end_time: string }>>([]);
-
-  const fetchData = useCallback(async () => {
-    if (!classService.isApiReady) return;
-    try {
-      setLoading(true);
-      setError(null);
-
-      const [details, count, roster, scheds] = await Promise.all([
-        classService.getClassWithDetails(classId),
-        classService.getClassEnrollmentCount(classId, { is_active: true }),
-        classService.getClassEnrollments(classId, { is_active: true }),
-        scheduleService.getSchedules({ class_id: classId }),
-      ]);
-
-      setClassDetails(details);
-      setEnrollmentCount(count);
-      // getClassEnrollments is untyped (unknown[]); entries follow the backend ClassEnrollmentWithDetails shape.
-      setEnrollments((roster || []) as RosterEntry[]);
-      setSchedules(scheds || []);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to load class data';
-      setError(message);
-      toast.error(message);
-    } finally {
-      setLoading(false);
-    }
-  }, [classId, classService, scheduleService]);
-
-  useEffect(() => {
-    if (!classService.isApiReady) return;
-    fetchData();
-  }, [classId, classService.isApiReady, fetchData]);
-
-  // Enroll/Search state
-  const [currentAcademicYearId, setCurrentAcademicYearId] = useState<string | null>(null);
-  const [enrolledStudentIdsThisYear, setEnrolledStudentIdsThisYear] = useState<Set<string>>(new Set());
-
-  const [studentToEnroll, setStudentToEnroll] = useState<string>('');
-  const [gradeOptions, setGradeOptions] = useState<Grade[]>([]);
-  const [gradeIdFilter, setGradeIdFilter] = useState<string>('');
-  const [sectionOptions, setSectionOptions] = useState<Section[]>([]);
-  const [sectionIdFilter, setSectionIdFilter] = useState<string>('');
-  const [studentSearchTerm, setStudentSearchTerm] = useState<string>('');
-  const [studentResults, setStudentResults] = useState<Student[]>([]);
-  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
-  const [studentsLoading, setStudentsLoading] = useState<boolean>(false);
-
-  // Derived table data – must come AFTER studentResults declaration
-  const filteredStudentResults = useMemo(
-    () => (studentResults || []).filter(s => !enrolledStudentIdsThisYear.has(s.id)),
-    [studentResults, enrolledStudentIdsThisYear]
+  const rosterIds = React.useMemo(
+    () => new Set((roster.data?.entries ?? []).map(rosterStudentId).filter((v): v is string => Boolean(v))),
+    [roster.data]
   );
-  useEffect(() => {
-    async function loadYear() {
-      try {
-        const year = await enrollmentService.getCurrentAcademicYear();
-        if (year?.id) setCurrentAcademicYearId(year.id);
-        // name available but not used in this view
-      } catch {
-        // ignore
-      }
-    }
-    loadYear();
-  }, [enrollmentService]);
+  const candidates = useEnrollCandidates(classId, gradeName, sectionName, rosterIds);
+  const [search, setSearch] = React.useState('');
+  const [selected, setSelected] = React.useState<string[]>([]);
+  const [studentIdInput, setStudentIdInput] = React.useState('');
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const gs = await enrollmentService.getGrades();
-        setGradeOptions(Array.isArray(gs) ? gs : []);
-      } catch {
-        setGradeOptions([]);
-      }
-    })();
-  }, [enrollmentService]);
+  const shown = React.useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return candidates.data;
+    return candidates.data.filter(
+      (s) =>
+        fullName(s).toLowerCase().includes(term) ||
+        s.id.toLowerCase().includes(term) ||
+        (s.admission_number || '').toLowerCase().includes(term)
+    );
+  }, [candidates.data, search]);
+  const selectedToEnroll = selected.filter((id) => !rosterIds.has(id));
+  const yearId = year.data?.id ?? '';
 
-  useEffect(() => {
-    if (classDetails?.grade_id) setGradeIdFilter(classDetails.grade_id);
-    if (classDetails?.section_id) setSectionIdFilter(classDetails.section_id);
-  }, [classDetails]);
-
-  // Load sections when grade changes
-  useEffect(() => {
-    (async () => {
-      if (!gradeIdFilter) {
-        setSectionOptions([]);
-        setSectionIdFilter('');
-        return;
-      }
-      try {
-        const ss = await sectionApi.getSectionsByGrade(gradeIdFilter);
-        const list = Array.isArray(ss) ? ss : [];
-        setSectionOptions(list);
-        if (list.length && !list.find(s => s.id === sectionIdFilter)) {
-          setSectionIdFilter(list[0].id);
-        }
-      } catch {
-        setSectionOptions([]);
-        setSectionIdFilter('');
-      }
-    })();
-  }, [gradeIdFilter, sectionApi, sectionIdFilter]);
-  
-  const gradeName = useMemo(
-    () => gradeOptions.find(g => g.id === gradeIdFilter)?.name,
-    [gradeIdFilter, gradeOptions]
-  );
-  const sectionName = useMemo(
-    () => sectionOptions.find(s => s.id === sectionIdFilter)?.name,
-    [sectionIdFilter, sectionOptions]
-  );
-
-  const lastStudentReqIdRef = useRef(0);
-
-  // Keep a simple function for manual refresh (now stable via useCallback)
-  const loadStudents = useCallback(async () => {
-    if (!gradeName) {
-      setStudentResults([]);
-      return;
-    }
-    const reqId = ++lastStudentReqIdRef.current;
-    setStudentsLoading(true);
-    try {
-      // Get all active students (server-side filters may be limited)
-      const res = await studentService.getStudents({
-        grade: gradeName,
-        section: sectionName,
-        status: 'active',
-      });
-      // getStudents returns a paged envelope ({ items, total }).
-      let list: Student[] = res.items ?? [];
-      
-      // Build roster set to exclude students already enrolled in this class
-      const classRosterIds = new Set<string>(
-        (enrollments || [])
-          .map((e: { student_id?: string; student?: { id?: string } }) => e.student_id ?? e.student?.id)
-          .filter((v): v is string => typeof v === 'string')
-      );
-      setEnrolledStudentIdsThisYear(classRosterIds);
-      
-      // Use bulk current enrollments to resolve grade/section names reliably
-      if (list.length) {
-        const bulkMap = await enrollmentService.getBulkCurrentEnrollments(list.map(s => s.id));
-        const matchesFilter = (studentId: string) => {
-          const enr = bulkMap.get(studentId);
-          const g = enr?.grade || '';
-          const s = enr?.section || '';
-          const gradeOk = !gradeName || g === gradeName;
-          const sectionOk = !sectionName || s === sectionName;
-          return gradeOk && sectionOk;
-        };
-        list = list
-          .filter(s => matchesFilter(s.id))
-          .filter(s => !classRosterIds.has(s.id));
-        setSelectedStudentIds(prev => prev.filter(id => !classRosterIds.has(id)));
-      }
-
-      if (lastStudentReqIdRef.current === reqId) {
-        setStudentResults(list);
-      }
-    } catch {
-      if (lastStudentReqIdRef.current === reqId) {
-        toast.error('Failed to load students');
-        setStudentResults([]);
-      }
-    } finally {
-      if (lastStudentReqIdRef.current === reqId) {
-        setStudentsLoading(false);
-      }
-    }
-  }, [studentService, gradeName, sectionName, enrollments, enrollmentService]);
-
-  // Auto-load students when filters change (single effect)
-  useEffect(() => {
-    if (!gradeIdFilter) return;
-    loadStudents();
-  }, [gradeIdFilter, sectionIdFilter, loadStudents]);
-
-  useEffect(() => {
-    if (gradeIdFilter) {
-      loadStudents();
-    }
-  }, [gradeIdFilter, sectionIdFilter, loadStudents]);
-
-  // Single enroll by explicit student ID input (now accepts optional idParam)
-  const handleEnrollStudent = async (idParam?: string) => {
-    const studentId = (idParam ?? studentToEnroll).trim();
-    if (!studentId || !currentAcademicYearId || !classDetails) return;
-
-    // Use class roster set for “already enrolled in this class”
-    if (enrolledStudentIdsThisYear.has(studentId)) {
-      toast.info(`Student is already enrolled in this class.`);
-      setStudentResults(prev => prev.filter(s => s.id !== studentId));
-      setSelectedStudentIds(prev => prev.filter(id => id !== studentId));
-      return;
-    }
-
-    // Create class enrollment (not academic enrollment)
-    const payload = {
-      student_id: studentId,
-      class_id: classId,
-      academic_year_id: currentAcademicYearId,
-      enrollment_date: new Date().toISOString().split('T')[0],
-      status: 'active'
-    };
-
-    try {
-      await classService.createClassEnrollment(payload);
-      toast.success('Student enrolled in class');
-      setEnrolledStudentIdsThisYear(prev => new Set([...prev, studentId]));
-      setStudentResults(prev => prev.filter(s => s.id !== studentId));
-      setSelectedStudentIds(prev => prev.filter(id => id !== studentId));
-      setEnrollmentCount(prev => prev + 1);
-      setStudentToEnroll('');
-      fetchData();
-    } catch (err: unknown) {
-      const e = err as { detail?: unknown; message?: unknown; error?: unknown };
-      const msg = typeof e.detail === 'string' ? e.detail : typeof e.message === 'string' ? e.message : '';
-      if (msg.toLowerCase().includes('already')) {
-        toast.info(`Already enrolled in class — removed from list.`);
-        setEnrolledStudentIdsThisYear(prev => new Set([...prev, studentId]));
-        setStudentResults(prev => prev.filter(s => s.id !== studentId));
-        setSelectedStudentIds(prev => prev.filter(id => id !== studentId));
-      } else {
-        toast.error('Enrollment failed', { description: msg || 'Please try again.' });
-      }
-    }
-  };
-
-  const toggleStudentSelection = (id: string) => {
-    setSelectedStudentIds(prev => (prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]));
-  };
-
-  const handleBulkEnrollSelected = async () => {
-    if (!selectedStudentIds.length || !currentAcademicYearId || !classDetails) return;
-
-    // Filter out already-enrolled-in-class students
-    const toEnroll = selectedStudentIds.filter(id => !enrolledStudentIdsThisYear.has(id));
+  const enrollStudents = async (ids: string[]) => {
+    const toEnroll = ids.map((id) => id.trim()).filter((id) => id && !rosterIds.has(id));
+    if (!yearId) return;
     if (!toEnroll.length) {
-      toast.info(`All selected students are already enrolled in this class.`);
+      notify.info(ids.length === 1 ? 'That student is already in this class.' : 'All selected students are already in this class.');
       return;
     }
-
     try {
-      await classService.bulkCreateClassEnrollments({
-        class_id: classId,
-        academic_year_id: currentAcademicYearId,
-        student_ids: toEnroll,
-        enrollment_date: new Date().toISOString().split('T')[0],
-        status: 'active'
-      });
-
-      setEnrolledStudentIdsThisYear(prev => new Set([...prev, ...toEnroll]));
-      setStudentResults(prev => prev.filter(s => !toEnroll.includes(s.id)));
-      setSelectedStudentIds([]);
-      setEnrollmentCount(prev => prev + toEnroll.length);
-
-      toast.success(`Enrolled ${toEnroll.length} student(s)`);
-      fetchData();
-    } catch (err: unknown) {
-      const e = err as { detail?: unknown; message?: unknown };
-      const msg = typeof e.detail === 'string' ? e.detail : typeof e.message === 'string' ? e.message : '';
-      toast.error('Bulk enrollment failed', { description: msg || 'Please try again.' });
+      await enroll.mutateAsync({ studentIds: toEnroll, academicYearId: yearId });
+      setSelected((prev) => prev.filter((id) => !toEnroll.includes(id)));
+      if (toEnroll.length === 1 && toEnroll[0] === studentIdInput.trim()) setStudentIdInput('');
+      notify.success(toEnroll.length === 1 ? 'Student enrolled in the class.' : `${toEnroll.length} students enrolled in the class.`);
+    } catch (err) {
+      const message = errorMessage(err, '');
+      if (toEnroll.length === 1 && message.toLowerCase().includes('already')) {
+        notify.info('That student is already in this class.');
+        setSelected((prev) => prev.filter((id) => id !== toEnroll[0]));
+      } else {
+        notify.error(message || "The enrollment wasn't saved. Try again.");
+      }
     }
   };
 
-  const handleEdit = () => {
-    router.push(createTenantPath(`/classes/${classId}/edit`));
-  };
-
-  const handleExport = async (format: 'csv' | 'xlsx') => {
+  const exportRoster = async (format: 'csv' | 'xlsx') => {
     try {
-      const blob = await classService.exportClassEnrollments(classId, {
-        format,
-        details: true,
-        is_active: true,
-      });
-      const filename = `class_${classId}_enrollments.${format}`;
+      const blob = await exportClassEnrollments(classId, { format, details: true, is_active: true });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = filename;
+      a.download = `class_${classId}_enrollments.${format}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      toast.success(`Exported ${format.toUpperCase()} roster`);
-    } catch (error: unknown) {
-      const e = error as { message?: unknown; detail?: unknown; error?: unknown };
-      const message =
-        (typeof e.message === 'string' && e.message) ||
-        (typeof e.detail === 'string' && e.detail) ||
-        (typeof e.error === 'string' && e.error) ||
-        'Failed to export enrollments';
-      toast.error('Export failed', { description: message });
+      notify.success(`The class list is downloaded (${format === 'csv' ? 'CSV' : 'Excel'}).`);
+    } catch (err) {
+      notify.error(errorMessage(err, "The class list wasn't exported. Try again."));
     }
   };
 
-  if (loading) {
+  const eyebrow = (
+    <Link href={backPath} className="inline-flex min-h-11 items-center hover:underline md:min-h-0">
+      ← Class rosters
+    </Link>
+  );
+
+  if (details.isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading class...</p>
-          </div>
-        </div>
-      </div>
+      <PageShell title="Class" eyebrow={eyebrow}>
+        <Skeleton className="h-28 w-full rounded-xl" />
+        <Skeleton className="h-64 w-full rounded-xl" />
+      </PageShell>
     );
   }
 
-  if (error || !classDetails) {
+  if (details.isError || !details.data) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="max-w-xl mx-auto text-center">
-          <p className="text-red-600 mb-4">{error || 'Class not found'}</p>
-          <Button variant="outline" onClick={() => router.push(createTenantPath('/classes'))}>
-            Back to Classes
-          </Button>
-        </div>
-      </div>
+      <PageShell title="Class" eyebrow={eyebrow}>
+        {isNotFound(details.error) || !details.isError ? (
+          <EmptyState
+            icon={School}
+            title="Class not found"
+            description="It may have been deleted. Go back to the class rosters and pick another class."
+            action={
+              <Button asChild>
+                <Link href={backPath}>Open class rosters</Link>
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={School}
+            title="The class didn't load"
+            description={`${errorMessage(details.error, 'The server didn’t answer.')} Check your connection and try again.`}
+            action={<Button onClick={() => details.refetch()}>Try again</Button>}
+          />
+        )}
+      </PageShell>
     );
   }
+
+  const c = details.data;
+  const gradeSection = [c.grade_name, c.section_name].filter(Boolean).join(' - ');
+  const facts: Array<[string, React.ReactNode]> = [
+    ['School year', c.academic_year_name || '–'],
+    ['Grade and section', gradeSection || '–'],
+    ['Subject', c.subject_name || '–'],
+    ['Class sponsor', c.class_teacher_name || '–'],
+    ['Room', c.room || '–'],
+    ['Dates', c.start_date ? `${formatDate(c.start_date)}${c.end_date ? ` to ${formatDate(c.end_date)}` : ''}` : '–'],
+  ];
+  const scheduleList = schedules.data ?? [];
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">{classDetails.name}</h1>
-          <div className="mt-2 flex items-center gap-3 text-gray-600">
-            <Badge variant={classDetails.is_active ? 'default' : 'secondary'}>
-              {classDetails.is_active ? 'Active' : 'Inactive'}
-            </Badge>
-            <span className="flex items-center gap-1">
-              <Calendar className="h-4 w-4" />
-              {classDetails.academic_year_name}
-            </span>
-            {classDetails.room && (
-              <span className="flex items-center gap-1">
-                <MapPin className="h-4 w-4" />
-                Room {classDetails.room}
-              </span>
-            )}
-          </div>
-          <div className="mt-1 text-gray-600">
-            <span className="font-medium">{classDetails.class_teacher_name}</span> • {classDetails.subject_name} • {classDetails.grade_name} {classDetails.section_name ? `(${classDetails.section_name})` : ''}
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => handleExport('csv')} className="flex items-center gap-2">
-            <Download className="h-4 w-4" />
+    <PageShell
+      title={c.name || gradeSection || 'Class'}
+      description={
+        <span className="inline-flex flex-wrap items-center gap-2">
+          {c.is_active ? <StatusBadge status="success" label="Active" /> : <StatusBadge status="neutral" label="Inactive" />}
+          {[gradeSection, c.academic_year_name].filter(Boolean).join(' · ')}
+        </span>
+      }
+      eyebrow={eyebrow}
+      secondaryActions={
+        <>
+          <Button variant="outline" className="min-h-11 md:min-h-9" onClick={() => exportRoster('csv')}>
+            <Download aria-hidden="true" />
             Export CSV
           </Button>
-          <Button variant="outline" onClick={() => handleExport('xlsx')} className="flex items-center gap-2">
-            <Download className="h-4 w-4" />
-            Export XLSX
+          <Button variant="outline" className="min-h-11 md:min-h-9" onClick={() => exportRoster('xlsx')}>
+            <Download aria-hidden="true" />
+            Export Excel
           </Button>
-          <Button onClick={handleEdit} className="flex items-center gap-2">
-            <Edit className="h-4 w-4" />
-            Edit
-          </Button>
-        </div>
-      </div>
+        </>
+      }
+      primaryAction={
+        <Button asChild className="min-h-11 md:min-h-9">
+          <Link href={createTenantPath(`/classes/${classId}/edit`)}>
+            <Pencil aria-hidden="true" />
+            Edit class
+          </Link>
+        </Button>
+      }
+    >
+      <CountTiles
+        className="sm:grid-cols-2 lg:grid-cols-2"
+        tiles={[
+          { label: 'Students', value: roster.isLoading ? '–' : (roster.data?.count ?? 0) },
+          { label: 'Timetable periods', value: schedules.isLoading ? '–' : scheduleList.length },
+        ]}
+      />
 
-      {/* Description */}
-      {classDetails.description && (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>Description</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-gray-700">{classDetails.description}</p>
-          </CardContent>
-        </Card>
-      )}
+      <Panel title="Details">
+        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+          {facts.map(([label, value]) => (
+            <div key={label}>
+              <dt className="text-sm text-muted-foreground">{label}</dt>
+              <dd className="font-medium">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        {c.description ? <p className="text-sm text-muted-foreground">{c.description}</p> : null}
+      </Panel>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
-              Enrollments
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-4xl font-bold">{enrollmentCount}</div>
-            <p className="text-gray-500 mt-1">Active students</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5" />
-              Schedules
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-4xl font-bold">{schedules.length}</div>
-            <p className="text-gray-500 mt-1">Configured periods</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Meta</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-1 text-gray-700">
-              <div>Academic Year: {classDetails.academic_year_name}</div>
-              <div>Subject: {classDetails.subject_name}</div>
-              <div>Teacher: {classDetails.class_teacher_name}</div>
-              <div>Grade: {classDetails.grade_name}{classDetails.section_name ? `, ${classDetails.section_name}` : ''}</div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <Panel title="Timetable periods">
+        {schedules.isLoading ? (
+          <Skeleton className="h-16 w-full" />
+        ) : schedules.isError ? (
+          <EmptyState
+            bare
+            description="The periods didn't load. Check your connection and try again."
+            action={<Button onClick={() => schedules.refetch()}>Try again</Button>}
+          />
+        ) : scheduleList.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No periods yet. Add them in the timetable.</p>
+        ) : (
+          <ul className="divide-y rounded-lg border">
+            {scheduleList.map((s) => (
+              <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
+                <span className="font-medium">{capitalize(s.day_of_week)}</span>
+                <span className="text-sm text-muted-foreground tabular-nums">
+                  {s.period !== undefined && s.period !== null ? `Period ${s.period} · ` : ''}
+                  {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
 
-      {/* Schedules */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Class Schedules</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {schedules.length === 0 ? (
-            <p className="text-gray-600">No schedules configured.</p>
-          ) : (
-            <div className="space-y-2">
-              {schedules.map((s: { id: string; day_of_week: string; period?: number; start_time: string; end_time: string }) => (
-                <div key={s.id} className="flex items-center justify-between p-3 border rounded-md">
-                  <div className="font-medium capitalize">{s.day_of_week}</div>
-                  <div className="text-gray-700">
-                    {s.period !== undefined ? `Period ${s.period} • ` : ''}
-                    {s.start_time} - {s.end_time}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <Panel title="Students">
+        {roster.isError ? (
+          <EmptyState
+            bare
+            icon={Users}
+            description="The class list didn't load. Check your connection and try again."
+            action={<Button onClick={() => roster.refetch()}>Try again</Button>}
+          />
+        ) : (
+          <DataTable
+            label="Students in the class"
+            columns={rosterColumns}
+            data={roster.data?.entries ?? []}
+            loading={roster.isLoading}
+            searchable
+            searchPlaceholder="Search students"
+            initialSorting={[{ id: 'name', desc: false }]}
+            emptyState={<EmptyState icon={Users} description="No students yet. Enroll them below." />}
+          />
+        )}
+      </Panel>
 
-      {/* Roster Preview */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Roster Preview</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {enrollments.length === 0 ? (
-            <p className="text-gray-600">No enrollments found.</p>
-          ) : (
-            <ul className="divide-y">
-              {enrollments.slice(0, 10).map((enr: { student_name?: string; student_full_name?: string; student?: { full_name?: string; id?: string }; student_id?: string; enrollment_date?: string }, idx: number) => (
-                <li key={idx} className="py-3 flex justify-between">
-                  <div>
-                    <div className="font-medium">
-                      {enr.student_name ||
-                        enr.student_full_name ||
-                        enr.student?.full_name ||
-                        `Student #${idx + 1}`}
-                    </div>
-                    <div className="text-sm text-gray-600">
-                      {enr.student_id || enr.student?.id ? `ID: ${enr.student_id || enr.student?.id}` : ''}
-                    </div>
-                  </div>
-                  <div className="text-sm text-gray-600">
-                    {enr.enrollment_date ? `Enrolled: ${enr.enrollment_date}` : ''}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-      {/* Enroll Students */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Find & Enroll Students</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-            <div>
-              <label className="text-sm font-medium">Grade</label>
-              <Select
-                value={gradeIdFilter || undefined}
-                onValueChange={(val) => setGradeIdFilter(val)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select Grade" />
-                </SelectTrigger>
-                <SelectContent>
-                  {gradeOptions.map(g => (
-                    <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm font-medium">Section</label>
-              <Select
-                value={sectionIdFilter || undefined}
-                onValueChange={(val) => setSectionIdFilter(val)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select Section" />
-                </SelectTrigger>
-                <SelectContent>
-                  {sectionOptions.map(s => (
-                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium">Search (name, ID, admission #)</label>
-              <Input
-                placeholder="e.g. Jane, 9f8c..., ADM-2024-001"
-                value={studentSearchTerm}
-                onChange={(e) => setStudentSearchTerm(e.target.value)}
-              />
-            </div>
-          </div>
-
-          {/* In the table header/tooling count */}
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-sm text-gray-600">
-              {studentsLoading ? 'Loading students…' : `Results: ${filteredStudentResults.length}`}
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={loadStudents} disabled={!gradeIdFilter}>
-                Refresh
-              </Button>
-              <Button onClick={handleBulkEnrollSelected} disabled={!selectedStudentIds.length || !currentAcademicYearId}>
-                Enroll Selected
-              </Button>
-            </div>
-          </div>
-          <Table>
-            <TableBody>
-              {filteredStudentResults
-                .filter(s => {
-                  const term = studentSearchTerm.trim().toLowerCase();
-                  if (!term) return true;
-                  const fullName = [s.first_name, s.last_name].filter(Boolean).join(' ').toLowerCase();
-                  return (
-                    fullName.includes(term) ||
-                    s.id?.toLowerCase().includes(term) ||
-                    s.admission_number?.toLowerCase().includes(term)
-                  );
-                })
-                .map(s => (
-                  <TableRow key={s.id}>
-                    <TableCell>
-                      <input
-                        type="checkbox"
-                        checked={selectedStudentIds.includes(s.id)}
-                        onChange={() => toggleStudentSelection(s.id)}
-                      />
-                    </TableCell>
-                    <TableCell>{[s.first_name, s.last_name].filter(Boolean).join(' ') || s.email}</TableCell>
-                    <TableCell className="font-mono text-xs">{s.id}</TableCell>
-                    <TableCell className="font-mono text-xs">{s.admission_number || '-'}</TableCell>
-                    <TableCell>{s.grade || '-'}</TableCell>
-                    <TableCell>{s.section || '-'}</TableCell>
-                    <TableCell>
-                      <Button
-                        variant="outline"
-                        onClick={async () => {
-                          setStudentToEnroll(s.id);
-                          await handleEnrollStudent();
-                        }}
-                        disabled={!currentAcademicYearId}
-                      >
-                        Enroll
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-            </TableBody>
-          </Table>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium">Enroll by Student ID</label>
-              <Input
-                placeholder="Enter Student UUID"
-                value={studentToEnroll}
-                onChange={(e) => setStudentToEnroll(e.target.value)}
-              />
-            </div>
-            <div className="flex items-end">
-              <Button
-                onClick={() => handleEnrollStudent()}
-                disabled={!studentToEnroll?.trim() || !currentAcademicYearId || !classDetails}
-              >
-                Enroll
-              </Button>
-            </div>
-          </div>
-          <p className="text-xs text-gray-500 mt-2">
-            Enrolls into this class&apos;s grade/section for the current academic year.
+      <Panel
+        title="Enroll students"
+        description="Students are enrolled in this class for the current school year. The list shows active students of the chosen grade and section who aren't in the class yet."
+      >
+        {!year.isLoading && !yearId ? (
+          <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            There is no current school year, so students can&apos;t be enrolled. Make a year current in Years and terms.
           </p>
-        </CardContent>
-      </Card>
-    </div>
+        ) : null}
+        <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-2">
+            <label htmlFor="enroll-grade" className="text-sm font-medium">
+              Grade
+            </label>
+            <select
+              id="enroll-grade"
+              className={selectClass}
+              value={gradeId}
+              onChange={(e) => {
+                setGradeChoice(e.target.value);
+                setSectionChoice(null);
+              }}
+            >
+              <option value="">Choose a grade</option>
+              {grades.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid gap-2">
+            <label htmlFor="enroll-section" className="text-sm font-medium">
+              Section
+            </label>
+            <select
+              id="enroll-section"
+              className={selectClass}
+              value={sectionId}
+              disabled={!gradeId}
+              onChange={(e) => setSectionChoice(e.target.value)}
+            >
+              {sections.length === 0 ? <option value="">No sections</option> : null}
+              {sections.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid gap-2 md:col-span-2">
+            <label htmlFor="enroll-search" className="text-sm font-medium">
+              Search by name, ID or admission number
+            </label>
+            <Input id="enroll-search" className={inputClass} value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground" aria-live="polite">
+            {candidates.isFetching ? 'Loading students…' : `${shown.length} student${shown.length === 1 ? '' : 's'} can join`}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              className="min-h-11 md:min-h-9"
+              onClick={() => candidates.refetch()}
+              disabled={!gradeId}
+            >
+              Refresh list
+            </Button>
+            <Button
+              className="min-h-11 md:min-h-9"
+              onClick={() => enrollStudents(selectedToEnroll)}
+              disabled={!selectedToEnroll.length || !yearId || enroll.isPending}
+            >
+              <UserPlus aria-hidden="true" />
+              Enroll {selectedToEnroll.length || ''} selected
+            </Button>
+          </div>
+        </div>
+
+        {candidates.isError ? (
+          <EmptyState
+            bare
+            description="The students didn't load. Check your connection and try again."
+            action={<Button onClick={() => candidates.refetch()}>Try again</Button>}
+          />
+        ) : candidates.isLoading && gradeId ? (
+          <Skeleton className="h-32 w-full" />
+        ) : !gradeId ? (
+          <p className="text-sm text-muted-foreground">Choose a grade to list its students.</p>
+        ) : shown.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {search.trim() ? 'No students match your search.' : 'Every active student of this grade and section is already in the class.'}
+          </p>
+        ) : (
+          <ul className="divide-y rounded-lg border">
+            {shown.map((s) => {
+              const checkboxId = `enroll-${s.id}`;
+              return (
+                <li key={s.id} className="flex items-center gap-3 p-3">
+                  <Checkbox
+                    id={checkboxId}
+                    checked={selected.includes(s.id)}
+                    onCheckedChange={(checked) =>
+                      setSelected((prev) => (checked ? [...prev, s.id] : prev.filter((id) => id !== s.id)))
+                    }
+                  />
+                  <label htmlFor={checkboxId} className="min-w-0 flex-1 cursor-pointer">
+                    <span className="block font-medium">{fullName(s) === 'Unnamed' ? s.email : fullName(s)}</span>
+                    <span className="block text-sm text-muted-foreground">
+                      {[s.admission_number, [s.grade, s.section].filter(Boolean).join(' - ')].filter(Boolean).join(' · ')}
+                    </span>
+                  </label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="min-h-11 md:min-h-9"
+                    onClick={() => enrollStudents([s.id])}
+                    disabled={!yearId || enroll.isPending}
+                  >
+                    Enroll
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        <form
+          className="grid gap-2 border-t pt-4 md:grid-cols-[1fr_auto] md:items-end"
+          onSubmit={(e) => {
+            e.preventDefault();
+            enrollStudents([studentIdInput]);
+          }}
+        >
+          <div className="grid gap-2">
+            <label htmlFor="enroll-by-id" className="text-sm font-medium">
+              Enroll by student ID
+            </label>
+            <Input
+              id="enroll-by-id"
+              className={inputClass}
+              placeholder="The student's ID (UUID)"
+              value={studentIdInput}
+              onChange={(e) => setStudentIdInput(e.target.value)}
+            />
+          </div>
+          <Button
+            type="submit"
+            className="min-h-11 md:min-h-9"
+            disabled={!studentIdInput.trim() || !yearId || enroll.isPending}
+          >
+            Enroll student
+          </Button>
+        </form>
+      </Panel>
+    </PageShell>
   );
 }

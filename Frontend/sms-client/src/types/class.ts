@@ -44,7 +44,7 @@ export interface ClassUpdate {
   end_date?: string;
   grade_id?: string;
   section_id?: string;
-  class_teacher_id?: string;
+  class_teacher_id?: string | null; // null removes the sponsor
   teacher_id?: string;
   subject_id?: string;
 }

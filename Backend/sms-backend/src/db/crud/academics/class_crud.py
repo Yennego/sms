@@ -10,12 +10,12 @@ from src.schemas.academics.class_schema import ClassCreate, ClassUpdate
 class CRUDClass(TenantCRUDBase[Class, ClassCreate, ClassUpdate]):
     """CRUD operations for Class model."""
     
-    def get_by_name(self, db: Session, tenant_id: Any, name: str) -> Optional[Class]:
-        """Get a class by name within a tenant."""
-        return db.query(Class).filter(
-            Class.tenant_id == tenant_id,
-            Class.name == name
-        ).first()
+    def get_by_name(self, db: Session, tenant_id: Any, name: str, academic_year_id: Optional[UUID] = None) -> Optional[Class]:
+        """Get a class by name within a tenant (and school year, when given: names repeat every year)."""
+        query = db.query(Class).filter(Class.tenant_id == tenant_id, Class.name == name)
+        if academic_year_id is not None:
+            query = query.filter(Class.academic_year_id == academic_year_id)
+        return query.first()
     
     def get_by_academic_year(self, db: Session, tenant_id: Any, academic_year_id: UUID) -> List[Class]:
         """Get classes by academic year ID within a tenant."""

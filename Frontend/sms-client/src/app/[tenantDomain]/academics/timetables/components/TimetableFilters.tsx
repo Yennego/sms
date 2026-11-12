@@ -1,118 +1,111 @@
+'use client';
 
-import React from 'react';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+// The staff Timetable page's filters: school year, grade, section and a search box.
+
+import * as React from 'react';
+import { Search, X } from 'lucide-react';
+
+import { selectClass } from '@/components/students/admission-form';
 import { Button } from '@/components/ui/button';
-import { Filter, Search, Plus } from 'lucide-react';
-import type { TimetableFilters as TimetableQueryFilters } from '@/services/api/timetable-service';
-import type { AcademicYear, Section } from '@/types/enrollment';
-import type { AcademicGrade as Grade } from '@/types/academic-grade';
+import { Input } from '@/components/ui/input';
 
-interface Props {
-  academicYears: AcademicYear[];
-  grades: Grade[];
-  sections: Section[];
-  filters: TimetableQueryFilters;
-  onFiltersChange: (f: TimetableQueryFilters) => void;
+type Item = { id: string; name: string };
+
+export interface TimetableFilterValues {
+  yearId: string;
+  gradeId: string;
+  sectionId: string;
   search: string;
-  onSearchChange: (s: string) => void;
-  onReset: () => void;
-  onCreate: () => void;
-  isAdmin?: boolean;
 }
 
-export default function TimetableFilters({
-  academicYears,
-  grades,
-  sections,
-  filters,
-  onFiltersChange,
-  search,
-  onSearchChange,
-  onReset,
-  onCreate,
-  isAdmin,
-}: Props) {
+interface Props {
+  years: Item[];
+  grades: Item[];
+  sections: Item[];
+  value: TimetableFilterValues;
+  onChange: (next: TimetableFilterValues) => void;
+  onClear: () => void;
+}
+
+export default function TimetableFilters({ years, grades, sections, value, onChange, onClear }: Props) {
+  const set = (patch: Partial<TimetableFilterValues>) => onChange({ ...value, ...patch });
+  const filtered = Boolean(value.gradeId || value.sectionId || value.search);
   return (
-    <div className="flex flex-col md:flex-row gap-4">
-      <div className="flex-1 flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[repeat(3,minmax(0,12rem))_minmax(0,1fr)_auto] lg:items-end">
+      <div className="grid gap-2">
+        <label htmlFor="tt-year" className="text-sm font-medium">
+          School year
+        </label>
+        <select id="tt-year" className={selectClass} value={value.yearId} onChange={(e) => set({ yearId: e.target.value })}>
+          {value.yearId ? null : <option value="">Choose a year</option>}
+          {years.map((y) => (
+            <option key={y.id} value={y.id}>
+              {y.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="grid gap-2">
+        <label htmlFor="tt-grade" className="text-sm font-medium">
+          Grade
+        </label>
+        <select
+          id="tt-grade"
+          className={selectClass}
+          value={value.gradeId}
+          onChange={(e) => set({ gradeId: e.target.value, sectionId: '' })}
+        >
+          <option value="">All grades</option>
+          {grades.map((g) => (
+            <option key={g.id} value={g.id}>
+              {g.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="grid gap-2">
+        <label htmlFor="tt-section" className="text-sm font-medium">
+          Section
+        </label>
+        <select
+          id="tt-section"
+          className={selectClass}
+          value={value.sectionId}
+          onChange={(e) => set({ sectionId: e.target.value })}
+          disabled={!value.gradeId}
+        >
+          <option value="">{value.gradeId ? 'All sections' : 'Choose a grade first'}</option>
+          {value.gradeId
+            ? sections.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))
+            : null}
+        </select>
+      </div>
+      <div className="grid gap-2">
+        <label htmlFor="tt-search" className="text-sm font-medium">
+          Search
+        </label>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
-            placeholder="Search timetables..."
-            className="pl-8"
-            value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
+            id="tt-search"
+            type="search"
+            className="h-11 pl-9 text-base md:h-9 md:text-sm"
+            placeholder="Timetable name"
+            value={value.search}
+            onChange={(e) => set({ search: e.target.value })}
           />
         </div>
-        {isAdmin && (
-          <Button onClick={onCreate} className="bg-primary hover:bg-primary/90">
-            <Plus className="w-4 h-4 mr-2" />
-            Create Timetable
-          </Button>
-        )}
       </div>
-
-      <div className="flex flex-wrap gap-2">
-        <Select
-          value={filters.academic_year_id || ''}
-          onValueChange={(value) => onFiltersChange({ ...filters, academic_year_id: value })}
-        >
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Academic Year" />
-          </SelectTrigger>
-          <SelectContent>
-            {academicYears.map((year) => (
-              <SelectItem key={year.id} value={year.id}>
-                {year.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={filters.grade_id || ''}
-          onValueChange={(value) =>
-            onFiltersChange({ ...filters, grade_id: value === '__ALL__' ? '' : value })
-          }
-        >
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="All Grades" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__ALL__">All Grades</SelectItem>
-            {grades.map((grade) => (
-              <SelectItem key={grade.id} value={String(grade.id)}>
-                {grade.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={filters.section_id || ''}
-          onValueChange={(value) =>
-            onFiltersChange({ ...filters, section_id: value === '__ALL__' ? '' : value })
-          }
-        >
-          <SelectTrigger className="w-[180px]" disabled={!filters.grade_id}>
-            <SelectValue placeholder="All Sections" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__ALL__">All Sections</SelectItem>
-            {sections.map((section) => (
-              <SelectItem key={section.id} value={String(section.id)}>
-                {section.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Button variant="outline" onClick={onReset}>
-          <Filter className="w-4 h-4 mr-2" />
-          Clear Filters
+      {filtered ? (
+        <Button variant="outline" className="min-h-11 md:min-h-9" onClick={onClear}>
+          <X aria-hidden="true" />
+          Clear filters
         </Button>
-      </div>
+      ) : null}
     </div>
   );
 }
