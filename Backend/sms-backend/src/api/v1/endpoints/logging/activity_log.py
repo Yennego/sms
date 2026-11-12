@@ -91,8 +91,8 @@ def get_super_admin_audit_logs(
 async def get_tenant_audit_logs(
     *,
     audit_service: AuditLoggingService = Depends(),
-    skip: int = 0,
-    limit: int = 10,  # Changed from 100 to 10
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=200),
     user_id: Optional[UUID] = Query(None, description="Filter by user ID"),
     entity_type: Optional[str] = Query(None, description="Filter by entity type"),
     entity_id: Optional[UUID] = Query(None, description="Filter by entity ID"),
@@ -113,24 +113,10 @@ async def get_tenant_audit_logs(
         if action:
             filters["action"] = action
         
-        # Apply date filtering if provided
-        if start_date and end_date:
-            items, total = await audit_service.get_by_date_range(
-                start_date=start_date, 
-                end_date=end_date,
-                skip=skip,
-                limit=limit
-            )
-            return ActivityLogPaginated(
-                items=items,
-                total=total,
-                skip=skip,
-                limit=limit,
-                has_next=total > (skip + limit),
-                has_prev=skip > 0
-            )
-        
-        items, total = await audit_service.list_with_count(skip=skip, limit=limit, filters=filters)
+        # Filters and dates together (they used to be dropped when both dates were given)
+        items, total = await audit_service.list_with_count(
+            skip=skip, limit=limit, filters=filters, start_date=start_date, end_date=end_date
+        )
         return ActivityLogPaginated(
             items=items,
             total=total,

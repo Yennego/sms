@@ -92,9 +92,16 @@ class AuditLoggingService(TenantBaseService[ActivityLog, ActivityLogCreate, Acti
             ~ActivityLog.user_id.in_(super_admin_user_ids(self.db)) | (ActivityLog.user_id == None),  # noqa: E711
         )
 
-    async def list_with_count(self, skip: int = 0, limit: int = 100, filters: Optional[Dict] = None, **kwargs) -> tuple[List[ActivityLog], int]:
-        """List records with total count, eager loading of user, and super-admin filtering."""
+    async def list_with_count(self, skip: int = 0, limit: int = 100, filters: Optional[Dict] = None,
+                              start_date: Optional[datetime] = None, end_date: Optional[datetime] = None,
+                              **kwargs) -> tuple[List[ActivityLog], int]:
+        """List records with total count, eager loading of user, and super-admin filtering. The
+        filters and the dates (either end optional) apply together."""
         query = self._school_scope()
+        if start_date:
+            query = query.filter(ActivityLog.created_at >= start_date)
+        if end_date:
+            query = query.filter(ActivityLog.created_at <= end_date)
 
         # Apply filters
         if filters:
