@@ -20,6 +20,7 @@ import { DropdownMenu } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/ui/empty-state';
 import { notify } from '@/components/ui/toaster';
 import type { Assignment } from '@/services/api/assignment-service';
+import { useSchoolYears } from '@/components/classes/queries';
 
 type Item = { id: string; name: string };
 
@@ -96,8 +97,11 @@ export function StaffAssignments({
   const remove = useDeleteAssignment();
   const [deleting, setDeleting] = React.useState<Assignment | null>(null);
 
+  const schoolYears = useSchoolYears();
   const set = (patch: Partial<AssignmentListFilters>) => onFiltersChange({ ...filters, ...patch });
-  const filtered = Boolean(filters.subjectId || filters.teacherId || filters.gradeId || filters.sectionId);
+  const filtered = Boolean(
+    filters.subjectId || filters.teacherId || filters.gradeId || filters.sectionId || filters.yearId !== undefined
+  );
   const clear = () => onFiltersChange({ subjectId: '', teacherId: '', gradeId: '', sectionId: '' });
 
   const togglePublished = React.useCallback(
@@ -227,7 +231,15 @@ export function StaffAssignments({
 
   return (
     <>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[repeat(4,minmax(0,1fr))_auto] lg:items-end">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[repeat(5,minmax(0,1fr))_auto] lg:items-end">
+        <FilterSelect
+          id="as-year"
+          label="School year"
+          value={filters.yearId ?? schoolYears.current?.id ?? ''}
+          onChange={(v) => set({ yearId: v })}
+          allLabel="All years"
+          items={schoolYears.years.map((y) => ({ id: y.id, name: y.is_current ? `${y.name} (current)` : y.name }))}
+        />
         <FilterSelect
           id="as-subject"
           label="Subject"

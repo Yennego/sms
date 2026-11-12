@@ -211,14 +211,11 @@ export function useTenantService() {
      */
     updateOwnTenant: async (tenant: TenantUpdate) => {
       // Map camelCase to snake_case for API
+      // A school changes only its logo and colours (the server refuses anything else)
       const payload = {
-        name: tenant.name,
-        domain: tenant.domain,
-        subdomain: tenant.subdomain,
         logo: tenant.logo,
         primary_color: tenant.primaryColor,
         secondary_color: tenant.secondaryColor,
-        is_active: tenant.isActive,
       };
       const result = await apiClient.put<RawTenantData>(`/tenants/self`, payload);
       // Map response back to Tenant type

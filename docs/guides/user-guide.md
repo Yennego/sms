@@ -211,7 +211,7 @@ The areas are what a school can use. Students, classes, the school year, grades 
 **Who:** the school admin. **Where:** the user menu (tap your name at the top right).
 
 1. Sign in with the details from the operator, and choose your own password.
-2. **Name and colours:** open **School settings**, then **Tenant Settings**. Check the name and the colours, then save.
+2. **Logo and colours:** open **School settings**, then **Logo and colours**. Choose the logo and colours, then tap **Save logo and colours**. The school's name and web address are shown there too, but only the platform operator changes them: ask the operator if they're wrong.
 3. **School profile:** open **School profile** from the user menu.
    - Fill in **Address**, **Motto**, **Phone** and **Email**. These are printed on report cards.
    - Under **Who signs as principal**, choose the principal. Under **Title under the signature**, type the title, for example "Principal".

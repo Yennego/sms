@@ -456,3 +456,16 @@ def test_school_audit_log_applies_filters_together_with_dates(env):
     assert r.json()["total"] == 1 and r.json()["items"][0]["action"] == "create"
     assert client.get("/api/v1/logging/audit-logs", headers=headers(ids, "admin_a"),
                       params={"limit": 5000}).status_code == 422  # page size is capped
+
+
+def test_school_admin_changes_colours_but_not_the_name_or_address(env):
+    """The school's name (report cards, receipts) and web address (saved links) are the operator's."""
+    client, ids = env
+    h = headers(ids, "admin_a")
+    ok = client.put("/api/v1/tenants/self", headers=h, json={"primary_color": "#123456"})
+    assert ok.status_code == 200 and ok.json()["primary_color"] == "#123456"
+    for field, value in (("name", "Renamed School"), ("domain", "renamed"), ("code", "XYZ")):
+        r = client.put("/api/v1/tenants/self", headers=h, json={field: value})
+        assert r.status_code == 422, (field, r.text)
+    after = client.get(f"/api/v1/tenants/{ids['tenant_a']}", headers=h).json()
+    assert after["name"] == "School A" and after["domain"] == "school-a"
