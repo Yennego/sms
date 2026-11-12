@@ -1,979 +1,666 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+// Classes: the classes of a school year (one per grade level and section), with their seats,
+// room and sponsor. Seats belong to the class. Staff who manage classes add, change and delete them.
+
+import * as React from 'react';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import type { ColumnDef } from '@tanstack/react-table';
+import { AlertTriangle, Pencil, Plus, RefreshCw, School, Trash2, Users } from 'lucide-react';
+
+import { CountTiles } from '@/components/attendance/attendance-ui';
+import { LabeledSelect } from '@/components/class-placement/roster-controls';
 import {
-  Plus,
-  Edit,
-  Trash2,
-  School,
-  Users,
-  BookOpen,
-  AlertTriangle,
-  CheckCircle,
-  Loader2
-} from 'lucide-react';
-import { toast } from 'sonner';
-import { AppError, ErrorType } from '@/utils/error-utils';
-import EnrollmentDialogs from '../enrollments/components/EnrollmentDialogs';
-
-// Import API services
-import { useClassService } from '@/services/api/class-service';
-import { useAcademicGradeService } from '@/services/api/academic-grade-service';
-import { useSectionService } from '@/services/api/section-service';
-import { useSubjectService } from '@/services/api/subject-service';
-import { useEnrollmentService } from '@/services/api/enrollment-service';
-import { useTeacherService } from '@/services/api/teacher-service';
-import type { Class } from '@/types/class';
-import type { AcademicGrade } from '@/types/academic-grade';
+  className as classLabel,
+  useClassEnrollmentCounts,
+  useClassesAccess,
+  useCreateClass,
+  useCreateSection,
+  useDeleteClass,
+  useGradeLevels,
+  useSchoolYears,
+  useSections,
+  useUpdateClass,
+  useYearClasses,
+  type YearClassRow,
+} from '@/components/classes/queries';
+import { selectClass } from '@/components/students/admission-form';
+import { errorMessage } from '@/components/students/format';
+import { teacherName } from '@/components/year-setup/teacher-select';
+import { plural, useTeacherOptions } from '@/components/year-setup/use-year-setup';
+import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { DataTable } from '@/components/ui/data-table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { EmptyState } from '@/components/ui/empty-state';
+import { FormField } from '@/components/ui/form-field';
+import { Input } from '@/components/ui/input';
+import { PageShell } from '@/components/ui/page-shell';
+import { Skeleton } from '@/components/ui/skeleton';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { notify } from '@/components/ui/toaster';
 import type { Section } from '@/types/section';
-import type { Subject } from '@/types/subject';
-import type { Teacher } from '@/types/teacher';
-import type { AcademicYear, Enrollment } from '@/types/enrollment';
-import { Checkbox } from '@/components/ui/checkbox';
-import { usePromotionService, PromotionStatusTag } from '@/services/api/promotion-service';
-import { useApiClientWithLoading } from '@/services/api/api-client';
-import { useGradingService } from '@/services/api/grading-service';
-import { useClasses, useCreateClass, useUpdateClass, useDeleteClass } from '@/hooks/queries/classes';
-import { useGrades } from '@/hooks/queries/academic-grades';
-import { useSections, useSectionsByGrade } from '@/hooks/queries/sections';
-import { useSubjects } from '@/hooks/queries/subjects';
-import { useTeachers } from '@/hooks/queries/teachers';
-import { useAcademicYearsList } from '@/hooks/queries/academic-years';
-import { useGradingSchemas } from '@/hooks/queries/grading';
-import { useQueries } from '@tanstack/react-query';
+import type { TeacherOption } from '@/services/api/year-setup-service';
 
-const EMPTY_ARRAY: any[] = [];
-
+const ALL = 'all';
+const MAX_SEATS = 500;
 
 export default function ClassesPage() {
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [selectedAcademicYear, setSelectedAcademicYear] = useState<string>('');
-  const [selectedGrade, setSelectedGrade] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [transferRosterModalClass, setTransferRosterModalClass] = useState<Class | null>(null);
-  const [promoteModalClass, setPromoteModalClass] = useState<Class | null>(null);
-  const dialogsRef = React.useRef<{
-    setTransferEnrollment: (e: Enrollment | null) => void;
-    setPromoteEnrollment: (e: Enrollment | null) => void;
-  }>(null);
+  const params = useParams();
+  const school = params?.tenantDomain as string;
+  const { canManageClasses } = useClassesAccess();
 
-  const classService = useClassService();
-  const academicGradeService = useAcademicGradeService();
-  const sectionService = useSectionService();
-  const subjectService = useSubjectService();
-  const teacherService = useTeacherService();
-  const gradingService = useGradingService();
-  const enrollmentService = useEnrollmentService();
-  const promotionService = usePromotionService();
+  const yearsQuery = useSchoolYears();
+  const [yearId, setYearId] = React.useState('');
+  const activeYearId = yearId || yearsQuery.current?.id || '';
+  const year = yearsQuery.years.find((y) => y.id === activeYearId) ?? null;
+  const [gradeId, setGradeId] = React.useState(ALL);
 
-  // TankStack Query hooks
-  const { data: classes = EMPTY_ARRAY, isLoading: classesLoading, error: classesError } = useClasses({
-    academic_year_id: selectedAcademicYear || undefined,
-    grade_id: selectedGrade !== 'all' ? selectedGrade : undefined,
-  });
+  const classesQuery = useYearClasses(activeYearId);
+  const levelsQuery = useGradeLevels();
+  const sectionsQuery = useSections();
+  const teachersQuery = useTeacherOptions();
+  const levels = React.useMemo(() => levelsQuery.data ?? [], [levelsQuery.data]);
+  const sections = React.useMemo(() => sectionsQuery.data ?? [], [sectionsQuery.data]);
+  const teachers = teachersQuery.data ?? [];
 
-  const { data: academicYears = EMPTY_ARRAY } = useAcademicYearsList();
-  const { data: grades = EMPTY_ARRAY } = useGrades();
-  const { data: sectionsData } = useSections();
-  const sections = sectionsData?.sections || EMPTY_ARRAY;
-  const { data: teachers = EMPTY_ARRAY } = useTeachers();
-  const { data: subjects = EMPTY_ARRAY } = useSubjects();
+  const allClasses = React.useMemo(() => classesQuery.data ?? [], [classesQuery.data]);
+  const classes = React.useMemo(
+    () => (gradeId === ALL ? allClasses : allClasses.filter((c) => c.grade_id === gradeId)),
+    [allClasses, gradeId]
+  );
+  const counts = useClassEnrollmentCounts(
+    React.useMemo(() => allClasses.map((c) => c.id), [allClasses]),
+    activeYearId
+  );
 
-  // Grading schemas for assignment
-  const { data: gradingSchemas = EMPTY_ARRAY } = useGradingSchemas();
+  const createSection = useCreateSection();
+  const deleteClass = useDeleteClass();
+  const [form, setForm] = React.useState<{ mode: 'create' } | { mode: 'edit'; row: YearClassRow } | null>(null);
+  const [deleting, setDeleting] = React.useState<YearClassRow | null>(null);
+  const [addingSections, setAddingSections] = React.useState(false);
 
-  // Mutations
-  const createClassMutation = useCreateClass();
-  const updateClassMutation = useUpdateClass();
-  const deleteClassMutation = useDeleteClass();
+  // Grade level and section pairs with no class this year
+  const missing = React.useMemo(() => {
+    const taken = new Set(allClasses.map((c) => `${c.grade_id}:${c.section_id}`));
+    return levels
+      .filter((l) => gradeId === ALL || l.id === gradeId)
+      .flatMap((l) =>
+        sections
+          .filter((s) => s.grade_id === l.id && !taken.has(`${l.id}:${s.id}`))
+          .map((s) => `${l.name} - ${s.name}`)
+      );
+  }, [allClasses, levels, sections, gradeId]);
 
-  // Local state for class creation
-  const [formData, setFormData] = useState({
-    academicYearId: '',
-    gradeId: '',
-    sectionId: '',
-    classTeacherId: '',
-    room: '',
-    capacity: '30'
-  });
+  const seats = classes.reduce((sum, c) => sum + (c.capacity || 0), 0);
+  const enrolled = classes.reduce((sum, c) => sum + (counts[c.id] ?? 0), 0);
+  const withoutSponsor = classes.filter((c) => !c.class_teacher_id).length;
+  const selectedLevel = levels.find((l) => l.id === gradeId) ?? null;
+  const levelHasNoSections = Boolean(selectedLevel) && !sections.some((s) => s.grade_id === gradeId);
 
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [editingClass, setEditingClass] = useState<Class | null>(null);
-  const [editFormData, setEditFormData] = useState({
-    classTeacherId: '',
-    room: '',
-    capacity: '30'
-  });
-
-  const { isLoading: apiClientLoading } = useApiClientWithLoading();
-
-  // Set default academic year when loaded
-  useEffect(() => {
-    if (!selectedAcademicYear && academicYears.length > 0) {
-      const current = academicYears.find((y: any) => y.is_current);
-      if (current && current.id !== selectedAcademicYear) {
-        setSelectedAcademicYear(current.id);
-        setFormData(prev => prev.academicYearId === current.id ? prev : { ...prev, academicYearId: current.id });
-      }
-    }
-  }, [academicYears, selectedAcademicYear]);
-
-  // Batch fetch enrollment counts using useQueries
-  const enrollmentCountResults = useQueries({
-    queries: (classes || EMPTY_ARRAY).map((c: any) => ({
-      queryKey: ['class-enrollment-count', c.id, selectedAcademicYear],
-      queryFn: () => classService.getClassEnrollmentCount(c.id, {
-        academic_year_id: selectedAcademicYear,
-        is_active: true
-      }),
-      enabled: !!c.id && !!selectedAcademicYear,
-      staleTime: 30000, // 30 seconds
-    }))
-  });
-
-  const enrollmentCounts = useMemo(() => {
-    const map: Record<string, number> = {};
-    (classes || EMPTY_ARRAY).forEach((c: any, i: number) => {
-      map[c.id] = enrollmentCountResults[i]?.data ?? 0;
-    });
-    return map;
-  }, [classes, enrollmentCountResults]);
-
-  const loading = classesLoading || apiClientLoading;
-  const error = classesError ? (classesError as Error).message : null;
-
-  const handleCreateClass = async () => {
-    if (!formData.academicYearId || !formData.gradeId || !formData.sectionId) {
-      toast.error('Academic year, grade, and section are required');
-      return;
-    }
-
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    const name = classLabel(deleting);
     try {
-      await createClassMutation.mutateAsync({
-        academic_year_id: formData.academicYearId,
-        grade_id: formData.gradeId,
-        section_id: formData.sectionId,
-        class_teacher_id: formData.classTeacherId || undefined,
-        room: formData.room || undefined,
-        capacity: parseInt(formData.capacity) || 30,
-        is_active: true
-      });
-      setIsCreateDialogOpen(false);
-      // Reset form
-      setFormData(prev => ({
-        ...prev,
-        gradeId: '',
-        sectionId: '',
-        classTeacherId: '',
-        room: '',
-        capacity: '30'
-      }));
+      await deleteClass.mutateAsync(deleting.id);
+      notify.success(`${name} is deleted.`);
     } catch (err) {
-      // Error handled by mutation
+      notify.error(errorMessage(err, `${name} wasn't deleted. Try again.`));
+      throw err;
     }
   };
 
-  const handleDeleteClass = async (classId: string) => {
-    if (confirm('Are you sure you want to delete this class? This will also remove all subject assignments for this class.')) {
-      try {
-        await deleteClassMutation.mutateAsync(classId);
-      } catch (err) {
-        // Error handled by mutation
-      }
-    }
-  };
-
-  const handleOpenEditDialog = (c: Class) => {
-    setEditingClass(c);
-    setEditFormData({
-      classTeacherId: c.class_teacher_id || '',
-      room: c.room || '',
-      capacity: String(c.capacity || 30)
-    });
-    setIsEditDialogOpen(true);
-  };
-
-  const handleUpdateClass = async () => {
-    if (!editingClass) return;
-
+  // Sections A to E for a grade level that has none yet
+  const addDefaultSections = async () => {
+    if (!selectedLevel) return;
+    const existing = new Set(sections.filter((s) => s.grade_id === selectedLevel.id).map((s) => s.name));
     try {
-      await updateClassMutation.mutateAsync({
-        id: editingClass.id,
-        data: {
-          class_teacher_id: editFormData.classTeacherId || undefined,
-          room: editFormData.room || undefined,
-          capacity: parseInt(editFormData.capacity) || 30
-        }
-      });
-      setIsEditDialogOpen(false);
+      await Promise.all(
+        ['A', 'B', 'C', 'D', 'E']
+          .map((letter) => `Section ${letter}`)
+          .filter((name) => !existing.has(name))
+          .map((name) => createSection.mutateAsync({ grade_id: selectedLevel.id, name }))
+      );
+      notify.success(`${selectedLevel.name} has sections A to E now.`);
     } catch (err) {
-      // Error handled by mutation
+      notify.error(errorMessage(err, `Some sections weren't added to ${selectedLevel.name}. Try again.`));
+      throw err;
     }
   };
 
-  const filteredClasses = useMemo(() => {
-    if (!classes) return [];
-    return classes.filter((c: any) => {
-      const gMatch = selectedGrade === 'all' || c.grade_id === selectedGrade;
-      const sMatch = !searchQuery ||
-        c.grade_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.section_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.class_teacher_name?.toLowerCase().includes(searchQuery.toLowerCase());
-      return gMatch && sMatch;
-    });
-  }, [classes, selectedGrade, searchQuery]);
+  const columns = React.useMemo<ColumnDef<YearClassRow>[]>(
+    () => [
+      {
+        id: 'class',
+        header: 'Class',
+        accessorFn: (c) => classLabel(c),
+        cell: ({ row }) => {
+          const c = row.original;
+          const pair = [c.grade_name, c.section_name].filter(Boolean).join(' - ');
+          return (
+            <div className="min-w-0">
+              <p className="font-medium">{classLabel(c)}</p>
+              {c.name && pair && c.name !== pair ? <p className="text-sm text-muted-foreground">{pair}</p> : null}
+            </div>
+          );
+        },
+      },
+      {
+        id: 'sponsor',
+        header: 'Sponsor',
+        accessorFn: (c) => (c.class_teacher_id ? c.class_teacher_name ?? '' : ''),
+        cell: ({ row }) =>
+          row.original.class_teacher_id ? (
+            row.original.class_teacher_name || 'Sponsor'
+          ) : (
+            <StatusBadge status="pending" label="No sponsor" />
+          ),
+      },
+      {
+        id: 'room',
+        header: 'Room',
+        accessorFn: (c) => c.room ?? '',
+        cell: ({ row }) => row.original.room || <span className="text-muted-foreground">No room</span>,
+      },
+      {
+        id: 'seats',
+        header: 'Seats filled',
+        accessorFn: (c) => counts[c.id] ?? 0,
+        cell: ({ row }) => {
+          const c = row.original;
+          const count = counts[c.id];
+          if (count === undefined) return <Skeleton className="h-4 w-20" />;
+          return (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="tabular-nums">
+                {count} of {c.capacity}
+              </span>
+              {c.capacity > 0 && count >= c.capacity ? <StatusBadge status="danger" label="Full" /> : null}
+            </div>
+          );
+        },
+      },
+      {
+        id: 'subjects',
+        header: 'Subjects',
+        meta: { hideOnMobile: true },
+        accessorFn: (c) => c.subjects?.length ?? 0,
+        cell: ({ getValue }) => <span className="tabular-nums">{getValue<number>()}</span>,
+      },
+      {
+        id: 'actions',
+        header: '',
+        enableSorting: false,
+        meta: { label: 'Actions', className: 'text-right' },
+        cell: ({ row }) => (
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button asChild variant="ghost" size="sm" className="min-h-11 md:min-h-9">
+              <Link href={`/${school}/classes/${row.original.id}`}>
+                <Users aria-hidden="true" />
+                Students
+              </Link>
+            </Button>
+            {canManageClasses ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="min-h-11 md:min-h-9"
+                  onClick={() => setForm({ mode: 'edit', row: row.original })}
+                >
+                  <Pencil aria-hidden="true" />
+                  Edit
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="min-h-11 text-destructive hover:text-destructive md:min-h-9"
+                  onClick={() => setDeleting(row.original)}
+                  aria-label={`Delete ${classLabel(row.original)}`}
+                >
+                  <Trash2 aria-hidden="true" />
+                  <span className="md:sr-only">Delete</span>
+                </Button>
+              </>
+            ) : null}
+          </div>
+        ),
+      },
+    ],
+    [counts, school, canManageClasses]
+  );
 
-  // Statistics
-  const total = useMemo(() => {
-    if (!Array.isArray(grades) || !Array.isArray(sections)) return 0;
-    return grades.reduce((sum, g) => sum + sections.filter(s => s.grade_id === g.id).length, 0);
-  }, [grades, sections]);
-  const configured = classes?.length || 0;
-  const completionPercentage = total > 0 ? Math.round((configured / total) * 100) : 0;
+  const addButton = canManageClasses ? (
+    <Button className="min-h-11 md:min-h-9" onClick={() => setForm({ mode: 'create' })} disabled={!activeYearId}>
+      <Plus aria-hidden="true" />
+      Add a class
+    </Button>
+  ) : undefined;
 
-  // Helper for Section generation if they don't exist
-  const syncSectionsForGrade = async () => {
-    if (selectedGrade === 'all') {
-      toast.error('Select a specific grade first');
-      return;
-    }
+  const description = year
+    ? `The classes of the ${year.name} school year: their seats, room and sponsor.${canManageClasses ? '' : ' You can look, but only staff who manage classes can change them.'}`
+    : 'The classes of a school year: their seats, room and sponsor.';
 
-    try {
-      const alphabet = 'ABCDE'.split('');
-      const sectionsArray = Array.isArray(sections) ? sections : [];
-      const promises = alphabet.map(async (letter) => {
-        const name = `Section ${letter}`;
-        // Check if exists
-        const exists = sectionsArray.find(s => s.grade_id === selectedGrade && s.name === name);
-        if (!exists) {
-          return sectionService.createSection({
-            grade_id: selectedGrade,
-            name: name
-          });
-        }
-      });
-
-      await Promise.all(promises);
-      toast.success('Generated default Sections A-E for this Grade');
-      window.location.reload();
-    } catch (err) {
-      toast.error('Failed to generate sections');
-    }
-  };
-
-  // Build grid of Class availability
-  const getClassCombinations = () => {
-    const grid: any[] = [];
-    if (Array.isArray(grades) && Array.isArray(sections)) {
-      grades.forEach(g => {
-        sections.filter(s => s.grade_id === g.id).forEach(s => {
-          const c = (classes || []).find(cl => cl.grade_id === g.id && cl.section_id === s.id);
-          grid.push({ grade: g, section: s, class: c });
-        });
-      });
-    }
-    return grid;
-  };
-
-  // --- Enrollment & Roster Logic ---
-  const [rosterLoading, setRosterLoading] = useState(false);
-  const [roster, setRoster] = useState<Enrollment[]>([]);
-  const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
-  const [bulkPromoteLoading, setBulkPromoteLoading] = useState(false);
-
-  // Fetch active enrollments for a class (IDs-only filters)
-  const loadActiveRosterForClass = async (c: Class) => {
-    setRosterLoading(true);
-    setTransferRosterModalClass(c);
-    try {
-      const data = await enrollmentService.getEnrollments(0, 100, {
-        grade_id: c.grade_id,
-        section_id: c.section_id,
-        status: 'active',
-        academic_year_id: selectedAcademicYear
-      });
-      setRoster(data.items || []);
-    } catch (err) {
-      toast.error('Failed to load class roster');
-    } finally {
-      setRosterLoading(false);
-    }
-  };
-
-  // Promote modal open logic
-  const openPromoteModal = (c: Class) => {
-    setPromoteModalClass(c);
-    setRoster([]);
-    setSelectedStudents([]);
-    // Re-use same loader
-    loadActiveRosterForClass(c);
-  };
-
-  const toggleStudentSelection = (id: string) => {
-    setSelectedStudents(prev =>
-      prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id]
-    );
-  };
-
-  const toggleAllStudents = () => {
-    if (selectedStudents.length === roster.length) {
-      setSelectedStudents([]);
-    } else {
-      setSelectedStudents(roster.map(r => r.id));
-    }
-  };
-
-  const confirmBulkPromote = async () => {
-    if (selectedStudents.length === 0) {
-      toast.error('Select at least one student to promote/transfer');
-      return;
-    }
-
-    setBulkPromoteLoading(true);
-    try {
-      // If promoting multiple students to NEXT year
-      // Find current year
-      const currentYear = academicYears.find(y => y.is_current);
-      const nextYear = academicYears.find(y => !y.is_current && new Date(y.start_date) > new Date(currentYear?.start_date || ''));
-
-      if (!nextYear) {
-        throw new Error('No future academic year found for promotion');
-      }
-
-      // We'll perform one-by-one for now as the Bulk API is tailored for new student creation
-      for (const enrollmentId of selectedStudents) {
-        const enrollment = roster.find(r => r.id === enrollmentId);
-        if (!enrollment) continue;
-
-        // Perform promotion (business logic: current grade -> next grade)
-        await promotionService.promoteEnrollment(enrollmentId, {
-          target_academic_year: nextYear.id,
-          promotion_type: 'grade'
-        });
-      }
-
-      toast.success(`Successfully processed ${selectedStudents.length} students`);
-      setPromoteModalClass(null);
-      setSelectedStudents([]);
-    } catch (err: any) {
-      toast.error(err.message || 'Bulk operation failed');
-    } finally {
-      setBulkPromoteLoading(false);
-    }
-  };
-
-  const openTransferRosterModal = (c: Class) => {
-    setTransferRosterModalClass(c);
-    setRoster([]);
-    setSelectedStudents([]);
-    loadActiveRosterForClass(c);
-  };
-
-  // Transformation for Dialogs
-  const gradesForDialogs = grades.map(g => ({
-    id: g.id,
-    name: g.name,
-    level: g.level,
-    sections: sections.filter(s => s.grade_id === g.id)
-  }));
-
-
-  if (loading) {
+  if (yearsQuery.isLoading) {
     return (
-      <div className="flex items-center justify-center p-12">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-        <span className="ml-2 font-medium text-gray-600">Loading classes data...</span>
-      </div>
+      <PageShell title="Classes" description={description}>
+        <Skeleton className="h-24 w-full rounded-xl" />
+        <Skeleton className="h-64 w-full rounded-xl" />
+      </PageShell>
+    );
+  }
+
+  if (yearsQuery.isError) {
+    return (
+      <PageShell title="Classes" description={description}>
+        <EmptyState
+          icon={RefreshCw}
+          title="The school years didn't load"
+          description={`${errorMessage(yearsQuery.error, "The server didn't answer.")} Check your connection and try again.`}
+          action={<Button onClick={() => yearsQuery.refetch()}>Try again</Button>}
+        />
+      </PageShell>
+    );
+  }
+
+  if (!year) {
+    return (
+      <PageShell title="Classes" description={description}>
+        <EmptyState
+          icon={School}
+          title="No school year yet"
+          description="Classes belong to a school year. Create the school year first under Classes → Years and terms."
+          action={
+            <Button asChild>
+              <Link href={`/${school}/academics/academic-years`}>Open years and terms</Link>
+            </Button>
+          }
+        />
+      </PageShell>
     );
   }
 
   return (
-    <div className="space-y-6 min-h-screen">
-      <EnrollmentDialogs
-        ref={dialogsRef as any}
-        showCreateDialog={false}
-        setShowCreateDialog={() => { }}
-        showBulkDialog={false}
-        setShowBulkDialog={() => { }}
-        editingEnrollment={null}
-        setEditingEnrollment={() => { }}
-        students={[]}
-        academicYears={academicYears}
-        grades={gradesForDialogs as any}
-        sections={sections as any}
-        currentAcademicYear={academicYears.find(y => y.id === selectedAcademicYear) || null}
-        onSuccess={async () => {
-          setTransferRosterModalClass(null);
-        }}
-        hideButtons={true}
-      />
-
-      {/* Header Area - Always visible if not loading */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-6 border-b border-gray-200 mb-2">
-        <div>
-          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">Class Management</h1>
-          <p className="text-gray-500 mt-1 max-w-2xl text-sm">
-            Configure classes for each grade, section, and subject combination.
-          </p>
-        </div>
-        <div className="flex items-center gap-3 flex-shrink-0">
-          <Button
-            onClick={() => setIsCreateDialogOpen(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 shadow-lg shadow-blue-100 transition-all active:scale-95 flex-shrink-0 min-w-[140px]"
-          >
-            <Plus className="w-4 h-4 mr-2 stroke-[3px]" />
-            Add Class
-          </Button>
-          <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-            <DialogContent className="max-w-md rounded-2xl">
-              <DialogHeader>
-                <DialogTitle className="text-2xl font-bold">Create New Class</DialogTitle>
-                <DialogDescription>
-                  Set up a new class by selecting grade, section, and location details.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 py-2">
-                <div>
-                  <Label htmlFor="academicYear" className="text-gray-700 font-medium mb-1.5 block">Academic Year</Label>
-                  <Select
-                    value={formData.academicYearId}
-                    onValueChange={(value) => setFormData(prev => ({ ...prev, academicYearId: value }))}
-                  >
-                    <SelectTrigger className="rounded-lg border-gray-200">
-                      <SelectValue placeholder="Select academic year" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {academicYears.map(year => (
-                        <SelectItem key={year.id} value={year.id}>
-                          {year.name} {year.is_current && '(Current)'}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="grade" className="text-gray-700 font-medium mb-1.5 block">Grade</Label>
-                    <Select
-                      value={formData.gradeId}
-                      onValueChange={(value) => setFormData(prev => ({ ...prev, gradeId: value, sectionId: '' }))}
-                    >
-                      <SelectTrigger className="rounded-lg border-gray-200">
-                        <SelectValue placeholder="Select grade" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {grades.map(grade => (
-                          <SelectItem key={grade.id} value={grade.id}>
-                            {grade.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label htmlFor="section" className="text-gray-700 font-medium mb-1.5 block">Section</Label>
-                    <Select
-                      value={formData.sectionId}
-                      onValueChange={(value) => setFormData(prev => ({ ...prev, sectionId: value }))}
-                    >
-                      <SelectTrigger className="rounded-lg border-gray-200">
-                        <SelectValue placeholder="Select section" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {sections
-                          .filter((section: any) => section.grade_id === formData.gradeId)
-                          .map((section: any) => (
-                            <SelectItem key={section.id} value={section.id}>
-                              {section.name}
-                            </SelectItem>
-                          ))}
-                        {formData.gradeId && sections.filter((s: any) => s.grade_id === formData.gradeId).length === 0 && (
-                          <div className="p-2 text-center text-xs text-gray-400 italic">
-                            No sections found for this grade
-                          </div>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="teacher" className="text-gray-700 font-medium mb-1.5 block">Class Sponsor (Teacher)</Label>
-                  <Select
-                    value={formData.classTeacherId}
-                    onValueChange={(value) => setFormData(prev => ({ ...prev, classTeacherId: value }))}
-                  >
-                    <SelectTrigger className="rounded-lg border-gray-200">
-                      <SelectValue placeholder="Select teacher" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {teachers.map(teacher => (
-                        <SelectItem key={teacher.id} value={teacher.id}>
-                          {teacher.first_name} {teacher.last_name} ({teacher.employee_id})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="room" className="text-gray-700 font-medium mb-1.5 block">Room / Location</Label>
-                    <Input
-                      id="room"
-                      value={formData.room}
-                      onChange={(e) => setFormData(prev => ({ ...prev, room: e.target.value }))}
-                      placeholder="e.g., Room 101"
-                      className="rounded-lg border-gray-200"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="capacity" className="text-gray-700 font-medium mb-1.5 block">Max Capacity</Label>
-                    <Input
-                      id="capacity"
-                      type="number"
-                      value={formData.capacity}
-                      onChange={(e) => setFormData(prev => ({ ...prev, capacity: e.target.value }))}
-                      min="1"
-                      max="50"
-                      className="rounded-lg border-gray-200"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="flex justify-end space-x-3 pt-6">
-                <Button variant="ghost" onClick={() => setIsCreateDialogOpen(false)} disabled={createClassMutation.isPending} className="font-medium text-gray-500 hover:text-gray-700">
-                  Cancel
-                </Button>
-                <Button onClick={handleCreateClass} disabled={createClassMutation.isPending} className="bg-blue-600 hover:bg-blue-700 font-bold px-8 rounded-lg shadow-md shadow-blue-100">
-                  {createClassMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                  {createClassMutation.isPending ? 'Processing...' : 'Create Class'}
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-        </div>
+    <PageShell title="Classes" description={description} primaryAction={addButton}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <LabeledSelect label="School year" value={activeYearId} onChange={setYearId} hideLabel={false}>
+          {yearsQuery.years.map((y) => (
+            <option key={y.id} value={y.id}>
+              {y.name}
+              {y.is_current ? ' (current)' : ''}
+            </option>
+          ))}
+        </LabeledSelect>
+        <LabeledSelect label="Grade level" value={gradeId} onChange={setGradeId} hideLabel={false}>
+          <option value={ALL}>All grade levels</option>
+          {levels.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+            </option>
+          ))}
+        </LabeledSelect>
       </div>
 
-      {error && (
-        <Alert className="border-red-100 bg-red-50/50 rounded-xl">
-          <AlertTriangle className="h-5 w-5 text-red-500" />
-          <AlertDescription className="text-red-700 font-medium flex items-center justify-between w-full">
-            <span>Some classes couldn&apos;t be loaded. Check your internet connection and try again.</span>
-            <Button variant="outline" size="sm" className="bg-white border-red-200 text-red-700 hover:bg-red-50 rounded-lg font-bold" onClick={() => window.location.reload()}>
-              Try again
-            </Button>
-          </AlertDescription>
-        </Alert>
+      {classesQuery.isError ? (
+        <EmptyState
+          icon={RefreshCw}
+          title="The classes didn't load"
+          description={`${errorMessage(classesQuery.error, "Some classes couldn't be loaded.")} Check your internet connection and try again.`}
+          action={<Button onClick={() => classesQuery.refetch()}>Try again</Button>}
+        />
+      ) : (
+        <>
+          {!teachersQuery.isLoading && !teachersQuery.isError && teachers.length === 0 ? (
+            <div role="status" className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <AlertTriangle className="size-5 shrink-0" aria-hidden="true" />
+              <p>
+                <span className="font-semibold">No teachers yet.</span> You can still create classes. Add teachers under
+                Staff → Add teacher when you&apos;re ready to choose class sponsors.
+              </p>
+            </div>
+          ) : null}
+
+          {classesQuery.isLoading ? (
+            <Skeleton className="h-24 w-full rounded-xl" />
+          ) : (
+            <CountTiles
+              tiles={[
+                {
+                  label: 'Classes',
+                  value: missing.length > 0 ? `${classes.length} of ${classes.length + missing.length}` : classes.length,
+                },
+                { label: 'Seats', value: seats },
+                { label: 'Students enrolled', value: enrolled },
+                { label: 'No sponsor', value: withoutSponsor, status: withoutSponsor > 0 ? 'pending' : undefined },
+              ]}
+            />
+          )}
+
+          {!classesQuery.isLoading && classes.length > 0 && missing.length > 0 ? (
+            <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-semibold">
+                {plural(missing.length, 'section has', 'sections have')} no class this year
+              </p>
+              <p className="mt-1">
+                {missing.slice(0, 8).join(', ')}
+                {missing.length > 8 ? ` and ${missing.length - 8} more` : ''}.
+                {canManageClasses ? ' Add them with “Add a class”, or all at once under Classes → Setup.' : ''}
+              </p>
+            </div>
+          ) : null}
+
+          <DataTable
+            label="Classes"
+            columns={columns}
+            data={classes}
+            loading={classesQuery.isLoading}
+            searchable
+            searchPlaceholder="Search by class, sponsor or room"
+            getRowId={(c) => c.id}
+            initialSorting={[{ id: 'class', desc: false }]}
+            pageSize={50}
+            emptyState={
+              levelHasNoSections && selectedLevel ? (
+                <EmptyState
+                  icon={School}
+                  title={`${selectedLevel.name} has no sections yet`}
+                  description="Classes are made from grade levels and their sections. Add sections first, here or under Classes → Sections."
+                  action={
+                    canManageClasses ? (
+                      <Button onClick={() => setAddingSections(true)}>Add sections A to E</Button>
+                    ) : undefined
+                  }
+                />
+              ) : (
+                <EmptyState
+                  icon={School}
+                  title={
+                    selectedLevel ? `${selectedLevel.name} has no classes this year` : 'This school year has no classes yet'
+                  }
+                  description="Create them under Classes → Setup (Step 3, Create classes). Students are admitted into classes, and teachers are given subjects in them."
+                  action={
+                    <Button asChild>
+                      <Link href={`/${school}/academics/setup`}>Open setup</Link>
+                    </Button>
+                  }
+                />
+              )
+            }
+          />
+        </>
       )}
 
-      {/* Main Content Area */}
-      <div className="space-y-6">
-        {teachers.length === 0 && !loading && (
-          <Alert className="border-yellow-200 bg-yellow-50 mb-4">
-            <AlertTriangle className="h-4 w-4 text-yellow-600" />
-            <AlertDescription className="text-yellow-800">
-              <strong>No teachers yet.</strong>
-              <br />
-              You can still create classes. Add teachers under Teachers → Add teacher when you&apos;re ready to
-              choose class sponsors.
-            </AlertDescription>
-          </Alert>
-        )}
+      {form ? (
+        <ClassFormDialog
+          key={form.mode === 'edit' ? form.row.id : 'create'}
+          editing={form.mode === 'edit' ? form.row : null}
+          years={yearsQuery.years}
+          yearId={activeYearId}
+          gradeId={gradeId === ALL ? '' : gradeId}
+          levels={levels}
+          sections={sections}
+          yearClasses={allClasses}
+          teachers={teachers}
+          teachersLoading={teachersQuery.isLoading}
+          onClose={() => setForm(null)}
+        />
+      ) : null}
 
-        {/* Status Alert */}
-        {configured === 0 && (
-          <Alert className="border-red-200 bg-red-50">
-            <AlertTriangle className="h-4 w-4 text-red-600" />
-            <AlertDescription className="text-red-800">
-              <strong>This school year has no classes yet.</strong>
-              <br />
-              Create them under Classes → Setup (Step 3, Create classes). Students are admitted into classes,
-              and teachers are given subjects in them.
-            </AlertDescription>
-          </Alert>
-        )}
+      <ConfirmDialog
+        open={Boolean(deleting)}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={`Delete ${deleting ? classLabel(deleting) : 'this class'}?`}
+        description="Its subjects, their teachers and its timetable are deleted with it. A class with students can't be deleted: move them to another class first. This can't be undone."
+        confirmLabel="Delete class"
+        destructive
+        onConfirm={confirmDelete}
+      />
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Classes</CardTitle>
-              <School className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{configured}</div>
-              <p className="text-xs text-muted-foreground">
-                Out of {total} possible combinations
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Configuration Progress</CardTitle>
-              <CheckCircle className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{completionPercentage}%</div>
-              <div className="w-full bg-gray-200 rounded-full h-1 mt-2">
-                <div
-                  className="bg-blue-600 h-1 rounded-full"
-                  style={{ width: `${completionPercentage}%` }}
-                ></div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Capacity</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {(filteredClasses || []).reduce((sum, c) => sum + (c.capacity || 0), 0)}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Student seats available
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Current Enrollment</CardTitle>
-              <Badge variant="outline" className="h-4">Active</Badge>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {Object.values(enrollmentCounts || {}).reduce((a, b) => (a as number) + (b as number), 0)}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Total students in session
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Filters and List */}
-        <Card className="shadow-lg border-gray-100 rounded-2xl overflow-hidden">
-          <CardHeader className="bg-gray-50/50 border-b border-gray-100 py-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <CardTitle className="text-xl font-bold">Current Setup</CardTitle>
-                <CardDescription>Manage and view configured class structures</CardDescription>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <Select value={selectedAcademicYear} onValueChange={setSelectedAcademicYear}>
-                  <SelectTrigger className="w-[200px] rounded-lg shadow-sm border-gray-200">
-                    <SelectValue placeholder="Academic Year" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {academicYears.map(year => (
-                      <SelectItem key={year.id} value={year.id}>
-                        {year.name} {year.is_current && '(Current)'}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                <Select value={selectedGrade} onValueChange={setSelectedGrade}>
-                  <SelectTrigger className="w-[180px] rounded-lg shadow-sm border-gray-200">
-                    <SelectValue placeholder="Filter by Grade" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Grades</SelectItem>
-                    {grades.map(grade => (
-                      <SelectItem key={grade.id} value={grade.id}>{grade.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                <div className="relative w-[250px]">
-                  <Input
-                    placeholder="Search classes..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="rounded-lg shadow-sm pl-9 border-gray-200 focus:ring-blue-500"
-                  />
-                  <Users className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                </div>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader className="bg-white hover:bg-white border-b-2">
-                <TableRow>
-                  <TableHead className="font-bold py-4">Class Structure</TableHead>
-                  <TableHead className="font-bold">Sponsor/Location</TableHead>
-                  <TableHead className="font-bold">Capacity</TableHead>
-                  <TableHead className="font-bold">Subject Load</TableHead>
-                  <TableHead className="font-bold text-right pt-2 px-8 pr-12">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredClasses.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="h-48 text-center bg-gray-50/30">
-                      <div className="flex flex-col items-center justify-center space-y-2">
-                        <School className="h-10 w-10 text-gray-300" />
-                        <p className="text-gray-500 font-medium">No classes match your current filters</p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={syncSectionsForGrade}
-                          className="mt-2 text-blue-600 border-blue-200"
-                        >
-                          Auto-Generate Default Sections
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredClasses.map((c: any) => (
-                    <TableRow key={c.id} className="hover:bg-blue-50/30 transition-colors group">
-                      <TableCell className="py-4">
-                        <div className="flex flex-col">
-                          <span className="font-bold text-gray-900 leading-none mb-1">
-                            {(c as any).grade_name} - {(c as any).section_name}
-                          </span>
-                          <span className="text-xs text-gray-500 font-medium">
-                            {completionPercentage}% Target Met
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col">
-                          <span className="font-medium text-gray-700 flex items-center">
-                            <Users className="h-3 w-3 mr-1.5 opacity-60" />
-                            {c.class_teacher_name || 'Unassigned'}
-                          </span>
-                          <span className="text-xs text-gray-500">{c.room || 'No Room'}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col space-y-1">
-                          <div className="flex justify-between items-center text-xs px-1">
-                            <span className="font-medium">{enrollmentCounts[c.id] || 0}/{c.capacity}</span>
-                            <span className="text-gray-400">{Math.round(((enrollmentCounts[c.id] || 0) / c.capacity) * 100)}%</span>
-                          </div>
-                          <div className="w-28 bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                            <div
-                              className={cn(
-                                "h-full transition-all",
-                                ((enrollmentCounts[c.id] || 0) >= c.capacity) ? "bg-red-500" : "bg-blue-500"
-                              )}
-                              style={{ width: `${Math.min(100, ((enrollmentCounts[c.id] || 0) / c.capacity) * 100)}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary" className="bg-purple-50 text-purple-700 border-purple-100">
-                          <BookOpen className="h-3 w-3 mr-1" />
-                          {c.subjects_count || 0} Subjects
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right pt-2 px-8 pr-12">
-                        <div className="flex justify-end gap-1 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleOpenEditDialog(c)}
-                            title="Edit Settings"
-                            className="text-gray-400 hover:text-blue-600"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => openTransferRosterModal(c)}
-                            title="Manage Students"
-                            className="text-gray-400 hover:text-green-600"
-                          >
-                            <Users className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDeleteClass(c.id)}
-                            className="text-gray-400 hover:text-red-600"
-                            title="Delete Class"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Promotion Roster Management Modal */}
-      <Dialog open={!!promoteModalClass} onOpenChange={(o) => !o && setPromoteModalClass(null)}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Students in {(promoteModalClass as any)?.grade_name} - {(promoteModalClass as any)?.section_name}</DialogTitle>
-            <DialogDescription>
-              Select students to bulk-promote to the next academic year.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="border rounded-md max-h-[400px] overflow-y-auto">
-            <Table>
-              <TableHeader className="sticky top-0 bg-white z-10">
-                <TableRow>
-                  <TableHead className="w-[50px]">
-                    <Checkbox
-                      checked={selectedStudents.length === roster.length && roster.length > 0}
-                      onCheckedChange={toggleAllStudents}
-                    />
-                  </TableHead>
-                  <TableHead>Student Name</TableHead>
-                  <TableHead>Admission #</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rosterLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center py-8">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-600" />
-                      <p className="mt-2 text-sm text-gray-500">Loading roster...</p>
-                    </TableCell>
-                  </TableRow>
-                ) : roster.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center py-8 text-gray-500">
-                      No active enrollments found for this class.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  roster.map((r: any) => (
-                    <TableRow key={r.id}>
-                      <TableCell>
-                        <Checkbox
-                          checked={selectedStudents.includes(r.id)}
-                          onCheckedChange={() => toggleStudentSelection(r.id)}
-                        />
-                      </TableCell>
-                      <TableCell className="font-medium">{r.student_name}</TableCell>
-                      <TableCell>{r.admission_number}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={cn(
-                          r.status === 'Eligible' ? "text-green-600 border-green-200 bg-green-50" :
-                            r.status === 'Repeating' ? "text-red-600 border-red-200 bg-red-50" :
-                              "text-yellow-600 border-yellow-200 bg-yellow-50"
-                        )}>
-                          {r.status}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-
-          <div className="flex justify-between items-center bg-gray-50 p-4 rounded-lg">
-            <span className="text-sm font-medium">{selectedStudents.length} students selected</span>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setPromoteModalClass(null)}>Cancel</Button>
-              <Button
-                onClick={confirmBulkPromote}
-                disabled={bulkPromoteLoading || selectedStudents.length === 0}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                {bulkPromoteLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                Promote to Next Year
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit Class Details</DialogTitle>
-            <DialogDescription>
-              Update class settings for {(editingClass as any)?.grade_name} - {(editingClass as any)?.section_name}
-            </DialogDescription>
-          </DialogHeader>
-
-          {editingClass && (
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="edit-teacher">Class Sponsor</Label>
-                <Select
-                  value={editFormData.classTeacherId}
-                  onValueChange={(value) => setEditFormData(prev => ({ ...prev, classTeacherId: value }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select teacher" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {teachers.map(teacher => (
-                      <SelectItem key={teacher.id} value={teacher.id}>
-                        {teacher.first_name} {teacher.last_name} ({teacher.employee_id})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="edit-room">Room / Location</Label>
-                <Input
-                  id="edit-room"
-                  value={editFormData.room}
-                  onChange={(e) => setEditFormData(prev => ({ ...prev, room: e.target.value }))}
-                  placeholder="e.g., Room 101"
-                />
-              </div>
-              <div>
-                <Label htmlFor="edit-capacity">Class Capacity</Label>
-                <Input
-                  id="edit-capacity"
-                  type="number"
-                  value={editFormData.capacity}
-                  onChange={(e) => setEditFormData(prev => ({ ...prev, capacity: e.target.value }))}
-                  min="1"
-                  max="100"
-                />
-              </div>
-            </div>
-          )}
-          <div className="flex justify-end space-x-2 pt-4">
-            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)} disabled={updateClassMutation.isPending}>
-              Cancel
-            </Button>
-            <Button onClick={handleUpdateClass} disabled={updateClassMutation.isPending}>
-              {updateClassMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {updateClassMutation.isPending ? 'Saving...' : 'Save Changes'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
+      <ConfirmDialog
+        open={addingSections}
+        onOpenChange={setAddingSections}
+        title={`Add sections A to E to ${selectedLevel?.name ?? 'this grade level'}?`}
+        description="Five sections are added (Section A to Section E). You can rename or delete any of them under Classes → Sections."
+        confirmLabel="Add sections"
+        onConfirm={addDefaultSections}
+      />
+    </PageShell>
   );
 }
 
-// Utility class helper
-function cn(...classes: any[]) {
-  return classes.filter(Boolean).join(' ');
+interface ClassFormDialogProps {
+  /** The class to change; null to add a class */
+  editing: YearClassRow | null;
+  years: { id: string; name: string; is_current: boolean }[];
+  yearId: string;
+  gradeId: string;
+  levels: { id: string; name: string }[];
+  sections: Section[];
+  /** Classes of the year shown on the page (to mark the sections that already have one) */
+  yearClasses: YearClassRow[];
+  teachers: TeacherOption[];
+  teachersLoading: boolean;
+  onClose: () => void;
+}
+
+type FormErrors = Partial<Record<'year' | 'grade' | 'section' | 'capacity', string>>;
+
+/** Add a class, or change a class's name, seats, room and sponsor. */
+function ClassFormDialog({
+  editing,
+  years,
+  yearId: pageYearId,
+  gradeId: pageGradeId,
+  levels,
+  sections,
+  yearClasses,
+  teachers,
+  teachersLoading,
+  onClose,
+}: ClassFormDialogProps) {
+  const createClass = useCreateClass();
+  const updateClass = useUpdateClass();
+  const busy = createClass.isPending || updateClass.isPending;
+
+  const [yearId, setYearId] = React.useState(editing?.academic_year_id ?? pageYearId);
+  const [gradeId, setGradeId] = React.useState(editing?.grade_id ?? pageGradeId);
+  const [sectionId, setSectionId] = React.useState(editing?.section_id ?? '');
+  const [name, setName] = React.useState(editing?.name ?? '');
+  const [sponsorId, setSponsorId] = React.useState(editing?.class_teacher_id ?? '');
+  const [room, setRoom] = React.useState(editing?.room ?? '');
+  const [capacity, setCapacity] = React.useState(String(editing?.capacity ?? 30));
+  const [errors, setErrors] = React.useState<FormErrors>({});
+
+  const gradeSections = sections.filter((s) => s.grade_id === gradeId);
+  // Only known for the year shown on the page
+  const taken = new Set(yearId === pageYearId ? yearClasses.map((c) => c.section_id) : []);
+  const sponsorKnown = !sponsorId || teachers.some((t) => t.id === sponsorId);
+  const pairName = editing
+    ? [editing.grade_name, editing.section_name].filter(Boolean).join(' - ')
+    : [levels.find((l) => l.id === gradeId)?.name, gradeSections.find((s) => s.id === sectionId)?.name]
+        .filter(Boolean)
+        .join(' - ');
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const seats = Number(capacity);
+    const next: FormErrors = {};
+    if (!editing) {
+      if (!yearId) next.year = 'Choose the school year.';
+      if (!gradeId) next.grade = 'Choose the grade level.';
+      if (!sectionId) next.section = 'Choose the section.';
+    }
+    if (!Number.isInteger(seats) || seats < 1 || seats > MAX_SEATS) {
+      next.capacity = `Enter the number of seats, from 1 to ${MAX_SEATS}.`;
+    }
+    setErrors(next);
+    if (Object.keys(next).length > 0) return;
+
+    try {
+      if (editing) {
+        const label = name.trim() || pairName || 'The class';
+        await updateClass.mutateAsync({
+          id: editing.id,
+          data: {
+            name: name.trim() || pairName || undefined,
+            capacity: seats,
+            room: room.trim(),
+            class_teacher_id: sponsorId || null,
+          },
+        });
+        notify.success(`${label} is saved.`);
+      } else {
+        const created = await createClass.mutateAsync({
+          academic_year_id: yearId,
+          grade_id: gradeId,
+          section_id: sectionId,
+          name: name.trim() || undefined,
+          class_teacher_id: sponsorId || undefined,
+          room: room.trim() || undefined,
+          capacity: seats,
+          is_active: true,
+        });
+        notify.success(`${created?.name || pairName || 'The class'} is added.`);
+      }
+      onClose();
+    } catch (err) {
+      notify.error(
+        errorMessage(err, editing ? "The class wasn't saved. Try again." : "The class wasn't added. Try again.")
+      );
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{editing ? `Edit ${classLabel(editing)}` : 'Add a class'}</DialogTitle>
+          <DialogDescription>
+            {editing
+              ? 'Change its name, seats, room or sponsor. Its grade level and section stay the same.'
+              : 'A class is one section of a grade level for one school year.'}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={save} className="mt-4 grid gap-4" noValidate>
+          {editing ? null : (
+            <>
+              <FormField label="School year" error={errors.year} required>
+                <select className={selectClass} value={yearId} onChange={(e) => setYearId(e.target.value)}>
+                  <option value="">Choose a school year</option>
+                  {years.map((y) => (
+                    <option key={y.id} value={y.id}>
+                      {y.name}
+                      {y.is_current ? ' (current)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField label="Grade level" error={errors.grade} required>
+                  <select
+                    className={selectClass}
+                    value={gradeId}
+                    onChange={(e) => {
+                      setGradeId(e.target.value);
+                      setSectionId('');
+                    }}
+                  >
+                    <option value="">Choose a grade level</option>
+                    {levels.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+                <FormField
+                  label="Section"
+                  error={errors.section}
+                  description={gradeId && gradeSections.length === 0 ? 'This grade level has no sections yet. Add them under Classes → Sections.' : undefined}
+                  required
+                >
+                  <select
+                    className={selectClass}
+                    value={sectionId}
+                    onChange={(e) => setSectionId(e.target.value)}
+                    disabled={!gradeId || gradeSections.length === 0}
+                  >
+                    <option value="">{gradeId ? 'Choose a section' : 'Choose the grade level first'}</option>
+                    {gradeSections.map((s) => (
+                      <option key={s.id} value={s.id} disabled={taken.has(s.id)}>
+                        {s.name}
+                        {taken.has(s.id) ? ' (has a class)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+              </div>
+            </>
+          )}
+          <FormField
+            label="Class name"
+            description={pairName ? `Leave it empty to call the class ${pairName}.` : 'Leave it empty to name the class after its grade level and section.'}
+          >
+            <Input value={name} onChange={(e) => setName(e.target.value)} className="h-11 md:h-9" maxLength={100} />
+          </FormField>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField label="Class capacity" error={errors.capacity} description="Seats in this class." required>
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={MAX_SEATS}
+                value={capacity}
+                onChange={(e) => setCapacity(e.target.value)}
+                className="h-11 md:h-9"
+              />
+            </FormField>
+            <FormField label="Room">
+              <Input
+                value={room}
+                onChange={(e) => setRoom(e.target.value)}
+                placeholder="For example, Room 101"
+                className="h-11 md:h-9"
+              />
+            </FormField>
+          </div>
+          <FormField
+            label="Class sponsor"
+            description={!teachersLoading && teachers.length === 0 ? 'No teachers yet. Add them under Staff → Add teacher.' : undefined}
+          >
+            <select
+              className={selectClass}
+              value={sponsorId}
+              onChange={(e) => setSponsorId(e.target.value)}
+              disabled={teachersLoading}
+            >
+              <option value="">{teachersLoading ? 'Loading teachers…' : 'No sponsor'}</option>
+              {!sponsorKnown ? <option value={sponsorId}>{editing?.class_teacher_name || 'Current sponsor'}</option> : null}
+              {teachers.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {teacherName(t)}
+                </option>
+              ))}
+            </select>
+          </FormField>
+          <DialogFooter className="mt-2 gap-2 sm:space-x-0">
+            <Button type="button" variant="outline" className="min-h-11 md:min-h-9" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="submit" className="min-h-11 md:min-h-9" disabled={busy}>
+              {editing ? 'Save class' : 'Add class'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
 }
