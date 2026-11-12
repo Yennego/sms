@@ -434,3 +434,9 @@ def test_deactivated_student_can_no_longer_sign_in(env):
     assert client.get("/api/v1/auth/me", headers=h_student).status_code == 401  # existing session ends
     client.put(f"/api/v1/people/students/{ids['student_a']}/status?status=active", headers=h_admin)
     assert client.get("/api/v1/auth/me", headers=h_student).status_code == 200
+
+
+def test_health_is_public_and_checks_the_database(env):
+    client, _ = env
+    r = client.get("/health")
+    assert r.status_code == 200 and r.json() == {"status": "ok", "database": "ok"}

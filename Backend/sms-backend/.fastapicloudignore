@@ -1,0 +1,20 @@
+# Not uploaded to FastAPI Cloud (on top of .gitignore): secrets, tests, local data and debugging leftovers
+.env
+.env.*
+!.env.example
+.venv/
+tests/
+docs/
+storage/
+tmp/
+static/uploads/
+*.log
+*.db
+*.txt
+!requirements.txt
+*.pdf
+*.md
+!README.md
+__pycache__/
+.pytest_cache/
+render.yaml
