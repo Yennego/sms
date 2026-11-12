@@ -1,458 +1,609 @@
 'use client';
 
-import React, { useState, useCallback, useMemo } from 'react';
-import { useParams } from 'next/navigation';
-import { Teacher } from '@/types/teacher';
-import { Class } from '@/types/class';
-import { ClassSubjectAssignment, TeacherSubjectAssignment } from '@/types/teacher-subject-assignment';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+// Subject assignments: which teacher teaches which subject in which class, and each class's sponsor,
+// for the selected school year. Three views: by teacher, every subject, and class sponsors.
+
+import * as React from 'react';
+import type { ColumnDef } from '@tanstack/react-table';
+import { BookOpen, Pencil, Trash2, UserPlus, Users } from 'lucide-react';
+
+import { CountTiles } from '@/components/attendance/attendance-ui';
 import {
-  Search, Filter, Users, BookOpen, GraduationCap, Building2, UserPlus, Loader2, Calendar, RefreshCw, AlertCircle
-} from 'lucide-react';
-import { TeacherAssignmentModal } from '@/components/common/TeacherAssignmentModal';
-import { TeacherSubjectAssignmentModal } from '@/components/common/TeacherSubjectAssignmentModal';
-import { EditTeacherAssignmentModal } from '@/components/common/EditTeacherAssignmentModal';
-import { TeacherSubjectAssignmentCard } from '@/components/teachers/teacher-subject-assignment-card';
-import { ClassSponsorGrid } from '@/components/teachers/class-sponsor-grid';
-import { AssignSponsorModal } from '@/components/teachers/assign-sponsor-modal';
-import { ClassRosterModal } from '@/components/common/ClassRosterModal';
-import { SubjectAssignmentGrid } from '@/components/teachers/subject-assignment-grid';
-import { toast } from 'sonner';
+  AssignmentStudentsDialog,
+  AssignSubjectsDialog,
+  ChooseTeacherDialog,
+  EditAssignmentDialog,
+  SponsorDialog,
+  slotKey,
+  teacherName,
+} from '@/components/classes/subject-assignment-dialogs';
+import { errorMessage } from '@/components/students/format';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { DataTable } from '@/components/ui/data-table';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Input } from '@/components/ui/input';
+import { PageShell } from '@/components/ui/page-shell';
+import { Skeleton } from '@/components/ui/skeleton';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { notify } from '@/components/ui/toaster';
 import { useAcademicYear } from '@/contexts/academic-year-context';
-import { useTeachers } from '@/hooks/queries/teachers';
-import { useClasses } from '@/hooks/queries/classes';
+import { useAuth } from '@/hooks/use-auth';
+import { useEnrollmentGrades, useEnrollmentSections } from '@/hooks/queries/enrollments';
 import { useSubjects } from '@/hooks/queries/subjects';
-import { useEnrollmentGrades, useEnrollmentSections, useAcademicYears } from '@/hooks/queries/enrollments';
 import {
   useAllTeacherAssignments,
   useBulkDeleteAssignments,
   useBulkReassignAssignments,
-  useDeleteAssignment,
+  useClassSponsors,
   useCreateAssignment,
+  useDeleteAssignment,
   useUnassignedSubjects,
-  useClassSponsors
 } from '@/hooks/queries/teacher-assignments';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
+import { useTeachers } from '@/hooks/queries/teachers';
+import { cn } from '@/lib/utils';
+import type { Teacher } from '@/types/teacher';
+import type { ClassSponsor, ClassSubjectAssignment, TeacherSubjectAssignment } from '@/types/teacher-subject-assignment';
 
-export default function TeacherAssignmentsPage() {
-  const { selectedAcademicYearName, selectedAcademicYearId } = useAcademicYear();
-  const currentYear = selectedAcademicYearName || '';
+type View = 'subject' | 'allocation' | 'class';
+const VIEWS: Array<{ key: View; label: string }> = [
+  { key: 'subject', label: 'By teacher' },
+  { key: 'allocation', label: 'All subjects' },
+  { key: 'class', label: 'Class sponsors' },
+];
+const SEARCH_LABEL: Record<View, string> = {
+  subject: 'Search teachers by name, email or staff ID',
+  allocation: 'Search by class, subject or teacher',
+  class: 'Search by class or sponsor',
+};
 
-  // 1. TanStack Queries
-  const { data: teachers = [], isLoading: teachersLoading } = useTeachers();
-  const { data: classes = [], isLoading: classesLoading } = useClasses({ academic_year_id: selectedAcademicYearId || undefined });
-  const { data: subjects = [], isLoading: subjectsLoading } = useSubjects();
-  const { data: grades = [], isLoading: gradesLoading } = useEnrollmentGrades();
-  const { data: sections = [], isLoading: sectionsLoading } = useEnrollmentSections();
-  const { data: allAssignments = [], isLoading: assignmentsLoading } = useAllTeacherAssignments(selectedAcademicYearId || '');
-  const { data: unassignedSubjects = [], isLoading: unassignedLoading } = useUnassignedSubjects(selectedAcademicYearId || '');
-  const { data: sponsors = [], isLoading: sponsorsLoading } = useClassSponsors(selectedAcademicYearId || '');
-  const { data: academicYears = [] } = useAcademicYears();
+// The list endpoints send room / is_active only on some deployments
+type Assignment = ClassSubjectAssignment & { room?: string; is_active?: boolean };
+const norm = (id?: string | null) => (id ?? '').toLowerCase().trim();
+const classLabel = (a: Pick<ClassSubjectAssignment, 'grade_name' | 'section_name'>) =>
+  [a.grade_name, a.section_name].filter(Boolean).join(' - ');
 
-  // 2. Mutations
-  const deleteMutation = useDeleteAssignment();
-  const createMutation = useCreateAssignment();
-  const bulkDeleteMutation = useBulkDeleteAssignments();
-  const bulkReassignMutation = useBulkReassignAssignments();
+export default function SubjectAssignmentsPage() {
+  const { selectedAcademicYearName, selectedAcademicYearId, isLoading: yearLoading } = useAcademicYear();
+  const yearId = selectedAcademicYearId || '';
+  const { user } = useAuth();
+  // Assigning, editing and removing from the teacher view needs manage_teacher_assignments
+  const canManage = Boolean(user?.permissions?.includes('manage_teacher_assignments'));
 
-  // 3. Local UI State
-  const [searchTerm, setSearchTerm] = useState('');
-  const [viewMode, setViewMode] = useState<'class' | 'subject' | 'allocation'>('subject');
-  const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
-  const [assignmentModalOpen, setAssignmentModalOpen] = useState(false);
-  const [subjectAssignmentModalOpen, setSubjectAssignmentModalOpen] = useState(false);
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [rosterModalOpen, setRosterModalOpen] = useState(false);
-  const [assignmentToEdit, setAssignmentToEdit] = useState<TeacherSubjectAssignment | null>(null);
-  const [selectedAssignment, setSelectedAssignment] = useState<any | null>(null);
-  const [selectedAssignmentIds, setSelectedAssignmentIds] = useState<string[]>([]);
-  const [isReassignDialogOpen, setIsReassignDialogOpen] = useState(false);
-  const [targetReassignTeacher, setTargetReassignTeacher] = useState<string>('');
+  const teachersQuery = useTeachers();
+  const subjectsQuery = useSubjects();
+  const gradesQuery = useEnrollmentGrades();
+  const sectionsQuery = useEnrollmentSections();
+  const assignmentsQuery = useAllTeacherAssignments(yearId);
+  const unassignedQuery = useUnassignedSubjects(yearId);
+  const sponsorsQuery = useClassSponsors(yearId);
+  const teachers = React.useMemo(() => teachersQuery.data ?? [], [teachersQuery.data]);
+  const subjects = React.useMemo(() => subjectsQuery.data ?? [], [subjectsQuery.data]);
+  const grades = React.useMemo(() => gradesQuery.data ?? [], [gradesQuery.data]);
+  const sections = React.useMemo(() => sectionsQuery.data ?? [], [sectionsQuery.data]);
+  const assignments = React.useMemo(() => (assignmentsQuery.data ?? []) as Assignment[], [assignmentsQuery.data]);
+  const unassigned = React.useMemo(() => unassignedQuery.data ?? [], [unassignedQuery.data]);
+  const sponsors = React.useMemo(() => sponsorsQuery.data ?? [], [sponsorsQuery.data]);
 
-  // Sponsors UI state
-  const [sponsorModalOpen, setSponsorModalOpen] = useState(false);
-  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
-  const [selectedSectionName, setSelectedSectionName] = useState('');
-  const [currentSponsorId, setCurrentSponsorId] = useState<string | null>(null);
+  const deleteOne = useDeleteAssignment();
+  const deleteMany = useBulkDeleteAssignments();
+  const reassign = useBulkReassignAssignments();
+  const create = useCreateAssignment();
 
-  // 4. Derived Data
-  const teacherNameMap = useMemo(() =>
-    Object.fromEntries(teachers.map(t => [t.id, `${t.first_name} ${t.last_name}`])),
-    [teachers]);
+  const [view, setView] = React.useState<View>('subject');
+  const [search, setSearch] = React.useState('');
+  const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
+  const [assignTo, setAssignTo] = React.useState<Teacher | null>(null);
+  const [editing, setEditing] = React.useState<Assignment | null>(null);
+  const [studentsOf, setStudentsOf] = React.useState<Assignment | null>(null);
+  const [toRemove, setToRemove] = React.useState<Assignment | null>(null);
+  const [removeSelected, setRemoveSelected] = React.useState(false);
+  const [teacherFor, setTeacherFor] = React.useState<Assignment | null>(null);
+  const [moveSelected, setMoveSelected] = React.useState(false);
+  const [sponsorFor, setSponsorFor] = React.useState<ClassSponsor | null>(null);
 
-  const teacherAssignmentsMap = useMemo(() => {
-    const map = new Map<string, TeacherSubjectAssignment[]>();
-    allAssignments.forEach(a => {
-      // Backend returns stringified IDs. Use normalized IDs for matching
-      const teacherId = a.teacher_id?.toLowerCase().trim();
-      if (teacherId) {
-        const existing = map.get(teacherId) || [];
-        map.set(teacherId, [...existing, a as any]);
-      }
-    });
-    return map;
-  }, [allAssignments]);
-
-  const filteredTeachers = useMemo(() => {
-    return teachers.filter(t =>
-      !searchTerm ||
-      `${t.first_name} ${t.last_name} ${t.email} ${t.employee_id}`.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [teachers, searchTerm]);
-
-  // Enriched available assignments for modal (assigned + unassigned slots)
-  const availableSubjectAssignments = useMemo(() => {
-    if (assignmentsLoading || unassignedLoading) return [];
-
-    // Map existing assignments to the format expected by the modal
-    const assignedSlots: ClassSubjectAssignment[] = allAssignments.map(a => {
-      const gName = a.grade_name || grades.find(g => g.id === a.grade_id)?.name || 'Unknown Grade';
-      const sName = a.section_name || sections.find(s => s.id === a.section_id)?.name || 'Unknown Section';
-      const subName = a.subject_name || subjects.find(s => s.id === a.subject_id)?.name || 'Unknown Subject';
-
+  // Names may be missing on some rows: fill them from the lists
+  const named = React.useCallback(
+    (a: ClassSubjectAssignment, isAssigned: boolean): Assignment => {
+      const grade = a.grade_name || grades.find((g) => g.id === a.grade_id)?.name || 'Unknown grade';
+      const section = a.section_name || sections.find((s) => s.id === a.section_id)?.name || 'Unknown section';
+      const subject = a.subject_name || subjects.find((s) => s.id === a.subject_id)?.name || 'Unknown subject';
       return {
         ...a,
-        grade_name: gName,
-        section_name: sName,
-        subject_name: subName,
-        class_name: a.class_name || a.name || `${subName} - ${gName}${sName}`,
-        is_assigned: true
+        grade_name: grade,
+        section_name: section,
+        subject_name: subject,
+        class_name: a.class_name || `${subject} - ${grade} ${section}`,
+        is_assigned: isAssigned,
       };
-    });
+    },
+    [grades, sections, subjects]
+  );
 
-    // Enforce name consistency for unassigned subjects too
-    const unassignedSlots: ClassSubjectAssignment[] = unassignedSubjects.map(u => {
-      const gName = u.grade_name || grades.find(g => g.id === u.grade_id)?.name || 'Unknown Grade';
-      const sName = u.section_name || sections.find(s => s.id === u.section_id)?.name || 'Unknown Section';
-      const subName = u.subject_name || subjects.find(s => s.id === u.subject_id)?.name || 'Unknown Subject';
+  const slots = React.useMemo<Assignment[]>(
+    () => [...assignments.map((a) => named(a, true)), ...unassigned.map((u) => named(u, false))],
+    [assignments, unassigned, named]
+  );
 
-      return {
-        ...u,
-        grade_name: gName,
-        section_name: sName,
-        subject_name: subName,
-        class_name: u.class_name || `${subName} - ${gName}${sName}`,
-        is_assigned: false
-      };
-    });
-
-    return [...assignedSlots, ...unassignedSlots];
-  }, [allAssignments, unassignedSubjects, assignmentsLoading, unassignedLoading]);
-
-  // 5. Handlers
-  const handleEditAssignment = (assignment: TeacherSubjectAssignment) => {
-    setAssignmentToEdit(assignment);
-    setEditModalOpen(true);
-  };
-
-  const handleUnassignSubject = async (assignment: ClassSubjectAssignment) => {
-    if (!assignment.id) return;
-    if (confirm(`Are you sure you want to unassign ${assignment.teacher_name} from ${assignment.class_name}?`)) {
-      try {
-        await deleteMutation.mutateAsync(assignment.id);
-        toast.success('Subject unassigned successfully');
-      } catch (err) {
-        toast.error('Failed to unassign subject');
-      }
+  const byTeacher = React.useMemo(() => {
+    const map = new Map<string, Assignment[]>();
+    for (const a of slots) {
+      if (!a.is_assigned || !a.teacher_id) continue;
+      const key = norm(a.teacher_id);
+      map.set(key, [...(map.get(key) ?? []), a]);
     }
-  };
+    return map;
+  }, [slots]);
 
-  const handleOpenAssignmentDialog = (assignment: ClassSubjectAssignment) => {
-    setSelectedAssignment(assignment);
-    setIsReassignDialogOpen(true);
-    setTargetReassignTeacher(assignment.teacher_id || '');
-  };
+  const term = search.trim().toLowerCase();
+  const shownTeachers = React.useMemo(
+    () =>
+      teachers.filter(
+        (t) => !term || `${t.first_name} ${t.last_name} ${t.email} ${t.employee_id}`.toLowerCase().includes(term)
+      ),
+    [teachers, term]
+  );
+  const shownSlots = React.useMemo(
+    () =>
+      slots
+        .filter((a) => !term || `${classLabel(a)} ${a.subject_name} ${a.teacher_name ?? ''}`.toLowerCase().includes(term))
+        .sort(
+          (a, b) =>
+            a.grade_name.localeCompare(b.grade_name, undefined, { numeric: true }) ||
+            a.section_name.localeCompare(b.section_name) ||
+            a.subject_name.localeCompare(b.subject_name)
+        ),
+    [slots, term]
+  );
+  const shownSponsors = React.useMemo(
+    () =>
+      sponsors.filter((s) => !term || `${s.grade_name} ${s.section_name} ${s.teacher_name ?? ''}`.toLowerCase().includes(term)),
+    [sponsors, term]
+  );
 
-  const handleBulkReassign = async () => {
-    if (!targetReassignTeacher || (selectedAssignmentIds.length === 0 && !selectedAssignment)) return;
+  const toggle = (id: string, checked: boolean) =>
+    setSelectedIds((prev) => (checked ? [...new Set([...prev, id])] : prev.filter((x) => x !== id)));
 
+  const remove = async () => {
+    if (!toRemove?.id) return;
     try {
-      if (selectedAssignment) {
-        if (selectedAssignment.id) {
-          // Reassign existing
-          await bulkReassignMutation.mutateAsync({
-            ids: [selectedAssignment.id],
-            newTeacherId: targetReassignTeacher
-          });
-          toast.success('Subject reassigned successfully');
-        } else {
-          // Create new assignment for vacant slot
-          await createMutation.mutateAsync({
-            teacher_id: targetReassignTeacher,
-            grade_id: selectedAssignment.grade_id,
-            section_id: selectedAssignment.section_id,
-            subject_id: selectedAssignment.subject_id,
-            academic_year_id: selectedAcademicYearId || '',
-            is_active: true,
-            start_date: new Date().toISOString().split('T')[0]
-          });
-          toast.success('Subject assigned successfully');
-        }
-        setSelectedAssignment(null);
-      } else {
-        // Bulk reassign
-        await bulkReassignMutation.mutateAsync({
-          ids: selectedAssignmentIds,
-          newTeacherId: targetReassignTeacher
-        });
-        toast.success('Assignments updated');
-        setSelectedAssignmentIds([]);
-      }
-      setIsReassignDialogOpen(false);
+      await deleteOne.mutateAsync(toRemove.id);
+      setSelectedIds((prev) => prev.filter((x) => x !== toRemove.id));
+      notify.success(`${toRemove.subject_name} in ${classLabel(toRemove)} has no teacher now.`);
     } catch (err) {
-      toast.error('Failed to update assignment');
+      notify.error(errorMessage(err, "The teacher wasn't removed. Try again."));
+      throw err;
     }
   };
 
-  const isLoading = teachersLoading || assignmentsLoading || unassignedLoading || subjectsLoading || gradesLoading || sectionsLoading || sponsorsLoading;
-
-  const handleOpenSponsorModal = (sectionId: string, currentId: string | null) => {
-    const sponsor = sponsors.find(s => s.section_id === sectionId);
-    setSelectedSectionId(sectionId);
-    setSelectedSectionName(sponsor ? `${sponsor.grade_name} - ${sponsor.section_name}` : 'Unknown Section');
-    setCurrentSponsorId(currentId);
-    setSponsorModalOpen(true);
+  const removeMany = async () => {
+    try {
+      await deleteMany.mutateAsync(selectedIds);
+      notify.success(`${selectedIds.length} assignment${selectedIds.length === 1 ? '' : 's'} removed.`);
+      setSelectedIds([]);
+    } catch (err) {
+      notify.error(errorMessage(err, "The assignments weren't removed. Try again."));
+      throw err;
+    }
   };
 
-  return (
-    <div className="p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Teacher Assignments</h1>
-          <p className="text-muted-foreground mt-1">Manage subject teachers and class sponsors for {currentYear}</p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant={viewMode === 'subject' ? 'default' : 'outline'}
-            onClick={() => setViewMode('subject')}
-          >
-            <BookOpen className="h-4 w-4 mr-2" />
-            By Teacher
-          </Button>
-          <Button
-            variant={viewMode === 'allocation' ? 'default' : 'outline'}
-            onClick={() => setViewMode('allocation')}
-          >
-            <BookOpen className="h-4 w-4 mr-2" />
-            All Subjects
-          </Button>
-          <Button
-            variant={viewMode === 'class' ? 'default' : 'outline'}
-            onClick={() => setViewMode('class')}
-          >
-            <Users className="h-4 w-4 mr-2" />
-            Class Sponsors
-          </Button>
-        </div>
-      </div>
+  const chooseTeacher = async (teacherId: string) => {
+    const t = teachers.find((x) => x.id === teacherId);
+    const who = t ? teacherName(t) : 'The teacher';
+    try {
+      if (moveSelected) {
+        await reassign.mutateAsync({ ids: selectedIds, newTeacherId: teacherId });
+        notify.success(`${who} now teaches the ${selectedIds.length} selected subject${selectedIds.length === 1 ? '' : 's'}.`);
+        setSelectedIds([]);
+        setMoveSelected(false);
+      } else if (teacherFor) {
+        if (teacherFor.id) {
+          await reassign.mutateAsync({ ids: [teacherFor.id], newTeacherId: teacherId });
+        } else {
+          await create.mutateAsync({
+            teacher_id: teacherId,
+            grade_id: teacherFor.grade_id,
+            section_id: teacherFor.section_id,
+            subject_id: teacherFor.subject_id,
+            academic_year_id: yearId,
+            is_active: true,
+            start_date: new Date().toISOString().split('T')[0],
+          });
+        }
+        notify.success(`${who} now teaches ${teacherFor.subject_name} in ${classLabel(teacherFor)}.`);
+        setTeacherFor(null);
+      }
+    } catch (err) {
+      notify.error(errorMessage(err, "The teacher wasn't changed. Try again."));
+    }
+  };
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="md:col-span-2">
-          <CardHeader>
-            <div className="flex items-center gap-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Search teachers by name, email or ID..."
-                  className="pl-10"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-              {selectedAssignmentIds.length > 0 && (
-                <div className="flex gap-2 animate-in fade-in slide-in-from-right-4">
-                  <Button variant="outline" size="sm" onClick={() => setIsReassignDialogOpen(true)}>
-                    Reassign ({selectedAssignmentIds.length})
-                  </Button>
-                  <Button variant="destructive" size="sm" onClick={() => {
-                    if (confirm(`Delete ${selectedAssignmentIds.length} assignments?`)) {
-                      bulkDeleteMutation.mutate(selectedAssignmentIds, {
-                        onSuccess: () => setSelectedAssignmentIds([])
-                      });
-                    }
-                  }}>
-                    Delete
-                  </Button>
-                </div>
+  const slotColumns = React.useMemo<ColumnDef<Assignment>[]>(
+    () => [
+      { id: 'class', accessorFn: (a) => classLabel(a), header: 'Class' },
+      { accessorKey: 'subject_name', header: 'Subject', cell: ({ row }) => <span className="font-medium">{row.original.subject_name}</span> },
+      {
+        id: 'teacher',
+        accessorFn: (a) => (a.is_assigned ? a.teacher_name || '' : ''),
+        header: 'Teacher',
+        cell: ({ row }) =>
+          row.original.is_assigned ? (
+            row.original.teacher_name || 'Unknown teacher'
+          ) : (
+            <StatusBadge status="warning" label="No teacher" />
+          ),
+      },
+      {
+        id: 'actions',
+        header: '',
+        enableSorting: false,
+        meta: { label: 'Actions', className: 'text-right' },
+        cell: ({ row }) => (
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              size="sm"
+              variant={row.original.is_assigned ? 'outline' : 'default'}
+              className="min-h-11 md:min-h-9"
+              onClick={() => setTeacherFor(row.original)}
+            >
+              <UserPlus aria-hidden="true" />
+              {row.original.is_assigned ? 'Change teacher' : 'Assign teacher'}
+            </Button>
+            {row.original.is_assigned ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="min-h-11 text-destructive hover:text-destructive md:min-h-9"
+                onClick={() => setToRemove(row.original)}
+              >
+                <Trash2 aria-hidden="true" />
+                Remove
+              </Button>
+            ) : null}
+          </div>
+        ),
+      },
+    ],
+    []
+  );
+
+  const sponsorColumns = React.useMemo<ColumnDef<ClassSponsor>[]>(
+    () => [
+      { id: 'class', accessorFn: (s) => classLabel(s), header: 'Class', cell: ({ row }) => <span className="font-medium">{classLabel(row.original)}</span> },
+      {
+        id: 'sponsor',
+        accessorFn: (s) => s.teacher_name ?? '',
+        header: 'Class sponsor',
+        cell: ({ row }) =>
+          row.original.is_assigned ? (
+            row.original.teacher_name || 'Unknown teacher'
+          ) : (
+            <StatusBadge status="warning" label="No sponsor" />
+          ),
+      },
+      {
+        id: 'actions',
+        header: '',
+        enableSorting: false,
+        meta: { label: 'Actions', className: 'text-right' },
+        cell: ({ row }) => (
+          <Button
+            size="sm"
+            variant={row.original.is_assigned ? 'outline' : 'default'}
+            className="min-h-11 md:min-h-9"
+            onClick={() => setSponsorFor(row.original)}
+          >
+            <UserPlus aria-hidden="true" />
+            {row.original.is_assigned ? 'Change sponsor' : 'Assign sponsor'}
+          </Button>
+        ),
+      },
+    ],
+    []
+  );
+
+  const loading =
+    teachersQuery.isLoading ||
+    assignmentsQuery.isLoading ||
+    unassignedQuery.isLoading ||
+    subjectsQuery.isLoading ||
+    gradesQuery.isLoading ||
+    sectionsQuery.isLoading;
+  const failed = [teachersQuery, assignmentsQuery, unassignedQuery, sponsorsQuery].find((q) => q.isError);
+  const perTeacher = Math.round((assignments.length / Math.max(1, teachers.length)) * 10) / 10;
+
+  const renderTeacher = (teacher: Teacher) => {
+    const list = byTeacher.get(norm(teacher.id)) ?? [];
+    const ids = list.map((a) => a.id).filter((x): x is string => Boolean(x));
+    const allSelected = ids.length > 0 && ids.every((id) => selectedIds.includes(id));
+    return (
+      <section key={teacher.id} className="space-y-3 rounded-xl border bg-card p-4" aria-label={teacherName(teacher)}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="font-semibold">{teacherName(teacher)}</h2>
+            <p className="text-sm text-muted-foreground">
+              {[teacher.email, teacher.employee_id, teacher.department].filter(Boolean).join(' · ')}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {teacher.status === 'active' ? (
+                <StatusBadge status="success" label="Active" />
+              ) : (
+                <StatusBadge status="neutral" label={teacher.status ? teacher.status.charAt(0).toUpperCase() + teacher.status.slice(1) : 'Inactive'} />
               )}
-            </div>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="flex flex-col items-center justify-center py-20 gap-4">
-                <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-                <p className="text-gray-500 animate-pulse">Synchronizing assignments...</p>
-              </div>
-            ) : filteredTeachers.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-                <AlertCircle className="h-12 w-12 mb-4 opacity-20" />
-                <p>No teachers matching your criteria</p>
-              </div>
-            ) : viewMode === 'subject' ? (
-              <div className="space-y-4">
-                {filteredTeachers.map(teacher => (
-                  <TeacherSubjectAssignmentCard
-                    key={teacher.id}
-                    teacher={teacher}
-                    assignments={teacherAssignmentsMap.get(teacher.id.toLowerCase().trim()) || []}
-                    subjects={subjects}
-                    grades={grades as any[]}
-                    sections={sections as any[]}
-                    onAssignSubjects={(t: Teacher) => {
-                      setSelectedTeacher(t);
-                      setSubjectAssignmentModalOpen(true);
-                    }}
-                    onEditAssignment={handleEditAssignment}
-                    onDeleteAssignment={(a: TeacherSubjectAssignment) => handleUnassignSubject(a as any)}
-                    onViewStudents={(a: TeacherSubjectAssignment) => {
-                      setSelectedAssignment(a);
-                      setRosterModalOpen(true);
-                    }}
-                    selectedIdsSet={new Set(selectedAssignmentIds)}
-                    onSelectAssignment={(id: string, checked: boolean) => {
-                      setSelectedAssignmentIds(prev =>
-                        checked ? [...prev, id] : prev.filter(x => x !== id)
-                      );
-                    }}
-                  />
-                ))}
-              </div>
-            ) : viewMode === 'allocation' ? (
-              <SubjectAssignmentGrid
-                assignments={availableSubjectAssignments}
-                teachers={teachers}
-                isLoading={isLoading}
-                searchTerm={searchTerm}
-                onAssign={handleOpenAssignmentDialog}
-                onUnassign={handleUnassignSubject}
-              />
-            ) : (
-              <ClassSponsorGrid
-                sponsors={sponsors}
-                teachers={teachers}
-                isLoading={sponsorsLoading}
-                onAssignSponsor={handleOpenSponsorModal}
-                searchTerm={searchTerm}
-              />
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="space-y-6">
-          <Card>
-            <CardHeader><CardTitle className="text-lg">Assignment Stats</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-gray-500">Total Teachers</span>
-                <span className="font-bold">{teachers.length}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-gray-500">Assigned Slots</span>
-                <span className="font-bold">{allAssignments.length}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm text-green-600 font-medium">
-                <span className="text-gray-500">Subject Coverage</span>
-                <span>{Math.round((allAssignments.length / Math.max(1, teachers.length)) * 10) / 10} avg/teacher</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-blue-50/50 border-blue-200">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <RefreshCw className="h-4 w-4 text-blue-500" />
-                Smart Sync
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-xs text-blue-700 space-y-2">
-              <p>All data is automatically synchronized across departments. Assignments made here will instantly reflect in the schedule and gradebook.</p>
-              <p className="font-medium">Pro-tip: A teacher can be assigned to multiple subjects across different classes simultaneously.</p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      {selectedTeacher && (
-        <TeacherSubjectAssignmentModal
-          isOpen={subjectAssignmentModalOpen}
-          onClose={() => setSubjectAssignmentModalOpen(false)}
-          teacher={selectedTeacher}
-          availableAssignments={availableSubjectAssignments}
-          grades={grades as any[]}
-          sections={sections as any[]}
-          subjects={subjects}
-          teachers={teachers}
-          academicYearId={selectedAcademicYearId || ''}
-          onAssignmentComplete={() => { }} // TanStack handles invalidation
-        />
-      )}
-
-      {assignmentToEdit && (
-        <EditTeacherAssignmentModal
-          isOpen={editModalOpen}
-          onClose={() => {
-            setEditModalOpen(false);
-            setAssignmentToEdit(null);
-          }}
-          assignment={assignmentToEdit}
-          teacherName={teacherNameMap[assignmentToEdit.teacher_id] || 'Unknown Teacher'}
-          subjectName={subjects.find(s => s.id === assignmentToEdit.subject_id)?.name || 'Unknown Subject'}
-          className={`${grades.find(g => g.id === assignmentToEdit.grade_id)?.name || ''} - ${sections.find(s => s.id === assignmentToEdit.section_id)?.name || ''}`}
-        />
-      )}
-
-      <ClassRosterModal
-        isOpen={rosterModalOpen}
-        onClose={() => setRosterModalOpen(false)}
-        classId={selectedAssignment?.id || null}
-        className={selectedAssignment?.class_name || ''}
-        teacherName={selectedAssignment?.teacher_name}
-      />
-
-      <AssignSponsorModal
-        isOpen={sponsorModalOpen}
-        onClose={() => setSponsorModalOpen(false)}
-        sectionId={selectedSectionId}
-        sectionName={selectedSectionName}
-        currentTeacherId={currentSponsorId}
-        teachers={teachers}
-      />
-
-      <Dialog open={isReassignDialogOpen} onOpenChange={setIsReassignDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{selectedAssignment ? 'Assign Teacher' : 'Bulk Reassign'}</DialogTitle>
-            <DialogDescription>
-              {selectedAssignment
-                ? `Assign a teacher to ${selectedAssignment.class_name}`
-                : `Move ${selectedAssignmentIds.length} assignments to another teacher.`
-              }
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Target Teacher</Label>
-              <Select value={targetReassignTeacher} onValueChange={setTargetReassignTeacher}>
-                <SelectTrigger><SelectValue placeholder="Select teacher..." /></SelectTrigger>
-                <SelectContent>
-                  {teachers.map(t => (
-                    <SelectItem key={t.id} value={t.id}>{t.first_name} {t.last_name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex justify-end gap-2 pt-4">
-              <Button variant="outline" onClick={() => setIsReassignDialogOpen(false)}>Cancel</Button>
-              <Button onClick={handleBulkReassign}>Reassign Now</Button>
+              {teacher.is_class_teacher ? <StatusBadge status="info" label="Class sponsor" /> : null}
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
-    </div>
+          {teacher.status === 'active' && canManage ? (
+            <Button variant="outline" size="sm" className="min-h-11 md:min-h-9" onClick={() => setAssignTo(teacher)}>
+              <BookOpen aria-hidden="true" />
+              Assign subjects
+            </Button>
+          ) : null}
+        </div>
+
+        {list.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No subjects yet.</p>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 text-sm">
+              <Checkbox
+                id={`all-${teacher.id}`}
+                checked={allSelected}
+                onCheckedChange={(checked) =>
+                  setSelectedIds((prev) => (checked ? [...new Set([...prev, ...ids])] : prev.filter((x) => !ids.includes(x))))
+                }
+              />
+              <label htmlFor={`all-${teacher.id}`} className="font-medium">
+                {list.length} subject{list.length === 1 ? '' : 's'} (select all)
+              </label>
+            </div>
+            <ul className="divide-y rounded-lg border">
+              {list.map((a) => {
+                const id = a.id ?? slotKey(a);
+                return (
+                  <li key={id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      {a.id ? (
+                        <Checkbox
+                          id={`pick-${id}`}
+                          checked={selectedIds.includes(a.id)}
+                          onCheckedChange={(checked) => toggle(a.id as string, checked)}
+                        />
+                      ) : null}
+                      <label htmlFor={`pick-${id}`} className="min-w-0">
+                        <span className="block font-medium">{a.subject_name}</span>
+                        <span className="block text-sm text-muted-foreground">
+                          {[classLabel(a), a.room ? `Room ${a.room}` : ''].filter(Boolean).join(' · ')}
+                        </span>
+                      </label>
+                    </div>
+                    <div className="flex flex-wrap gap-2 sm:justify-end">
+                      <Button variant="ghost" size="sm" className="min-h-11 md:min-h-9" onClick={() => setStudentsOf(a)}>
+                        <Users aria-hidden="true" />
+                        Students
+                      </Button>
+                      {canManage ? (
+                        <>
+                          <Button variant="ghost" size="sm" className="min-h-11 md:min-h-9" onClick={() => setEditing(a)}>
+                            <Pencil aria-hidden="true" />
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="min-h-11 text-destructive hover:text-destructive md:min-h-9"
+                            onClick={() => setToRemove(a)}
+                          >
+                            <Trash2 aria-hidden="true" />
+                            Remove
+                          </Button>
+                        </>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+      </section>
+    );
+  };
+
+  const editingTeacher = editing ? teachers.find((t) => norm(t.id) === norm(editing.teacher_id)) : undefined;
+
+  return (
+    <PageShell
+      title="Subject assignments"
+      description={`Who teaches which subject in each class, and each class's sponsor${selectedAcademicYearName ? `, for ${selectedAcademicYearName}` : ''}.`}
+    >
+      {!yearLoading && !yearId ? (
+        <EmptyState icon={BookOpen} description="Choose a school year first. If there is none, add one in Years and terms." />
+      ) : (
+        <>
+          <CountTiles
+            tiles={[
+              { label: 'Teachers', value: teachersQuery.isLoading ? '–' : teachers.length },
+              { label: 'Subjects with a teacher', value: assignmentsQuery.isLoading ? '–' : assignments.length },
+              {
+                label: 'Subjects without a teacher',
+                value: unassignedQuery.isLoading ? '–' : unassigned.length,
+                status: unassigned.length ? 'warning' : undefined,
+              },
+              { label: 'Subjects per teacher', value: loading ? '–' : perTeacher },
+            ]}
+          />
+
+          <div role="tablist" aria-label="Views" className="flex flex-wrap gap-2">
+            {VIEWS.map((v) => (
+              <button
+                key={v.key}
+                type="button"
+                role="tab"
+                aria-selected={view === v.key}
+                onClick={() => setView(v.key)}
+                className={cn(
+                  'min-h-11 rounded-md border px-4 text-sm font-medium md:min-h-9',
+                  view === v.key ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'
+                )}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-col gap-3 md:flex-row md:items-end">
+            <div className="grid flex-1 gap-2">
+              <label htmlFor="assignments-search" className="text-sm font-medium">
+                {SEARCH_LABEL[view]}
+              </label>
+              <Input
+                id="assignments-search"
+                type="search"
+                className="h-11 text-base md:h-9 md:text-sm"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            {selectedIds.length > 0 ? (
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Selected assignments">
+                <Button variant="outline" className="min-h-11 md:min-h-9" onClick={() => setMoveSelected(true)}>
+                  Move {selectedIds.length} to another teacher
+                </Button>
+                <Button variant="destructive" className="min-h-11 md:min-h-9" onClick={() => setRemoveSelected(true)}>
+                  Remove {selectedIds.length}
+                </Button>
+              </div>
+            ) : null}
+          </div>
+
+          {failed ? (
+            <EmptyState
+              icon={BookOpen}
+              title="The assignments didn't load"
+              description={`${errorMessage(failed.error, 'The server didn’t answer.')} Check your connection and try again.`}
+              action={<Button onClick={() => failed.refetch()}>Try again</Button>}
+            />
+          ) : view === 'subject' ? (
+            loading ? (
+              <Skeleton className="h-64 w-full rounded-xl" />
+            ) : shownTeachers.length === 0 ? (
+              <EmptyState
+                icon={Users}
+                description={term ? 'No teachers match your search.' : 'No teachers yet. Add teachers in Staff first.'}
+              />
+            ) : (
+              <div className="space-y-4">{shownTeachers.map(renderTeacher)}</div>
+            )
+          ) : view === 'allocation' ? (
+            <DataTable
+              label="Subjects and their teachers"
+              columns={slotColumns}
+              data={shownSlots}
+              loading={loading}
+              getRowId={(a) => a.id ?? slotKey(a)}
+              emptyState={
+                <EmptyState
+                  icon={BookOpen}
+                  description={term ? 'No subjects match your search.' : 'No subjects yet. Add subjects to the classes first.'}
+                />
+              }
+            />
+          ) : (
+            <DataTable
+              label="Class sponsors"
+              columns={sponsorColumns}
+              data={shownSponsors}
+              loading={sponsorsQuery.isLoading}
+              getRowId={(s) => s.section_id}
+              emptyState={
+                <EmptyState icon={Users} description={term ? 'No classes match your search.' : 'No classes yet.'} />
+              }
+            />
+          )}
+        </>
+      )}
+
+      <AssignSubjectsDialog
+        teacher={assignTo}
+        onClose={() => setAssignTo(null)}
+        slots={slots}
+        grades={grades}
+        subjects={subjects}
+        academicYearId={yearId}
+      />
+
+      <EditAssignmentDialog
+        assignment={editing as unknown as TeacherSubjectAssignment | null}
+        title={editing ? `${editing.subject_name}, ${classLabel(editing)}` : ''}
+        teacherLabel={editingTeacher ? teacherName(editingTeacher) : editing?.teacher_name || 'an unknown teacher'}
+        onClose={() => setEditing(null)}
+      />
+
+      <AssignmentStudentsDialog
+        assignment={
+          studentsOf?.id ? { id: studentsOf.id, title: `${studentsOf.subject_name}, ${classLabel(studentsOf)}`, teacher: studentsOf.teacher_name } : null
+        }
+        onClose={() => setStudentsOf(null)}
+      />
+
+      <ChooseTeacherDialog
+        open={Boolean(teacherFor) || moveSelected}
+        title={
+          moveSelected
+            ? `Move ${selectedIds.length} subject${selectedIds.length === 1 ? '' : 's'}`
+            : teacherFor?.is_assigned
+              ? 'Change teacher'
+              : 'Assign teacher'
+        }
+        description={
+          moveSelected
+            ? 'The selected subjects move to the teacher you choose.'
+            : teacherFor
+              ? `Who teaches ${teacherFor.subject_name} in ${classLabel(teacherFor)}?`
+              : ''
+        }
+        initialTeacherId={moveSelected ? '' : (teacherFor?.teacher_id ?? '')}
+        confirmLabel={moveSelected ? 'Move subjects' : 'Save teacher'}
+        teachers={teachers}
+        pending={reassign.isPending || create.isPending}
+        onConfirm={chooseTeacher}
+        onClose={() => {
+          setTeacherFor(null);
+          setMoveSelected(false);
+        }}
+      />
+
+      <SponsorDialog
+        section={
+          sponsorFor ? { id: sponsorFor.section_id, name: classLabel(sponsorFor), teacherId: sponsorFor.teacher_id } : null
+        }
+        teachers={teachers}
+        onClose={() => setSponsorFor(null)}
+      />
+
+      <ConfirmDialog
+        open={Boolean(toRemove)}
+        onOpenChange={(open) => !open && setToRemove(null)}
+        title={toRemove ? `Remove ${toRemove.teacher_name || 'the teacher'} from ${toRemove.subject_name}?` : 'Remove the teacher?'}
+        description={toRemove ? `${toRemove.subject_name} in ${classLabel(toRemove)} will have no teacher until you assign one.` : undefined}
+        confirmLabel="Remove teacher"
+        destructive
+        loading={deleteOne.isPending}
+        onConfirm={remove}
+      />
+
+      <ConfirmDialog
+        open={removeSelected}
+        onOpenChange={setRemoveSelected}
+        title={`Remove ${selectedIds.length} assignment${selectedIds.length === 1 ? '' : 's'}?`}
+        description="Those subjects will have no teacher until you assign one."
+        confirmLabel="Remove assignments"
+        destructive
+        loading={deleteMany.isPending}
+        onConfirm={removeMany}
+      />
+    </PageShell>
   );
 }
