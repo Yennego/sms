@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { useTenantNavigation } from '@/hooks/use-tenant';
 import { isPlatformPath } from '@/config/reserved-slugs';
 import { useAuth } from '@/hooks/use-auth';
+import { SUPER_ADMIN_HOME, isSuperAdmin, navigationFor } from '@/config/navigation';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -59,28 +60,11 @@ const DefaultErrorFallback: React.FC<{ error?: Error; resetError: () => void }> 
   const handleGoHome = () => {
     // Smart redirect based on current location and user role
     const currentPath = window.location.pathname;
-    if (isPlatformPath(currentPath)) {
-      router.push('/platform/dashboard');
+    if (isPlatformPath(currentPath) || isSuperAdmin(user)) {
+      router.push(SUPER_ADMIN_HOME);
     } else {
-      // Role-based redirect for tenant users
-      const userRole = user?.role || 
-        (Array.isArray(user?.roles) && user.roles.length > 0 ? 
-          (typeof user.roles[0] === 'string' ? 
-            user.roles[0] : 
-            user.roles[0].name) : 
-          'admin');
-      
-      if (userRole === 'super_admin' || userRole === 'super-admin' || userRole === 'superadmin') {
-        router.push('/platform/dashboard');
-      } else if (userRole === 'admin') {
-        router.push(createTenantPath('/admin-dashboard'));
-      } else if (userRole === 'teacher') {
-        router.push(createTenantPath('/teacher/dashboard'));
-      } else if (userRole === 'student') {
-        router.push(createTenantPath('/student/dashboard'));
-      } else {
-        router.push(createTenantPath('/dashboard'));
-      }
+      // The role's own home page (config/navigation.ts)
+      router.push(createTenantPath(navigationFor(user).home));
     }
   };
 
