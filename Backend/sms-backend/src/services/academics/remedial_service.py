@@ -91,4 +91,4 @@ class RemedialService(TenantBaseService[RemedialSession, RemedialSessionCreate, 
         return remedial_session_crud.list_by_enrollment(self.db, tenant_id=self.tenant_id, enrollment_id=enrollment_id)
 
     async def list_all(self, skip: int = 0, limit: int = 100) -> list[RemedialSession]:
-        return remedial_session_crud.list(self.db, tenant_id=self.tenant_id, skip=skip, limit=limit)
+        return remedial_session_crud.list_with_names(self.db, tenant_id=self.tenant_id, skip=skip, limit=limit)
