@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { currentSchoolSlug } from '@/utils/tenant-utils';
+import { IconCredit } from '@/components/common/icon-credit';
 
 export default function FindYourSchoolPage() {
   const router = useRouter();
@@ -97,6 +98,7 @@ export default function FindYourSchoolPage() {
           Platform operator?{' '}
           <Link href="/platform/login" className="font-medium text-indigo-600 hover:underline">Sign in here</Link>
         </p>
+        <IconCredit />
       </div>
     </div>
   );
