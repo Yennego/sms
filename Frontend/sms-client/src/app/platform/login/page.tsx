@@ -11,6 +11,7 @@ import { Shield, Loader2, LogIn, Mail, Lock, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 import { Suspense } from 'react';
+import { IconCredit } from '@/components/common/icon-credit';
 
 function LoginPageContent() {
   const [email, setEmail] = useState('');
@@ -156,6 +157,7 @@ function LoginPageContent() {
             Forgot your credentials? Contact System Support
           </p>
         </div>
+        <IconCredit />
       </div>
     </div>
   );

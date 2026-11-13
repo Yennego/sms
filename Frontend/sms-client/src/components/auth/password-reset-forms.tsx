@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { PasswordInput } from '@/components/auth/password-input';
+import { IconCredit } from '@/components/common/icon-credit';
 
 const NO_EMAIL_HINT = 'No email? Ask your school office to reset your password.';
 
@@ -43,6 +44,7 @@ export function AuthCard({ title, subtitle, children }: { title: string; subtitl
         <Card className="border-slate-200 shadow-xl shadow-slate-200/50">
           <CardContent className="pt-6 space-y-4">{children}</CardContent>
         </Card>
+        <IconCredit />
       </div>
     </div>
   );
