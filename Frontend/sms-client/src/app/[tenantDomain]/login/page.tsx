@@ -14,6 +14,7 @@ import { useTenant } from "@/hooks/use-tenant";
 import { PasswordInput } from '@/components/auth/password-input';
 import { homePath } from '@/config/navigation';
 import { BILLING_STATUS_HEADER, takeBillingSignOut } from '@/lib/billing-block';
+import { IconCredit } from '@/components/common/icon-credit';
 
 export default function TenantLoginPage() {
   const router = useRouter();
@@ -194,6 +195,7 @@ export default function TenantLoginPage() {
             Don&apos;t have an account? Your school office creates accounts: ask them to set one up for you.
           </p>
         </div>
+        <IconCredit />
       </div>
     </div>
   );
